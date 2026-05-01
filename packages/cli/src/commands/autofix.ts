@@ -289,6 +289,17 @@ export interface AutofixDeps {
    * Telegram bot. When omitted, the production path runs.
    */
   notifiers?: Notifier[];
+  /**
+   * Override the SPECIAL-HANDLERS layer. Default delegates to the real
+   * `runSpecialHandlers` (binary-encoding + AF-4..AF-9 mechanical
+   * handlers). Tests inject a stub to drive handler-claim / handler-
+   * skip permutations without writing files to disk.
+   */
+  runSpecialHandlers?: (
+    agent: ReviewResult["agent"],
+    blocker: Blocker,
+    deps: { cwd: string; git: GitLike; log?: (msg: string) => void },
+  ) => Promise<{ claimed: boolean; fix?: BlockerFix }>;
 }
 
 const defaultGit: GitLike = async (bin, args, opts) => {
@@ -1000,7 +1011,8 @@ export async function runAutofix(args: AutofixArgs, deps: AutofixDeps = {}): Pro
       // Try the special-handlers first. These handle blockers the
       // unified-diff pipeline can't (binary files, etc.) and count as
       // successfully-applied fixes when they succeed.
-      const handled = await runSpecialHandlers(t.agent, t.blocker, {
+      const runSpecial = deps.runSpecialHandlers ?? runSpecialHandlers;
+      const handled = await runSpecial(t.agent, t.blocker, {
         cwd: args.cwd,
         git,
         log: (m) => stdout(m),
@@ -1415,9 +1427,20 @@ export async function runAutofix(args: AutofixArgs, deps: AutofixDeps = {}): Pro
     // AF-1 — count fixes that successfully landed on the worktree.
     // Pre-AF-1 we bailed on first conflict; post-AF-1 we proceed if at
     // least one ready fix made it through. Only when ALL fixes failed
-    // do we hit the no-patches bail below.
+    // — including handler-staged in-place edits — do we bail.
+    //
+    // Bug #2 (sibling of v0.14.19): handler-staged fixes have already
+    // written their files to disk + `git add`-ed them BEFORE the apply
+    // loop runs. If we only count `stillReady` survivors here, a
+    // pathological "all worker patches conflicted, all handler fixes
+    // succeeded" case bails AND `git reset --hard HEAD` wipes every
+    // handler edit. Since handler-staged commits are exactly the ones
+    // most likely to land cleanly (mechanical re-writes, idempotent
+    // file rewrites), throwing them away made the loop stall when the
+    // mix was code-blockers (worker, conflict-prone) + design-blockers
+    // (handler, deterministic). Count handler-staged fixes here too.
     const survivedFixes = stillReady.filter((rf) => rf.status === "ready");
-    if (survivedFixes.length === 0) {
+    if (survivedFixes.length === 0 && stillReadyHandlerStaged.length === 0) {
       // Every patch in stillReady ended up conflict — nothing to commit.
       // Reset is defensive: AF-1 partial-restore already cleaned the
       // failed patches' files, but this catches anything we missed.
