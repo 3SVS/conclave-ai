@@ -10,6 +10,8 @@ import { tryContrastFix } from "./contrast.js";
 import { tryInlineStyleToTailwindFix } from "./inline-style-to-tailwind.js";
 import { tryDebugCodeFix } from "./debug-code.js";
 import { tryFocusVisibleFix } from "./focus-visible.js";
+import { tryNumericValidatorFix } from "./numeric-input-validator.js";
+import { tryHoverRestoreFix } from "./hover-restore.js";
 
 /**
  * v0.7.3 — autofix special-handler layer.
@@ -54,6 +56,10 @@ export const SPECIAL_HANDLERS: readonly SpecialHandler[] = [
   tryDebugCodeFix,
   // AF-9 — focus-visible → inject classes
   tryFocusVisibleFix,
+  // AF-10 — numeric input validator → insert Number.isFinite guard
+  tryNumericValidatorFix,
+  // AF-11 — hover:opacity-N + bg-COLOR → hover:bg-COLOR-darker
+  tryHoverRestoreFix,
 ];
 
 /**

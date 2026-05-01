@@ -1262,8 +1262,42 @@ export async function runAutofix(args: AutofixArgs, deps: AutofixDeps = {}): Pro
     //     other clean patch. New rule: keep what applied, drop what didn't,
     //     proceed to commit + push. Remaining blockers go to next cycle.
     const appliedPaths: string[] = [];
+    // Bug #4 — defer subsequent worker patches that target a file an
+    // earlier patch (worker or handler) already modified in this
+    // iteration. Pre-fix all worker patches were generated against the
+    // ORIGINAL file content; applying patch A shifts line numbers, so
+    // patch B (also for file A) still references stale lines and
+    // `git apply` rejects it as a context mismatch. Past mitigations
+    // (recountHunkHeaders, GNU patch --fuzz, --3way) help when the
+    // shift is small, but with multiple agents reporting the same
+    // contrast issue at slightly different lines, the cascading
+    // conflict is reliable. New rule: at most ONE worker patch per
+    // file per iteration. The deferred patches' blockers will be re-
+    // surfaced by the next review cycle (which sees the updated file)
+    // and worker will regenerate against current content.
+    //
+    // Files that handlers staged also count as "already touched". If
+    // a worker patch targets a handler-staged file, defer it too —
+    // the handler ran first per autofix.ts:1003, so any worker hunk
+    // for that same file is by definition stale relative to current
+    // disk state.
+    const filesTouchedThisIter = new Set<string>();
+    for (const hf of stillReadyHandlerStaged) {
+      for (const f of hf.appliedFiles ?? []) filesTouchedThisIter.add(f);
+    }
     for (const rf of stillReady) {
       const tempPath = path.join(args.cwd, `.conclave-autofix-apply-${shortId()}.patch`);
+      // Defer this patch if its target file is already touched.
+      const targetFiles = (rf.appliedFiles ?? []).filter((f) => f.length > 0);
+      const conflictingFile = targetFiles.find((f) => filesTouchedThisIter.has(f));
+      if (conflictingFile) {
+        rf.status = "conflict";
+        rf.reason = `deferred: file ${conflictingFile} already modified earlier this iteration; next review cycle will regenerate against current content`;
+        stderr(
+          `autofix: deferring patch for blocker [${rf.blocker.category}] @ ${rf.blocker.file ?? "<unscoped>"} — file already touched this iteration\n`,
+        );
+        continue;
+      }
       // v0.13.10 — programmatically rewrite hunk headers so B/D match
       // the body. The worker reliably miscounts (eventbadge#29 cycle 2:
       // emitted B=7 with 5 source lines → "corrupt patch at line 10"
@@ -1293,6 +1327,7 @@ export async function runAutofix(args: AutofixArgs, deps: AutofixDeps = {}): Pro
         // AND any handler-staged in-place edits to that file).
         for (const f of rf.appliedFiles ?? []) {
           await git("git", ["add", "--", f], { cwd: args.cwd }).catch(() => undefined);
+          filesTouchedThisIter.add(f);
         }
       } catch (gitErr) {
         // v0.13.8 — fallback: GNU `patch -p1 --fuzz=3 -F 3`.
@@ -1312,6 +1347,22 @@ export async function runAutofix(args: AutofixArgs, deps: AutofixDeps = {}): Pro
         // Windows runners it isn't, and the original error stays the
         // surfaced reason so the diagnostic still helps.
         let fuzzApplied = false;
+        // Bug #5 — Try `git apply --3way --recount` BEFORE falling out
+        // to GNU patch. 3-way merge resolves context drift cleanly when
+        // the file's blob is in HEAD (which is the common case here —
+        // worker generates a patch against HEAD, file shifts only
+        // slightly). Avoids GNU `patch`'s line-by-line fuzz heuristic
+        // and produces cleaner intermediate state on success.
+        try {
+          await git("git", ["apply", "--3way", "--recount", tempPath], { cwd: args.cwd });
+          fuzzApplied = true;
+          appliedPaths.push(...(rf.appliedFiles ?? []));
+          for (const f of rf.appliedFiles ?? []) {
+            await git("git", ["add", "--", f], { cwd: args.cwd }).catch(() => undefined);
+            filesTouchedThisIter.add(f);
+          }
+          stderr(`autofix: \`git apply\` rejected the patch; \`git apply --3way\` resolved via 3-way merge\n`);
+        } catch { /* fall through to GNU patch fuzz */ }
         // v0.13.13 — capture the fuzz-fallback failure reason so we
         // can see it in the conflict diagnostic when BOTH `git apply`
         // and `patch -p1 --fuzz=3` reject. Pre-fix the patch(1)
@@ -1319,7 +1370,7 @@ export async function runAutofix(args: AutofixArgs, deps: AutofixDeps = {}): Pro
         // git apply error surfaced; on eventbadge#29 cycle 3 this
         // hid the actual mismatch reason from operators.
         let fuzzReason: string | undefined;
-        try {
+        if (!fuzzApplied) try {
           const r = await git(
             "patch",
             ["-p1", "--fuzz=3", "-F", "3", "--no-backup-if-mismatch", "-i", tempPath],
@@ -1330,6 +1381,7 @@ export async function runAutofix(args: AutofixArgs, deps: AutofixDeps = {}): Pro
           // Bug #3 — incrementally stage successful applies (see above).
           for (const f of rf.appliedFiles ?? []) {
             await git("git", ["add", "--", f], { cwd: args.cwd }).catch(() => undefined);
+            filesTouchedThisIter.add(f);
           }
           stderr(`autofix: \`git apply\` rejected the patch; \`patch -p1 --fuzz=3\` fallback succeeded (likely off-by-N hunk line number from worker)\n`);
           if (r.stdout && r.stdout.trim()) {

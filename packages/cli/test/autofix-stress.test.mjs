@@ -714,6 +714,38 @@ for (let s = 0; s < PFAMILY_SIZE; s++) {
   );
 }
 
+// ----- Family Q: Bug #4 — per-file defer (same file, multiple worker patches)
+// Pre-fix: cycle 1's autofix on eventbadge#59 had 3 worker patches all
+// targeting AddressSearch.jsx (one per agent reporting the same contrast
+// blocker). Patches were generated against the original file content,
+// so applying patch A shifted lines and patch B/C `git apply --check`
+// rejected them. With Bug #4 fix, we only apply ONE worker patch per
+// file per iteration; the others are deferred to the next cycle (where
+// the worker re-prompts against the updated file content).
+{
+  // 3 worker patches all targeting "src/same.ts"
+  const sameFile = "src/same.ts";
+  scenarios.push(gen("Q.threeWorkersSameFile_onlyFirstApplies", {
+    blockers: blockerList([
+      { file: sameFile, category: "type-error", message: "x" },
+      { file: sameFile, category: "type-error", message: "y" },
+      { file: sameFile, category: "type-error", message: "z" },
+    ]),
+    workerOutcomes: ["ok", "ok", "ok"],
+    handlerOutcomes: ["skip", "skip", "skip"],
+  }));
+  // Worker patch + 1 handler claim, same file: handler pre-touches
+  // the file, worker patch should be deferred.
+  scenarios.push(gen("Q.handlerThenWorker_workerDeferred", {
+    blockers: blockerList([
+      { file: sameFile, category: "contrast", message: "a" },     // handler claims
+      { file: sameFile, category: "type-error", message: "b" },   // worker
+    ]),
+    workerOutcomes: ["ok", "ok"],
+    handlerOutcomes: ["claim", "skip"],
+  }));
+}
+
 // ---- Run them -------------------------------------------------------
 
 for (const scenario of scenarios) {
