@@ -301,12 +301,15 @@ test("AF-1: 1 patch conflicts among 3 → other 2 survive, iteration commits, st
   const stub = stubGh();
   // Confirm at least one iteration recorded ≥1 ready fix.
   assert.ok(result.iterations.length >= 1);
-  // git checkout HEAD -- <files> was called for the conflicting patch
-  // (AF-1 partial-restore).
+  // AF-1 partial-restore: post-Bug-#3 we restore from the INDEX
+  // (`git checkout -- <files>`), not from HEAD. Restoring from HEAD
+  // would clobber both the handler-staged in-place edits and any
+  // earlier successful worker patches in this same iteration that
+  // we've been incrementally `git add`-ing.
   const checkoutRestore = git.calls.find(
-    (c) => c.bin === "git" && c.args[0] === "checkout" && c.args[1] === "HEAD" && c.args.includes("--"),
+    (c) => c.bin === "git" && c.args[0] === "checkout" && c.args[1] === "--",
   );
-  assert.ok(checkoutRestore, "AF-1 must call `git checkout HEAD -- <files>` for the conflicting patch");
+  assert.ok(checkoutRestore, "AF-1 must call `git checkout -- <files>` (from index) for the conflicting patch");
   // No `git reset --hard HEAD` should fire mid-iteration when at least
   // one fix survived.
   const hardResets = git.calls.filter(

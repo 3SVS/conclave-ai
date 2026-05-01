@@ -1284,6 +1284,16 @@ export async function runAutofix(args: AutofixArgs, deps: AutofixDeps = {}): Pro
         await git("git", ["apply", "--check", "--recount", tempPath], { cwd: args.cwd });
         await git("git", ["apply", "--recount", tempPath], { cwd: args.cwd });
         appliedPaths.push(...(rf.appliedFiles ?? []));
+        // Bug #3 — incrementally stage successful applies so a later
+        // partial-restore in this loop doesn't wipe them. Pre-fix the
+        // staging happened only at end-of-iteration (after the loop),
+        // so AF-1's `git checkout HEAD -- <file>` reverted ANY prior
+        // success on the same file (worker patch N applied, worker
+        // patch N+1 conflicted on same file → restore wiped patch N
+        // AND any handler-staged in-place edits to that file).
+        for (const f of rf.appliedFiles ?? []) {
+          await git("git", ["add", "--", f], { cwd: args.cwd }).catch(() => undefined);
+        }
       } catch (gitErr) {
         // v0.13.8 — fallback: GNU `patch -p1 --fuzz=3 -F 3`.
         //
@@ -1317,6 +1327,10 @@ export async function runAutofix(args: AutofixArgs, deps: AutofixDeps = {}): Pro
           );
           fuzzApplied = true;
           appliedPaths.push(...(rf.appliedFiles ?? []));
+          // Bug #3 — incrementally stage successful applies (see above).
+          for (const f of rf.appliedFiles ?? []) {
+            await git("git", ["add", "--", f], { cwd: args.cwd }).catch(() => undefined);
+          }
           stderr(`autofix: \`git apply\` rejected the patch; \`patch -p1 --fuzz=3\` fallback succeeded (likely off-by-N hunk line number from worker)\n`);
           if (r.stdout && r.stdout.trim()) {
             // patch(1) prints "Hunk #1 succeeded at NN with fuzz Z" —
@@ -1398,15 +1412,24 @@ export async function runAutofix(args: AutofixArgs, deps: AutofixDeps = {}): Pro
         // conflict, and continue. The other patches' changes stay in
         // the worktree and get committed in the normal flow.
         //
-        // Subtlety: GNU patch's fuzz fallback may have partially
-        // modified the file before failing (no --dry-run on the apply
-        // path). `git checkout HEAD -- <file>` cleanly restores it
-        // because we haven't staged those changes yet.
+        // Bug #3: restore from the INDEX (`git checkout -- <file>`),
+        // not from HEAD. The index reflects the cumulative state of
+        // (a) handler in-place edits + `git add` and (b) earlier
+        // successful worker patches in this iteration that we just
+        // started staging incrementally. `git checkout HEAD -- <file>`
+        // would clobber both, leaving only what each handler *adds as
+        // a new file* — exactly what eventbadge#59 cycle 1 showed: the
+        // commit had only colorExtractor.js (no worker patches there)
+        // while AddressSearch.jsx (where one worker patch failed) lost
+        // every AF-5/6/9 in-place edit too. Index-restore cleanly
+        // undoes only the failed patch's worktree changes (fuzz may
+        // have partially modified) and leaves successful predecessors
+        // intact.
         const filesToRestore = (rf.appliedFiles ?? []).filter((f) => f.length > 0);
         if (filesToRestore.length > 0) {
           await git(
             "git",
-            ["checkout", "HEAD", "--", ...filesToRestore],
+            ["checkout", "--", ...filesToRestore],
             { cwd: args.cwd },
           ).catch((restoreErr) => {
             stderr(
