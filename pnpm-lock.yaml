@@ -194,6 +194,9 @@ importers:
       '@conclave-ai/core':
         specifier: workspace:*
         version: link:../core
+      '@conclave-ai/failure-classifier':
+        specifier: workspace:*
+        version: link:../failure-classifier
       '@conclave-ai/integration-discord':
         specifier: workspace:*
         version: link:../integration-discord
@@ -233,6 +236,9 @@ importers:
       '@conclave-ai/secret-guard':
         specifier: workspace:*
         version: link:../secret-guard
+      '@conclave-ai/smoke-verifier':
+        specifier: workspace:*
+        version: link:../smoke-verifier
       '@conclave-ai/visual-review':
         specifier: workspace:*
         version: link:../visual-review
@@ -255,6 +261,16 @@ importers:
       zod:
         specifier: ^3.24.0
         version: 3.25.76
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  packages/failure-classifier:
+    dependencies:
+      '@conclave-ai/core':
+        specifier: workspace:*
+        version: link:../core
     devDependencies:
       typescript:
         specifier: ^5.7.0
