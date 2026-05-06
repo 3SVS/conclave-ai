@@ -18,7 +18,10 @@
  * → "what's the pricing?" → trust signals. No carousel, no testimonials
  * (we don't have any yet — fabricating those is the worst kind of lie).
  */
+import { Logo, LogoIcon, Wordmark as WordmarkComponent } from "../components/Logo";
+
 const CLI_ENDPOINT = process.env.NEXT_PUBLIC_API_BASE ?? "https://conclave-ai.seunghunbae.workers.dev";
+const SITE_URL = "https://conclave-ai.dev";
 
 const LOGIN_URL = `${CLI_ENDPOINT}/auth/device`;
 
@@ -44,8 +47,8 @@ function TopBar() {
   return (
     <header className="border-b border-neutral-200 bg-white/70 backdrop-blur-sm sticky top-0 z-50">
       <div className="mx-auto max-w-5xl px-6 py-4 flex items-center justify-between">
-        <a href="/" className="flex items-center gap-2 group">
-          <Wordmark />
+        <a href="/" className="flex items-center group">
+          <Logo size={22} className="group-hover:opacity-80 transition-opacity" />
         </a>
         <nav className="flex items-center gap-6 text-sm text-neutral-700">
           <a href="#how" className="hover:text-accent-900">How</a>
@@ -62,14 +65,6 @@ function TopBar() {
         </nav>
       </div>
     </header>
-  );
-}
-
-function Wordmark() {
-  return (
-    <span className="font-mono text-base tracking-tight text-accent-900 group-hover:text-accent-700 transition-colors">
-      <span className="text-neutral-400">{">"}</span> conclave<span className="text-accent-500">.ai</span>
-    </span>
   );
 }
 
@@ -365,7 +360,7 @@ function Footer() {
     <footer className="border-t border-neutral-200 mt-12 py-12">
       <div className="mx-auto max-w-5xl px-6 grid gap-8 md:grid-cols-3 text-sm text-neutral-600">
         <div>
-          <Wordmark />
+          <Logo size={20} />
           <p className="mt-3 text-xs text-neutral-500 max-w-xs">
             Multi-agent code review against your PRD. Open beta on Cloudflare.
           </p>
