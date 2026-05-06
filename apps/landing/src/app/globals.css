@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html {
+  font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background: #f7f7f5;
+  color: #0e1116;
+}
+
+/* Slim selection style to match the "serious dev tool" tone. */
+::selection {
+  background: #0a3a5e;
+  color: #fff;
+}
+
+/* Very subtle dotted background that shows through the content edges. */
+.bg-grid {
+  background-image: radial-gradient(rgba(10, 58, 94, 0.08) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
