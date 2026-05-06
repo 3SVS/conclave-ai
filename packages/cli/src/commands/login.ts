@@ -17,6 +17,7 @@
  */
 import { execFile } from "node:child_process";
 import { saveAuthToken, defaultEndpoint } from "../lib/auth-token.js";
+import { c, isInteractive, kv, nextAction, renderBanner, step } from "../lib/style.js";
 
 const HELP = `conclave login — authenticate the CLI with the Conclave AI SaaS
 
@@ -69,7 +70,12 @@ export async function login(argv: string[]): Promise<void> {
   const out = process.stdout;
   const err = process.stderr;
 
-  out.write(`conclave login: requesting device code from ${args.endpoint}/auth/device …\n`);
+  if (isInteractive()) {
+    out.write(renderBanner() + "\n\n");
+  }
+
+  out.write(step("pending", `Requesting device code from ${c.dim(args.endpoint)} …`) + "\n");
+
   let session: {
     device_code: string;
     user_code: string;
@@ -85,23 +91,25 @@ export async function login(argv: string[]): Promise<void> {
     });
     if (!r.ok) {
       const tail = await r.text();
-      err.write(`conclave login: ${r.status} from /auth/device — ${tail.slice(0, 200)}\n`);
+      err.write(`\n${step("err", `Server returned ${r.status} from /auth/device`)}\n`);
+      err.write(`  ${c.dim(tail.slice(0, 200))}\n`);
       process.exit(1);
       return;
     }
     session = (await r.json()) as typeof session;
   } catch (e) {
-    err.write(`conclave login: cannot reach ${args.endpoint} — ${(e as Error).message}\n`);
+    err.write(`\n${step("err", `Cannot reach ${args.endpoint}`)}\n`);
+    err.write(`  ${c.dim((e as Error).message)}\n`);
     process.exit(1);
     return;
   }
 
   out.write("\n");
-  out.write(`  Open this URL in your browser:\n`);
-  out.write(`  ${session.verification_uri}\n\n`);
-  out.write(`  Enter this code if asked:\n`);
-  out.write(`  ${session.user_code}\n\n`);
-  out.write(`  (waiting for you to complete the login — Ctrl-C to cancel)\n\n`);
+  out.write(`  ${c.bold("Open this URL in your browser:")}\n`);
+  out.write(`  ${c.accent(session.verification_uri)}\n\n`);
+  out.write(`  ${c.bold("Enter this code if asked:")}\n`);
+  out.write(`  ${c.accent(session.user_code)}\n\n`);
+  out.write(`  ${c.dim(`waiting for authorization (Ctrl-C to cancel) …`)}\n\n`);
 
   if (args.open) {
     openUrl(session.verification_uri);
@@ -122,7 +130,8 @@ export async function login(argv: string[]): Promise<void> {
         body: JSON.stringify({ device_code: session.device_code }),
       });
     } catch (e) {
-      err.write(`conclave login: poll failed (transient) — ${(e as Error).message}\n`);
+      // Transient — keep polling.
+      err.write(`${c.dim(`(transient: ${(e as Error).message})`)}\n`);
       continue;
     }
     if (r.ok) {
@@ -133,9 +142,12 @@ export async function login(argv: string[]): Promise<void> {
         endpoint: args.endpoint,
         ...(me?.github_login ? { githubLogin: me.github_login } : {}),
       });
-      const who = me?.github_login ? ` as ${me.github_login}` : "";
-      out.write(`✓ Logged in${who}. Token saved.\n`);
-      out.write(`  Run \`conclave whoami\` to confirm, or \`conclave logout\` to revoke.\n`);
+      const who = me?.github_login ?? "(anonymous)";
+      out.write(step("ok", `Logged in as ${c.bold(who)}`) + "\n");
+      out.write(`  ${c.dim(`token saved to ~/.conclave/auth.json`)}\n`);
+      out.write("\n");
+      out.write(nextAction(`run ${c.code("conclave whoami")} to confirm`) + "\n");
+      out.write(nextAction(`run ${c.code("conclave logout")} to revoke`) + "\n");
       return;
     }
     const body = (await r.json().catch(() => ({}))) as { error?: string; error_description?: string };
@@ -144,13 +156,13 @@ export async function login(argv: string[]): Promise<void> {
       pollIntervalMs += 1000;
       continue;
     }
-    err.write(
-      `\nconclave login: ${body.error ?? "unknown error"}${body.error_description ? " — " + body.error_description : ""}\n`,
-    );
+    err.write(`\n${step("err", body.error_description ?? body.error ?? "unknown error")}\n`);
+    err.write(nextAction(`run ${c.code("conclave login")} to retry`) + "\n");
     process.exit(1);
     return;
   }
-  err.write(`\nconclave login: device code expired after ${session.expires_in}s. Run \`conclave login\` again.\n`);
+  err.write(`\n${step("err", `Device code expired after ${session.expires_in}s`)}\n`);
+  err.write(nextAction(`run ${c.code("conclave login")} to start a new session`) + "\n");
   process.exit(1);
 }
 
