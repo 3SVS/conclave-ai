@@ -126,6 +126,24 @@ export interface ReviewContext {
    */
   designContext?: string;
   /**
+   * v0.15 (Phase 3) — per-feature PRD / spec describing what THIS PR
+   * is supposed to do. Distinct from `projectContext` (whole-project
+   * intent). When present, every agent's prompt includes the PRD and
+   * the agent is instructed to flag PRD-violations as `spec-missing`,
+   * `spec-wrong`, `spec-scope`, or `spec-ambiguous` blocker categories
+   * — categorically new flag types beyond plain code-quality review.
+   *
+   * Loaded by the CLI from `.conclave/prd.md` (or whatever path the
+   * `--prd` flag points to). Phase 2.5 dogfood (3 platforms PRs, 2026-
+   * 05-06) confirmed PRD-aware Claude doubles to triples blocker count
+   * vs no-PRD and surfaces categorically new spec-mismatch findings.
+   *
+   * Absent when no PRD exists for the PR. Agents MUST degrade
+   * gracefully (omit the spec-mismatch flag class entirely) rather
+   * than treat absence as an error.
+   */
+  prd?: string;
+  /**
    * v0.6.4 — design-only reference images representing brand "good".
    * Read from `.conclave/design-reference/*.png` (up to 4, ≤ 500KB each
    * by default). Passed to DesignAgent as additional vision content

@@ -61,6 +61,12 @@ export interface BuildPerBlockerContextInput {
    * cache-prefix so the worker sees concrete prior failure shapes.
    */
   priorBailHints?: readonly string[];
+  /**
+   * v0.15 (Phase 3) — PRD/spec describing what THIS PR is supposed to
+   * do. Worker uses it to produce rewrites that satisfy BOTH the
+   * blocker AND the PRD's acceptance criteria + non-functional reqs.
+   */
+  prd?: string;
 }
 
 /**
@@ -89,6 +95,7 @@ export function buildPerBlockerContext(
   if (input.answerKeys && input.answerKeys.length > 0) ctx.answerKeys = input.answerKeys;
   if (input.failureCatalog && input.failureCatalog.length > 0) ctx.failureCatalog = input.failureCatalog;
   if (input.priorBailHints && input.priorBailHints.length > 0) ctx.priorBailHints = input.priorBailHints;
+  if (input.prd) ctx.prd = input.prd;
   return ctx;
 }
 
