@@ -78,6 +78,19 @@ node packages/cli/dist/bin/conclave.js review --pr 42
 
 The full pipeline runs locally on your repo's clone. The federated failure-catalog (cross-tenant learning) is SaaS-only — the rest of the engine is FSL-licensed source.
 
+### Vercel Pro / strict deploy gates
+
+Conclave AI's autofix bot commits as the canonical GitHub App noreply
+identity (`<APP_ID>+conclave-ai-code-council[bot]@users.noreply.github.com`)
+— the same format Dependabot and GitHub Actions use. Default Vercel /
+Netlify projects accept it automatically.
+
+If your project enables **"Verify Commit Authors"** (Vercel Pro+) and
+deploys are blocked on autofix commits, allow GitHub App bot accounts
+in your Vercel team settings (`Project → Settings → Git → Deployment
+Authorization`). Same as you'd do for Dependabot. See
+[docs/vercel-pro-setup.md](docs/vercel-pro-setup.md) for the exact path.
+
 ## How it works
 
 ```text
