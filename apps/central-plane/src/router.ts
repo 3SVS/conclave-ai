@@ -9,6 +9,8 @@ import { createOAuthRoutes } from "./routes/oauth.js";
 import { createTelegramRoutes } from "./routes/telegram.js";
 import { createReviewRoutes } from "./routes/review.js";
 import { createAdminRoutes } from "./routes/admin.js";
+import { createSaasAuthRoutes } from "./routes/saas-auth.js";
+import { createSaasRoutes } from "./routes/saas.js";
 import type { FetchLike } from "./github.js";
 
 /**
@@ -43,6 +45,11 @@ export function createApp(opts: { fetch?: FetchLike } = {}): Hono<{ Bindings: En
   app.route("/", createTelegramRoutes(fetchImpl));
   app.route("/", createReviewRoutes(fetchImpl));
   app.route("/", createAdminRoutes(fetchImpl as typeof fetch));
+  // v0.16 (Problem 3) — SaaS path: /webhook/github, /auth/device, /auth/token,
+  // /auth/github/callback, /auth/logout (saas-auth.ts) + /saas/review,
+  // /saas/autofix, /saas/me (saas.ts).
+  app.route("/", createSaasAuthRoutes());
+  app.route("/", createSaasRoutes());
   app.onError((err, c) => {
     console.error("central-plane error:", err);
     return c.json({ error: err.message || "internal error" }, 500);

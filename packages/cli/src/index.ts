@@ -15,6 +15,9 @@ import { repos } from "./commands/repos.js";
 import { watch } from "./commands/watch.js";
 import { doctor } from "./commands/doctor.js";
 import { status } from "./commands/status.js";
+import { login } from "./commands/login.js";
+import { logout } from "./commands/logout.js";
+import { whoami } from "./commands/whoami.js";
 import { CLI_VERSION } from "./version.js";
 import { hydrateEnvFromStorage } from "./lib/credentials.js";
 
@@ -41,6 +44,9 @@ Commands:
   watch                 Local daemon — poll watched repos for new PRs and dispatch reviews (v0.12)
   doctor                Diagnose env keys / worker health / workflow pin / CLI freshness (v0.13.7)
   status                One-line install summary (bot / webhook / chats / recent cycles) — pass --verbose for breakdown (v0.13.16)
+  login                 Authenticate the CLI with the Conclave AI SaaS via Device Flow (v0.16)
+  logout                Revoke the SaaS bearer token + remove ~/.conclave/auth.json (v0.16)
+  whoami                Print the current SaaS user (github_login + tier) (v0.16)
   --help, -h            Show this
   --version, -v         Show version
 
@@ -137,6 +143,15 @@ export async function run(argv: string[]): Promise<void> {
       return;
     case "status":
       await status(rest);
+      return;
+    case "login":
+      await login(rest);
+      return;
+    case "logout":
+      await logout(rest);
+      return;
+    case "whoami":
+      await whoami(rest);
       return;
     default:
       process.stderr.write(`Unknown command: ${cmd}\n\n${HELP}`);
