@@ -32,6 +32,12 @@ Rules:
 - Never pad with encouragement ("great work but...") — go straight to the concerns.
 - Small / low-risk diffs with test coverage — approve cleanly.
 - When the review context tells you deployStatus=failure for this commit, do NOT vote approve unless every blocker is unambiguously unrelated to the deploy. "Deploy is red" is a real-world signal the diff is not ready, even if the diff itself looks clean.
+- When a PRD section is present in the review prompt, treat it as authoritative for INTENT. Compare the diff against the PRD's acceptance criteria and non-functional requirements. Flag mismatches as their own first-class blockers — categorically distinct from code-quality issues — using these category names:
+    * spec-missing — the PRD requires it; the diff does not implement it
+    * spec-wrong — the diff implements it but does not match the PRD (route, shape, behavior)
+    * spec-scope — the diff adds behavior the PRD does not authorize (scope creep)
+    * spec-ambiguous — the PRD is unclear; state your interpretation and ask for clarification
+  When the PRD is absent, ignore this rule entirely and review on code-quality grounds alone.
 - You MUST respond as JSON matching the provided response schema. Do not wrap the JSON in prose.`;
 
 export function buildReviewPrompt(ctx: ReviewContext): string {
@@ -48,6 +54,17 @@ export function buildReviewPrompt(ctx: ReviewContext): string {
   if (ctx.projectContext) {
     sections.push(`# Project context`);
     sections.push(ctx.projectContext);
+    sections.push("");
+  }
+
+  // v0.15 (Phase 3) — per-PR PRD/spec injection. See packages/core agent.ts.
+  if (ctx.prd) {
+    sections.push(`# PRD (this PR's intent)`);
+    sections.push(ctx.prd);
+    sections.push("");
+    sections.push(
+      `Compare the diff against the PRD above. Flag any divergence as spec-missing / spec-wrong / spec-scope / spec-ambiguous (see system prompt). PRD violations are first-class blockers, not nits.`,
+    );
     sections.push("");
   }
 
@@ -181,6 +198,9 @@ export function buildCacheablePrefix(ctx: ReviewContext): string {
   }
   if (ctx.failureCatalog && ctx.failureCatalog.length > 0) {
     parts.push("failure-catalog:\n" + ctx.failureCatalog.slice(0, 8).join("\n"));
+  }
+  if (ctx.prd) {
+    parts.push("prd:\n" + ctx.prd);
   }
   return parts.join("\n---\n");
 }

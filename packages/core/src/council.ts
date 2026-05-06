@@ -1,6 +1,91 @@
 import type { Agent, PriorReview, ReviewContext, ReviewResult } from "./agent.js";
 
 /**
+ * v0.15 — Transient-error retry wrapper for individual agent.review() calls.
+ *
+ * Phase 2 dogfood (2026-05-06) saw Gemini 503 "Service Unavailable" mid-
+ * review on ~1 in 15 PRs from Google's transient capacity pressure. Pre-
+ * retry, the council marked the agent as "agent-failure" and excluded it.
+ * One retry with brief backoff would have rescued it. Same applies to
+ * 429 rate-limit blips, ECONNRESET / ETIMEDOUT, and 5xx upstream errors.
+ *
+ * Retry policy:
+ *   - up to 2 retries (3 total attempts)
+ *   - backoff: 1.5s, 4.5s
+ *   - retry only on transient errors: 5xx, 429, ECONNRESET, ETIMEDOUT,
+ *     ENETUNREACH, EAI_AGAIN, fetch failures
+ *   - skip retry on 4xx (other than 429): 401/403/404 are permanent
+ *
+ * Best-effort: classification heuristics on err.message + err.status, since
+ * agents from different SDKs surface errors differently.
+ */
+export async function withTransientRetry<T>(
+  fn: () => Promise<T>,
+  agentId: string,
+  opts: { maxRetries?: number; baseDelayMs?: number } = {},
+): Promise<T> {
+  const maxRetries = opts.maxRetries ?? 2;
+  const baseDelayMs = opts.baseDelayMs ?? 1500;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt === maxRetries) break;
+      if (!isTransientError(err)) break;
+      const delay = baseDelayMs * Math.pow(3, attempt);
+      process.stderr.write(
+        `Council: ${agentId} transient failure (attempt ${attempt + 1}/${maxRetries + 1}) — retrying in ${(delay / 1000).toFixed(1)}s. ${shortError(err)}\n`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  throw lastErr;
+}
+
+function shortError(err: unknown): string {
+  if (err instanceof Error) return err.message.slice(0, 200);
+  return String(err).slice(0, 200);
+}
+
+function isTransientError(err: unknown): boolean {
+  if (!err) return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  // HTTP status codes — most SDKs surface as "got status: NNN" or "status NNN" or `.status` field.
+  const e = err as { status?: number; code?: string };
+  if (typeof e.status === "number") {
+    if (e.status === 429) return true;
+    if (e.status >= 500 && e.status < 600) return true;
+    if (e.status >= 400) return false; // permanent 4xx (other than 429)
+  }
+  // Match status by message text — Gemini SDK does "got status: 503 Service Unavailable"
+  if (/\b(50[0-4]|429)\b/.test(msg)) return true;
+  // Network-shaped errors regardless of code
+  const code = e.code ?? "";
+  if (
+    code === "ECONNRESET" ||
+    code === "ETIMEDOUT" ||
+    code === "ENETUNREACH" ||
+    code === "EAI_AGAIN" ||
+    code === "ENOTFOUND"
+  ) {
+    return true;
+  }
+  if (
+    /timeout/i.test(msg) ||
+    /service unavailable/i.test(msg) ||
+    /rate.?limit/i.test(msg) ||
+    /fetch failed/i.test(msg) ||
+    /high demand/i.test(msg) ||
+    /connection (reset|closed)/i.test(msg)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * H2 #10 — weighted tally shared by Council + TieredCouncil. Exported so
  * tier-2 tally and any future custom council variants can apply the same
  * agent-score-weighted reject demotion.
@@ -46,6 +131,12 @@ export interface CouncilOptions {
   agentWeights?: ReadonlyMap<string, number>;
   /** Minimum weight for a reject vote to count as a hard block. Default 0.5. */
   rejectThreshold?: number;
+  /**
+   * v0.15 — transient-retry policy applied around each agent.review() call.
+   * Defaults to `{ maxRetries: 2, baseDelayMs: 1500 }`. Tests typically
+   * pass `{ maxRetries: 0 }` to keep call counts deterministic and fast.
+   */
+  retry?: { maxRetries?: number; baseDelayMs?: number };
 }
 
 /**
@@ -100,6 +191,7 @@ export class Council {
   private readonly enableDebate: boolean;
   private readonly agentWeights: ReadonlyMap<string, number>;
   private readonly rejectThreshold: number;
+  private readonly retry: { maxRetries: number; baseDelayMs: number };
 
   constructor(opts: CouncilOptions) {
     if (opts.agents.length === 0) {
@@ -110,6 +202,10 @@ export class Council {
     this.enableDebate = opts.enableDebate ?? true;
     this.agentWeights = opts.agentWeights ?? new Map();
     this.rejectThreshold = opts.rejectThreshold ?? 0.5;
+    this.retry = {
+      maxRetries: opts.retry?.maxRetries ?? 2,
+      baseDelayMs: opts.retry?.baseDelayMs ?? 1500,
+    };
   }
 
   async deliberate(ctx: ReviewContext): Promise<CouncilOutcome> {
@@ -128,7 +224,18 @@ export class Council {
       // agents drop out of this round; their failure is logged to
       // stderr and their result is synthesized as verdict="rework" with
       // a single blocker so upstream consumers still see the signal.
-      const settled = await Promise.allSettled(this.agents.map((a) => a.review(roundCtx)));
+      //
+      // v0.15 — wrap each agent call with a transient-retry helper. Phase
+      // 2 dogfood (2026-05-06) repeatedly hit Gemini 503 "Service
+      // Unavailable" mid-review for transient Google capacity issues; one
+      // retry would have rescued the agent. The helper retries on 5xx +
+      // 429 + ECONNRESET / ETIMEDOUT-shaped errors with backoff (1.5s,
+      // 4.5s) and skips retry on 4xx-other-than-429 (permanent errors).
+      const settled = await Promise.allSettled(
+        this.agents.map((a) =>
+          withTransientRetry(() => a.review(roundCtx), a.id, this.retry),
+        ),
+      );
       const results: ReviewResult[] = [];
       settled.forEach((s, i) => {
         if (s.status === "fulfilled") {

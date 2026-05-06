@@ -190,3 +190,44 @@ export async function loadDesignContext(
   }
   return out;
 }
+
+/**
+ * v0.15 (Phase 3) — Load PRD/spec for the current PR.
+ *
+ * Resolution order (first hit wins):
+ *   1. Explicit `--prd <path>` flag → that file is loaded.
+ *   2. `.conclave/prd.md` at repo root.
+ *   3. Returns `undefined` when no PRD source is configured.
+ *
+ * The PRD is treated as authoritative INTENT. Agents read it alongside
+ * `projectContext` (whole-repo intent) and inject it into their prompts
+ * so they can flag spec-missing / spec-wrong / spec-scope / spec-
+ * ambiguous as first-class blockers. See `packages/core agent.ts` for
+ * the ReviewContext.prd field. Phase 2.5 dogfood (3 platforms PRs,
+ * 2026-05-06) confirmed PRD-aware Claude doubles to triples blocker
+ * count vs no-PRD and surfaces categorically new spec-mismatch findings.
+ *
+ * Privacy/safety: same as projectContext — read-only, single named path,
+ * no remote fetch, no glob outside the listed paths.
+ */
+export async function loadPrd(
+  cwd: string,
+  opts: { explicitPath?: string } = {},
+): Promise<{ prd?: string; sourcePath?: string }> {
+  if (opts.explicitPath) {
+    const abs = path.isAbsolute(opts.explicitPath)
+      ? opts.explicitPath
+      : path.join(cwd, opts.explicitPath);
+    const text = await readIfExists(abs);
+    if (text && text.trim().length > 0) {
+      return { prd: text.trim(), sourcePath: abs };
+    }
+    return {};
+  }
+  const defaultPath = path.join(cwd, ".conclave", "prd.md");
+  const text = await readIfExists(defaultPath);
+  if (text && text.trim().length > 0) {
+    return { prd: text.trim(), sourcePath: defaultPath };
+  }
+  return {};
+}

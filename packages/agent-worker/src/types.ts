@@ -54,6 +54,15 @@ export interface WorkerContext {
    * catalog entries (one short line each). Populated by the autofix CLI.
    */
   priorBailHints?: readonly string[];
+  /**
+   * v0.15 (Phase 3) — PRD/spec for THIS PR. When set, the worker rewrites
+   * the file to satisfy BOTH the blocker and the PRD's acceptance criteria
+   * + non-functional requirements. Without a PRD, the worker only fixes the
+   * blocker; with a PRD, it can also add missing acceptance criteria,
+   * change route paths to match spec, drop scope-creep behavior, etc.
+   * Loaded by the autofix CLI from `.conclave/prd.md` or `--prd` flag.
+   */
+  prd?: string;
 }
 
 /** Result of a worker invocation — ready to write to disk + commit. */

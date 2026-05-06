@@ -47,7 +47,7 @@ import { autoPullFederatedBaselineInBackground } from "../lib/auto-pull-federate
 import { pushEpisodicAnchor } from "../lib/episodic-anchor.js";
 import { fetchDeployStatus } from "@conclave-ai/scm-github";
 import { loadConfig, resolveMemoryRoot } from "../lib/config.js";
-import { loadProjectContext, loadDesignContext } from "../lib/project-context.js";
+import { loadProjectContext, loadDesignContext, loadPrd } from "../lib/project-context.js";
 import { loadPrDiff, loadGitDiff, loadFileDiff, type LoadedDiff } from "../lib/diff-source.js";
 import { renderPlainSummarySection, renderReview, verdictToExitCode } from "../lib/output.js";
 import { buildPlatforms, type PlatformId } from "../lib/platform-factory.js";
@@ -108,6 +108,15 @@ interface ReviewArgs {
    * golden reference for future baseline-drift comparisons.
    */
   captureBaseline: boolean;
+  /**
+   * v0.15 (Phase 3) — explicit PRD path. When set, the file at this path
+   * is loaded and injected into every agent's prompt as authoritative
+   * intent. Agents flag spec-missing / spec-wrong / spec-scope / spec-
+   * ambiguous. Falls back to `.conclave/prd.md` when absent. Phase 2.5
+   * dogfood proved PRD-aware review surfaces categorically new
+   * spec-mismatch findings vs plain code review.
+   */
+  prd?: string;
 }
 export function parseArgv(argv: string[]): ReviewArgs {
   const out: ReviewArgs = {
@@ -164,6 +173,9 @@ export function parseArgv(argv: string[]): ReviewArgs {
       const n = Number.parseInt(argv[i + 1]!, 10);
       if (!Number.isNaN(n) && n >= 0) out.maxReworkCycles = n;
       i += 1;
+    } else if (a === "--prd" && argv[i + 1]) {
+      out.prd = argv[i + 1];
+      i += 1;
     }
   }
   return out;
@@ -204,6 +216,14 @@ Options:
                  the manual-review keyboard (cycle == max). Default 0.
                  The GitHub workflow extracts this from the HEAD commit's
                  [conclave-rework-cycle:N] marker automatically.
+  --prd <path>   v0.15 — load a PRD/spec file and inject it into every agent's
+                 prompt as authoritative intent. Agents flag PRD violations
+                 as first-class blockers under spec-missing / spec-wrong /
+                 spec-scope / spec-ambiguous categories — categorically
+                 distinct from code-quality. Falls back to .conclave/prd.md
+                 when --prd is not given. Phase 2.5 dogfood (2026-05-06)
+                 confirmed PRD-aware review doubles to triples blocker
+                 count vs no-PRD and surfaces categorically new findings.
   --max-rework-cycles N  v0.8 — override the config autonomy.maxReworkCycles
                  for this run. Clamped to a hard ceiling of 5.
 
@@ -242,6 +262,18 @@ export async function review(argv: string[]): Promise<void> {
   const projectCtxLoaded = await loadProjectContext(configDir, {
     ...(ctxCfg?.readmeMaxChars ? { readmeMaxChars: ctxCfg.readmeMaxChars } : {}),
   });
+
+  // v0.15 (Phase 3) — load per-PR PRD/spec from --prd or .conclave/prd.md.
+  // Silent-skip when neither is configured. Phase 2.5 dogfood proved
+  // PRD-aware review surfaces categorically new spec-mismatch findings.
+  const prdLoaded = await loadPrd(configDir, {
+    ...(args.prd ? { explicitPath: args.prd } : {}),
+  });
+  if (prdLoaded.prd) {
+    process.stderr.write(
+      `conclave review: PRD loaded from ${prdLoaded.sourcePath} (${prdLoaded.prd.length} chars) — agents will flag spec-mismatch as first-class blockers.\n`,
+    );
+  }
 
   // 1. Load diff
   let loaded: LoadedDiff;
@@ -589,6 +621,9 @@ export async function review(argv: string[]): Promise<void> {
   if (loaded.prevSha) reviewCtx.prevSha = loaded.prevSha;
   if (projectCtxLoaded.projectContext) {
     reviewCtx.projectContext = projectCtxLoaded.projectContext;
+  }
+  if (prdLoaded.prd) {
+    reviewCtx.prd = prdLoaded.prd;
   }
   if (designCtxLoaded.designContext) {
     reviewCtx.designContext = designCtxLoaded.designContext;

@@ -257,6 +257,7 @@ test("Council: one agent throwing does NOT kill the rest of the council", async 
       fakeAgent("claude", "approve"),
       fakeAgent("openai", "approve"),
     ],
+    retry: { maxRetries: 0 },
   });
   const outcome = await council.deliberate(ctx);
   assert.equal(outcome.results.length, 3, "failed agent still surfaces a synthetic result");
@@ -274,6 +275,7 @@ test("Council: partial failure + mixed verdicts → no consensus, runs full roun
       fakeAgent("claude", "approve"),
       fakeAgent("openai", "rework"),
     ],
+    retry: { maxRetries: 0 },
   });
   const outcome = await council.deliberate(ctx);
   // gemini injected as rework → 1 approve + 2 rework → rework, no consensus
@@ -287,6 +289,7 @@ test("Council: all agents failing → throws with aggregated reasons", async () 
       throwingAgent("a", "network unreachable"),
       throwingAgent("b", "invalid api key"),
     ],
+    retry: { maxRetries: 0 },
   });
   await assert.rejects(
     () => council.deliberate(ctx),

@@ -15,7 +15,8 @@ Hard rules:
 - If a blocker requires information you don't have (a file not included in the snapshots, or ambiguity about intent), skip it and note that in \`summary\`. Never invent file contents you haven't been shown.
 - If NO blocker is fixable with the information given, return an empty \`rewrites\` array and explain in \`summary\` what the caller should gather before retrying.
 - \`commitMessage\` should be a single line (≤ 72 chars), conventional-commit style where it fits. No trailing period.
-- When a blocker says "module X is imported but not in this diff" (or similar), prefer to wrap the call site in try/catch with a no-op fallback instead of creating the missing module from scratch. Document the fallback in a one-line comment.`;
+- When a blocker says "module X is imported but not in this diff" (or similar), prefer to wrap the call site in try/catch with a no-op fallback instead of creating the missing module from scratch. Document the fallback in a one-line comment.
+- When a PRD section is provided, treat it as authoritative INTENT for what this PR is supposed to do. Your rewrite must satisfy BOTH the explicit blockers AND the PRD's acceptance criteria + non-functional requirements. If the PRD requires an acceptance criterion that the current code doesn't implement (e.g. PRD says "endpoint must return 400 on bad input" but the code throws), add it. If the PRD forbids something the code does (e.g. PRD says "must NOT log Authorization headers" but the code does), remove it. Your rewrite should leave the diff in a state where every PRD acceptance criterion is verifiably met. When the PRD is absent, fix only the blockers and ignore this rule.`;
 
 function renderBlockers(reviews: WorkerContext["reviews"]): string {
   const lines: string[] = [];
@@ -43,6 +44,16 @@ export function buildWorkerPrompt(ctx: WorkerContext): string {
   sections.push(`pull: #${ctx.pullNumber}`);
   sections.push(`head sha: ${ctx.newSha}`);
   sections.push("");
+
+  if (ctx.prd) {
+    sections.push(`# PRD (this PR's intent)`);
+    sections.push(ctx.prd);
+    sections.push("");
+    sections.push(
+      `Your rewrite must satisfy BOTH the blockers below AND the PRD's acceptance criteria + non-functional requirements above. See the system prompt for handling.`,
+    );
+    sections.push("");
+  }
 
   const blockerSection = renderBlockers(ctx.reviews);
   if (blockerSection) {
@@ -139,6 +150,9 @@ export function buildCacheablePrefix(ctx: WorkerContext): string {
         ...lines,
       ].join("\n"),
     );
+  }
+  if (ctx.prd) {
+    parts.push("prd:\n" + ctx.prd);
   }
   return parts.join("\n---\n");
 }

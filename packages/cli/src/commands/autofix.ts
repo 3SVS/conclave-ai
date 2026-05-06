@@ -35,6 +35,7 @@ import {
 import { formatFinding, scanPatch, type ScanResult } from "@conclave-ai/secret-guard";
 import { fetchPrState, fetchDeployStatus as defaultFetchDeployStatus, fetchPreviewUrl, type DeployStatus, type GhRunner, type PullRequestState } from "@conclave-ai/scm-github";
 import { loadConfig, resolveMemoryRoot, type ConclaveConfig } from "../lib/config.js";
+import { loadPrd } from "../lib/project-context.js";
 import { runPerBlocker, type WorkerLike, type GitLike } from "../lib/autofix-worker.js";
 import { renderBailSummary, shouldPostSummary } from "../lib/bail-summary.js";
 import {
@@ -126,6 +127,13 @@ export interface AutofixArgs {
    * dispatch payload can't ratchet the marker past the safety ceiling.
    */
   reworkCycle: number;
+  /**
+   * v0.15 (Phase 3) — explicit PRD path. When set, the file at this path
+   * is loaded and injected into the worker so it produces rewrites that
+   * satisfy BOTH the blocker AND the PRD's acceptance criteria. Falls
+   * back to `.conclave/prd.md` when absent.
+   */
+  prd?: string;
 }
 
 export const HARD_MAX_ITERATIONS = 3;
@@ -201,6 +209,9 @@ export function parseArgv(argv: string[]): AutofixArgs {
       if (Number.isFinite(n) && n >= 0) {
         out.reworkCycle = Math.min(n, REWORK_CYCLE_HARD_CEILING);
       }
+      i += 1;
+    } else if (a === "--prd" && argv[i + 1]) {
+      out.prd = argv[i + 1];
       i += 1;
     }
   }
@@ -509,6 +520,18 @@ export async function runAutofix(args: AutofixArgs, deps: AutofixDeps = {}): Pro
   const memoryRoot = resolveMemoryRoot(cfg.config, cfg.configDir);
   const git = deps.git ?? defaultGit;
   const gh = deps.gh ?? defaultGh;
+
+  // v0.15 (Phase 3) — load PRD/spec from .conclave/prd.md (or args.prd
+  // when set in the future). Worker uses it to produce rewrites that
+  // satisfy BOTH blockers AND PRD acceptance criteria.
+  const prdLoaded = await loadPrd(cfg.configDir, {
+    ...(args.prd ? { explicitPath: args.prd } : {}),
+  });
+  if (prdLoaded.prd) {
+    stderr(
+      `autofix: PRD loaded from ${prdLoaded.sourcePath} (${prdLoaded.prd.length} chars) — worker will target spec compliance.\n`,
+    );
+  }
 
   // UX-1 — post a unified terminal summary to the PR. Best-effort: a
   // gh failure (e.g., archived PR, missing token) only logs to stderr.
@@ -1050,6 +1073,7 @@ export async function runAutofix(args: AutofixArgs, deps: AutofixDeps = {}): Pro
               blocker: t.blocker,
               ...(previousBuildErrorTail ? { buildErrorTail: previousBuildErrorTail } : {}),
               ...(priorBailHints ? { priorBailHints } : {}),
+              ...(prdLoaded.prd ? { prd: prdLoaded.prd } : {}),
             },
             {
               worker,
