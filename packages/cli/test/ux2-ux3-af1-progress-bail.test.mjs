@@ -67,7 +67,9 @@ function makeWriteFile({ failOn = [] } = {}) {
   const calls = [];
   const fn = async (absPath, content) => {
     calls.push({ absPath, content });
-    if (failOn.some((f) => absPath.includes(f))) {
+    // Normalize Windows backslashes so failOn matchers (e.g. "src/b.ts") are platform-portable.
+    const norm = absPath.replace(/\\/g, "/");
+    if (failOn.some((f) => norm.includes(f))) {
       throw new Error(`EACCES: permission denied writing ${absPath}`);
     }
   };

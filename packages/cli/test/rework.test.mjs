@@ -241,7 +241,8 @@ test("runRework: happy path — applies rewrites, commits, pushes, records outco
   assert.equal(worker.calls[0].fileSnapshots.length, 1);
   assert.equal(worker.calls[0].fileSnapshots[0].path, "src/x.ts");
   assert.equal(filesWritten.length, 1, "writeFile should be called once per rewrite");
-  assert.ok(filesWritten[0].p.endsWith("src/x.ts"), "should write to src/x.ts");
+  // Normalize Windows backslashes so this assertion is platform-portable.
+  assert.ok(filesWritten[0].p.replace(/\\/g, "/").endsWith("src/x.ts"), "should write to src/x.ts");
   const gitCmds = git.calls.map((c) => c.args.join(" "));
   assert.ok(!gitCmds.some((c) => c.includes("apply")), `git apply should NOT be called: ${gitCmds.join(" | ")}`);
   assert.ok(gitCmds.some((c) => c === "add -A"), "git add -A missing");
