@@ -1,0 +1,87 @@
+name: deploy-central-plane
+
+# v0.16 (Problem 3) — auto-deploy the central-plane Worker to Cloudflare
+# whenever apps/central-plane/** changes land on main. Replaces the
+# manual `pnpm -C apps/central-plane ship` step so SaaS endpoint changes
+# go live without a developer's machine + Docker dependencies.
+#
+# How it works:
+#   1. Detect that a push to main touched apps/central-plane/** (or this
+#      workflow file).
+#   2. Build the central-plane TS → JS via the standard monorepo build.
+#   3. Run wrangler deploy with the CF API token from secrets.
+#   4. Apply pending D1 migrations (forward-only, idempotent).
+#
+# Required repo secrets:
+#   CLOUDFLARE_API_TOKEN  — token with "Edit Cloudflare Workers" + "D1 Edit"
+#                            permissions. Create at:
+#                            https://dash.cloudflare.com/profile/api-tokens
+#                            (Bae action — one-time setup)
+#   CLOUDFLARE_ACCOUNT_ID — visible at
+#                            https://dash.cloudflare.com/<account-id>
+#                            (also embedded in any worker URL)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/central-plane/**'
+      - 'packages/core/**'
+      - '.github/workflows/deploy-central-plane.yml'
+  workflow_dispatch:
+    inputs:
+      apply-migrations:
+        description: 'Apply D1 migrations after deploy (default: true)'
+        required: false
+        default: 'true'
+
+concurrency:
+  group: deploy-central-plane
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build central-plane (+ core dep)
+        run: pnpm turbo run build --filter @conclave-ai/central-plane
+
+      - name: Apply D1 migrations
+        if: github.event_name != 'workflow_dispatch' || inputs.apply-migrations != 'false'
+        working-directory: apps/central-plane
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx wrangler d1 migrations apply --remote conclave-ai
+
+      - name: Deploy Worker
+        working-directory: apps/central-plane
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx wrangler deploy
+
+      - name: Smoke test deployed endpoints
+        run: |
+          set -e
+          curl -sS https://conclave-ai.seunghunbae.workers.dev/healthz | tee /dev/stderr | grep -q '"ok"'
+          # Webhook should require a signed POST — expect 503 (no secret yet)
+          # OR 401 (signature mismatch). Both prove the route is wired.
+          status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST https://conclave-ai.seunghunbae.workers.dev/webhook/github -d '{}')
+          if [ "$status" != "401" ] && [ "$status" != "503" ]; then
+            echo "Unexpected /webhook/github status: $status"
+            exit 1
+          fi
+          echo "Smoke test passed (status $status as expected)"

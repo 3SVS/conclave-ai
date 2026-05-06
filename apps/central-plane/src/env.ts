@@ -45,4 +45,27 @@ export interface Env {
    * or self-hosted deployments.
    */
   PUBLIC_BASE_URL?: string;
+  /**
+   * v0.16 (Problem 3) — GitHub App credentials for the SaaS path.
+   * These authenticate THIS Worker as the "Conclave AI Code Council"
+   * GH App when minting installation access tokens, verifying
+   * webhooks, and handling the post-install OAuth callback.
+   *
+   * Set via:
+   *   wrangler secret put GH_APP_ID
+   *   wrangler secret put GH_APP_CLIENT_ID
+   *   wrangler secret put GH_APP_CLIENT_SECRET   (from GH App "Generate a new client secret")
+   *   wrangler secret put GH_APP_WEBHOOK_SECRET
+   *   wrangler secret put GH_APP_PRIVATE_KEY     (full .pem multi-line; pipe stdin)
+   *
+   * Routes that require these:
+   *   /webhook/github            — needs WEBHOOK_SECRET for HMAC verification
+   *   /auth/github/callback      — needs CLIENT_ID + CLIENT_SECRET for code→token
+   *   /saas/review + /saas/autofix — needs APP_ID + PRIVATE_KEY to mint installation tokens
+   */
+  GH_APP_ID?: string;
+  GH_APP_CLIENT_ID?: string;
+  GH_APP_CLIENT_SECRET?: string;
+  GH_APP_WEBHOOK_SECRET?: string;
+  GH_APP_PRIVATE_KEY?: string;
 }
