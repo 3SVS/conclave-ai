@@ -157,14 +157,15 @@ export function renderProgressLine(input: NotifyProgressInput): ProgressLine {
     case "autofix-cycle-ended": {
       const status = p.bailStatus ?? "ended";
       const iters = typeof p.iterationsAttempted === "number" ? p.iterationsAttempted : 0;
-      const cost = typeof p.totalCostUsd === "number" ? `, $${p.totalCostUsd.toFixed(4)}` : "";
+      // v0.16.1 — cost dropped from user-facing Telegram (paid SaaS).
+      // CLI stdout + episodic JSON keep cost for dev/admin debugging.
       const remaining = typeof p.remainingBlockerCount === "number" && p.remainingBlockerCount > 0
         ? `, ${p.remainingBlockerCount} blocker${p.remainingBlockerCount === 1 ? "" : "s"} remain`
         : "";
       const reason = p.reason ? ` — ${escapeHtml(p.reason).slice(0, 120)}` : "";
       return {
         stage: input.stage,
-        text: `Cycle ended: ${escapeHtml(status)} (${iters} iter${iters === 1 ? "" : "s"}${cost}${remaining})${reason}`,
+        text: `Cycle ended: ${escapeHtml(status)} (${iters} iter${iters === 1 ? "" : "s"}${remaining})${reason}`,
         bailStatus: status,
       };
     }
@@ -177,7 +178,9 @@ export function renderProgressLine(input: NotifyProgressInput): ProgressLine {
       const found = typeof p.totalBlockersFound === "number" ? p.totalBlockersFound : 0;
       const fixed = typeof p.blockersAutofixed === "number" ? p.blockersAutofixed : 0;
       const outstanding = typeof p.blockersOutstanding === "number" ? p.blockersOutstanding : 0;
-      const cost = typeof p.totalCostUsd === "number" ? p.totalCostUsd.toFixed(4) : "0.00";
+      // v0.16.1 — `cost` no longer rendered in this user-facing card.
+      // We're a paid SaaS now; users don't see margin. Internal logs +
+      // CLI stdout + episodic JSON still capture cost for debugging.
       const deploy = p.deployOutcome ?? "unknown";
       const rec = p.recommendation ?? "hold";
       const machineFixable = typeof p.machineFixableCount === "number" ? p.machineFixableCount : 0;
@@ -193,7 +196,7 @@ export function renderProgressLine(input: NotifyProgressInput): ProgressLine {
         `사람 손 필요: ${outstanding}건`,
       ];
       if (machineFixable > 0) countsParts.push(`다시 시도 가능: ${machineFixable}건`);
-      countsParts.push(`비용: $${cost}`);
+      // v0.16.1 — drop cost line from the user-facing review-finished card.
       const lines = [
         `<b>🤖 Conclave 검토 완료</b>`,
         ``,

@@ -251,6 +251,57 @@ jobs:
           echo "CONCLAVE_CYCLE=$CYCLE" >> $GITHUB_ENV
           echo "conclave-rework cycle on this commit: $CYCLE"
 
+      # v0.16.1 — emit rework-cycle-started when this review is the
+      # _continuation_ of an autofix push (CONCLAVE_CYCLE > 0). Without
+      # this emit, Telegram would show "1/3" forever even though the
+      # loop progressed to cycle 2/3 — only rework.yml ever fired the
+      # cycle-start emit, so the auto-triggered review.yml side of the
+      # loop was silent. Mirrors the emit block in rework.yml lines
+      # 321–360 (same /review/notify-progress contract).
+      #
+      # Episodic id is unknown at this point (the review hasn't run yet),
+      # so we send a synthesised id `pending-cycle-${CYCLE}`. progress-
+      # format.ts treats it the same as a real id for cycle-counter
+      # rendering; the next review will overwrite the message.
+      - name: Emit rework-cycle-started for non-zero cycles (UX cycle counter)
+        if: env.SKIP_REVIEW != 'true' && env.CONCLAVE_CYCLE != '0'
+        env:
+          CONCLAVE_TOKEN: ${{ secrets.CONCLAVE_TOKEN }}
+          CONCLAVE_CENTRAL_URL: ${{ vars.CONCLAVE_CENTRAL_URL || '' }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          MAX_CYCLES: ${{ inputs.force-max-cycles || 3 }}
+        run: |
+          set -euo pipefail
+          BASE="${CONCLAVE_CENTRAL_URL:-https://conclave-ai.seunghunbae.workers.dev}"
+          BASE="${BASE%/}"
+          if [ -z "${CONCLAVE_TOKEN:-}" ]; then
+            echo "::warning::CONCLAVE_TOKEN unset — skipping rework-cycle-started emit (Telegram cycle counter will lag)"
+            exit 0
+          fi
+          PAYLOAD=$(jq -n \
+            --arg repo "$REPO" \
+            --argjson pr "${PR:-0}" \
+            --argjson cycle "${CONCLAVE_CYCLE:-0}" \
+            --argjson maxCycles "${MAX_CYCLES:-3}" \
+            '{
+              repo_slug: $repo,
+              episodic_id: ("pending-cycle-" + ($cycle|tostring)),
+              stage: "rework-cycle-started",
+              payload: {
+                repo: $repo,
+                pullNumber: $pr,
+                iteration: $cycle,
+                iterationsAttempted: $maxCycles
+              }
+            }')
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${CONCLAVE_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "${BASE}/review/notify-progress" | head -c 200 || \
+            echo "::warning::rework-cycle-started emit failed (non-fatal)"
+
       # Secret-bearing step. Only runs for non-fork PRs authored by the
       # repo owner — anyone else's PR code should NOT see these secrets.
       # Fork PRs and external-contributor PRs hit the fallback step below.
