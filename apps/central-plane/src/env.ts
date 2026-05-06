@@ -89,4 +89,11 @@ export interface Env {
   ANTHROPIC_API_KEY?: string;
   OPENAI_API_KEY?: string;
   GEMINI_API_KEY?: string;
+  /**
+   * Tasks #51 — per-deploy salt mixed into the IP hash for the
+   * /saas/demo/review rate-limit table. Rotate to invalidate all
+   * demo rate-limit rows. Optional — defaults to a fixed string when
+   * unset (still hashed, just predictable).
+   */
+  DEMO_RATE_SALT?: string;
 }

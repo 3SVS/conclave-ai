@@ -16,6 +16,7 @@ import { createReviewRoutes } from "./routes/review.js";
 import { createAdminRoutes } from "./routes/admin.js";
 import { createSaasAuthRoutes } from "./routes/saas-auth.js";
 import { createSaasRoutes } from "./routes/saas.js";
+import { createDemoRoutes } from "./routes/demo.js";
 import type { FetchLike } from "./github.js";
 
 /**
@@ -55,6 +56,9 @@ export function createApp(opts: { fetch?: FetchLike } = {}): Hono<{ Bindings: En
   // /saas/autofix, /saas/me (saas.ts).
   app.route("/", createSaasAuthRoutes());
   app.route("/", createSaasRoutes());
+  // Tasks #51 — landing demo (no-auth, IP rate-limited). Single Claude
+  // pass with optional PRD; designed to convert landing visitors.
+  app.route("/", createDemoRoutes());
   app.onError((err, c) => {
     console.error("central-plane error:", err);
     return c.json({ error: err.message || "internal error" }, 500);
