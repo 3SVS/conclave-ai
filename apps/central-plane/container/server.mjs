@@ -223,6 +223,12 @@ async function runJob(payload) {
     const pipelineUrl = new URL("file:///app/packages/cli/dist/autofix-pipeline.js");
     const { runAutofix } = await import(pipelineUrl.href);
 
+    // cli's pipeline shells out to `gh` and `git` from the current
+    // working directory. Without this chdir, those commands run from
+    // /app and bail with "not a git repository". One container handles
+    // one PR at a time so a process-wide chdir is safe here.
+    process.chdir(workDir);
+
     // 5. Build minimal AutofixArgs + AutofixDeps. Many deps default
     //    to local-spawn implementations that work fine inside the
     //    container.
