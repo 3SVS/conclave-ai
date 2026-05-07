@@ -189,6 +189,11 @@ async function runJob(payload) {
   const workDir = await fs.mkdtemp(path.join(WORK_ROOT, `${jobId}-`));
   process.env.GH_TOKEN = installationToken;
   process.env.GITHUB_TOKEN = installationToken;
+  // GH_REPO lets `gh` calls work without being inside the repo's git
+  // dir (cli's `gh pr view N` falls back without --repo, which fails
+  // when run from anywhere but the workDir). Setting GH_REPO is
+  // process-wide and matches gh CLI's standard env contract.
+  process.env.GH_REPO = repo;
   try {
     const cloneUrl = `https://x-access-token:${installationToken}@github.com/${repo}.git`;
     await execFileP("git", ["clone", "--depth", "20", cloneUrl, workDir], { timeout: 90_000 });
