@@ -12,8 +12,11 @@
  *     a request into the container
  *
  * sleepAfter controls how long an idle container stays warm before
- * Cloudflare reclaims it. We use 5min — long enough for autofix
- * to run + some retries, short enough that we don't pay for ghosts.
+ * Cloudflare reclaims it. 15min — multi-agent council runs (60-128s
+ * per agent in parallel + diff fetch + secret-guard + worker iterations)
+ * routinely exceed 5min, especially on first runs when caches are cold.
+ * Bumping to 15min stops mid-run SIGTERMs while still releasing the
+ * container before cost matters.
  *
  * defaultPort matches the EXPOSE in apps/central-plane/container/Dockerfile.
  */
@@ -22,7 +25,7 @@ import type { Env } from "./env.js";
 
 export class ConclaveSandbox extends Container<Env> {
   override defaultPort = 8080;
-  override sleepAfter = "5m";
+  override sleepAfter = "15m";
   override envVars = {
     NODE_ENV: "production",
     WORK_ROOT: "/var/lib/conclave",
