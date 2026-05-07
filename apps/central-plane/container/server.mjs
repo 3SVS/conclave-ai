@@ -316,19 +316,27 @@ async function runJob(payload) {
         : result && typeof result === "object" && Array.isArray(result.blockers)
           ? result.blockers.length
           : undefined;
-    // Diagnostic: if neither verdict nor status came back the cli
-    // exited without producing one — ship that fact via the error
-    // channel so D1's error_message captures it (and the user sees
-    // it in the PR comment) instead of "didn't produce a verdict".
-    const noOutcome = verdict === undefined && rawStatus === undefined;
-    const diagnosticError = noOutcome
-      ? `cli returned no verdict/status. exitCode=${code}. keys=[${Object.keys(result ?? {}).join(",")}]`
-      : undefined;
+    // Diagnostic: any time we can't produce a real verdict, pack the
+    // raw cli result fragments into the error channel so D1's
+    // error_message captures it. Otherwise the row reads "done +
+    // verdict null" and we have to redeploy with extra logging just
+    // to see what cli actually returned.
+    const reasonSnippet =
+      typeof result?.reason === "string" ? result.reason.slice(0, 200) : "";
+    const itersCount = Array.isArray(result?.iterations) ? result.iterations.length : 0;
+    const totalCost = typeof result?.totalCostUsd === "number" ? result.totalCostUsd : 0;
+    console.log(
+      `[job ${jobId}] result keys=[${Object.keys(result ?? {}).join(",")}] status=${rawStatus} verdict=${rawVerdict} reason=${reasonSnippet.slice(0, 80)} iters=${itersCount} cost=$${totalCost}`,
+    );
+    const diagnosticError =
+      verdict === undefined
+        ? `cli result: status=${rawStatus} reason=${reasonSnippet || "(none)"} iters=${itersCount} cost=$${totalCost} keys=[${Object.keys(result ?? {}).join(",")}] exitCode=${code}`
+        : undefined;
     await postCallback(callbackUrl, callbackToken, {
       jobId,
       repo,
       prNumber,
-      status: noOutcome ? "errored" : "done",
+      status: verdict === undefined ? "errored" : "done",
       ...(verdict !== undefined ? { verdict } : {}),
       ...(blockers !== undefined ? { blockers } : {}),
       ...(diagnosticError ? { error: diagnosticError } : {}),
