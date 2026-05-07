@@ -45,6 +45,7 @@ crons = ["*/10 * * * *"]
 [[containers]]
 class_name = "ConclaveSandbox"
 image = "./container/Dockerfile"
+image_build_context = "../.."
 max_instances = 10
 
 [[durable_objects.bindings]]
