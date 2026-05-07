@@ -31,6 +31,12 @@ const execFileP = promisify(execFile);
 const PORT = Number(process.env.PORT ?? 8080);
 const WORK_ROOT = process.env.WORK_ROOT ?? "/var/lib/conclave";
 
+// In-flight job registry. Drained on SIGTERM so users get a clean
+// "review failed: container was killed" callback instead of a silent
+// `accepted` stuck row. Key = jobId, value = full payload (we need
+// callbackUrl + callbackToken + repo + prNumber to call back).
+const inFlightJobs = new Map();
+
 const server = createServer(async (req, res) => {
   if (req.method === "GET" && req.url === "/health") {
     res.writeHead(200, { "content-type": "application/json" });
@@ -89,29 +95,62 @@ const server = createServer(async (req, res) => {
   res.writeHead(202, { "content-type": "application/json" });
   res.end(JSON.stringify({ jobId: payload.jobId, status: "accepted" }));
 
+  // Track in-flight jobs so the SIGTERM handler can errored-callback
+  // them when CF kills us mid-run (deploy rollouts, sleepAfter expiry).
+  // Without this, jobs disappear silently and the user sees no result.
+  inFlightJobs.set(payload.jobId, payload);
   // Fire-and-forget. Top-level await would block the listener; spawn
   // an async task and report errors via the callback path.
-  runJob(payload).catch(async (err) => {
-    console.error(`[job ${payload.jobId}] crashed:`, err);
-    await postCallback(payload.callbackUrl, payload.callbackToken, {
-      jobId: payload.jobId,
-      status: "errored",
-      error: err.message ?? String(err),
-    }).catch((cbErr) => {
-      console.error(`[job ${payload.jobId}] callback also failed:`, cbErr);
-    });
-  });
+  runJob(payload)
+    .catch(async (err) => {
+      console.error(`[job ${payload.jobId}] crashed:`, err);
+      await postCallback(payload.callbackUrl, payload.callbackToken, {
+        jobId: payload.jobId,
+        repo: payload.repo,
+        prNumber: payload.prNumber,
+        status: "errored",
+        error: err.message ?? String(err),
+      }).catch((cbErr) => {
+        console.error(`[job ${payload.jobId}] callback also failed:`, cbErr);
+      });
+    })
+    .finally(() => inFlightJobs.delete(payload.jobId));
 });
 
 server.listen(PORT, () => {
   console.log(`conclave-sandbox listening on :${PORT}`);
 });
 
-// Graceful shutdown — CF Containers send SIGTERM on sleepAfter expiry.
+// Graceful shutdown — CF Containers send SIGTERM on sleepAfter expiry
+// AND on new-image rollouts. If any jobs are still running when that
+// happens, the cli's runAutofix is interrupted mid-call and the user
+// would see no result. Drain inFlightJobs by sending each one an
+// errored callback so the worker can update D1 + post a PR comment.
+//
+// Cap the drain at 5s — beyond that CF will hard-kill us anyway.
+let shuttingDown = false;
+async function gracefulShutdown(sig) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`received ${sig} — draining ${inFlightJobs.size} in-flight job(s)`);
+  const drains = Array.from(inFlightJobs.values()).map((p) =>
+    postCallback(p.callbackUrl, p.callbackToken, {
+      jobId: p.jobId,
+      repo: p.repo,
+      prNumber: p.prNumber,
+      status: "errored",
+      error: `container was killed by ${sig} mid-run (deploy rollout or sleepAfter)`,
+    }).catch((cbErr) => {
+      console.error(`[shutdown] callback failed for ${p.jobId}:`, cbErr);
+    }),
+  );
+  const drainTimeout = new Promise((resolve) => setTimeout(resolve, 5000));
+  await Promise.race([Promise.all(drains), drainTimeout]);
+  server.close(() => process.exit(0));
+}
 for (const sig of ["SIGTERM", "SIGINT"]) {
   process.on(sig, () => {
-    console.log(`received ${sig} — shutting down`);
-    server.close(() => process.exit(0));
+    void gracefulShutdown(sig);
   });
 }
 

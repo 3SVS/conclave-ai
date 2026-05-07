@@ -289,3 +289,49 @@ export async function getAuthedUser(
   const j = (await r.json()) as { id: number; login: string; email: string | null };
   return { id: j.id, login: j.login, email: j.email ?? null };
 }
+
+/**
+ * Post a comment on a pull request using a fresh installation token.
+ * Used by the SaaS pipeline to keep users informed at every stage:
+ *   - "🤖 Reviewing..." when the webhook fires
+ *   - "✅ Verdict: approve / 🔁 rework / ❌ reject" when callback lands
+ *   - "❌ Failed: <reason>" on errored callbacks
+ *
+ * Best-effort — if the comment fails (rate limit, scope mismatch),
+ * the caller should swallow the error rather than fail the parent flow.
+ *
+ * Requires the GH App to have `pull-requests: write` permission, which
+ * the Conclave AI Code Council manifest declares.
+ */
+export async function postPrComment(
+  env: import("./env.js").Env,
+  installationId: number,
+  repoSlug: string,
+  prNumber: number,
+  body: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ id: number } | null> {
+  let token: string;
+  try {
+    const t = await getInstallationToken(env, installationId, fetchImpl);
+    token = t.token;
+  } catch {
+    return null;
+  }
+  // PR comments are issue comments under GH's REST shape.
+  const url = `https://api.github.com/repos/${repoSlug}/issues/${prNumber}/comments`;
+  const r = await fetchImpl(url, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      accept: "application/vnd.github+json",
+      "x-github-api-version": "2022-11-28",
+      "user-agent": "conclave-ai-code-council",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ body }),
+  });
+  if (!r.ok) return null;
+  const j = (await r.json()) as { id: number };
+  return { id: j.id };
+}

@@ -44,6 +44,7 @@ import {
 import {
   exchangeOAuthCode,
   getAuthedUser,
+  postPrComment,
   verifyWebhookSignature,
 } from "../gh-app.js";
 import { spawnSandbox } from "./saas.js";
@@ -183,6 +184,12 @@ export function createSaasAuthRoutes(): Hono<{ Bindings: Env }> {
         autofix: false,
         publicBaseUrl,
       });
+      // Tell the user what's happening — silence is the worst UX.
+      // Best-effort; if the comment fails we still proceed.
+      const startBody = spawn.accepted
+        ? `🤖 **Conclave AI** is reviewing this PR.\n\nThe council (Claude + GPT-5 + Gemini) will post the verdict here in ~60 seconds. Add a \`[skip conclave]\` to a commit message to opt out.`
+        : `⏸ **Conclave AI** queued your review but couldn't start the sandbox right now: \`${(spawn.reason ?? "unknown").slice(0, 200)}\`. We'll retry on your next push.`;
+      await postPrComment(env, installationId, repoSlug, prNumber, startBody).catch(() => undefined);
       return c.json({
         ok: true,
         event,

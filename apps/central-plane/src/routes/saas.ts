@@ -33,7 +33,7 @@ import {
   findUserByToken,
   recordMeter,
 } from "../db/saas.js";
-import { getInstallationToken } from "../gh-app.js";
+import { getInstallationToken, postPrComment } from "../gh-app.js";
 
 const SANDBOX_NOT_BOUND_NOTE =
   "Sandbox container binding not yet provisioned on this Worker. The job is recorded; pipeline runs in the next deploy.";
@@ -370,6 +370,29 @@ export function createSaasRoutes(): Hono<{ Bindings: Env }> {
       }).catch(() => undefined);
     }
 
+    // Tell the user the result on the PR — silent verdicts confuse
+    // people. Best-effort; if the comment fails the row still has the
+    // truth in D1 for the dashboard.
+    const inst = await findInstallationByRepoSlug(c.env, body.repo);
+    if (inst) {
+      const repoForComment = body.repo;
+      const prNumberForComment = body.prNumber;
+      const commentBody = renderResultComment({
+        verdict: body.verdict,
+        blockers: body.blockers,
+        error: body.error,
+        durationMs: body.durationMs,
+        deployUrl: body.deployUrl,
+      });
+      await postPrComment(
+        c.env,
+        inst.installationId,
+        repoForComment,
+        prNumberForComment,
+        commentBody,
+      ).catch(() => undefined);
+    }
+
     return c.json({ ok: true });
   });
 
@@ -436,4 +459,56 @@ function randHex(n: number): string {
   const buf = new Uint8Array(n);
   crypto.getRandomValues(buf);
   return [...buf].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Render the PR comment posted when /internal/job-done fires.
+ *  Keeps the messaging consistent across review + autofix paths and
+ *  handles the empty-verdict / errored case so users always know
+ *  what happened. */
+function renderResultComment(args: {
+  verdict?: string;
+  blockers?: number;
+  error?: string;
+  durationMs?: number;
+  deployUrl?: string;
+}): string {
+  const dur = typeof args.durationMs === "number" ? `${Math.round(args.durationMs / 1000)}s` : "";
+  if (args.error) {
+    return [
+      `❌ **Conclave AI review failed.**`,
+      ``,
+      `Reason: \`${args.error.slice(0, 400)}\``,
+      ``,
+      `Try pushing again. If it keeps happening, this is on us — please [open an issue](https://github.com/seunghunbae-3svs/conclave-ai/issues/new).`,
+    ].join("\n");
+  }
+  const v = (args.verdict ?? "").toLowerCase();
+  if (v === "approve") {
+    return [
+      `✅ **Conclave AI verdict: APPROVE**${dur ? ` · ${dur}` : ""}`,
+      ``,
+      `Three-agent council found no blockers. Safe to merge.`,
+    ].join("\n");
+  }
+  if (v === "reject") {
+    return [
+      `🛑 **Conclave AI verdict: REJECT**${dur ? ` · ${dur}` : ""}`,
+      ``,
+      `${args.blockers ?? 0} blocker${(args.blockers ?? 0) === 1 ? "" : "s"} found. Council recommends not merging in current shape — see the inline review for specifics.`,
+    ].join("\n");
+  }
+  if (v === "rework") {
+    return [
+      `🔁 **Conclave AI verdict: REWORK**${dur ? ` · ${dur}` : ""}`,
+      ``,
+      `${args.blockers ?? 0} blocker${(args.blockers ?? 0) === 1 ? "" : "s"} found. Push a fix or run \`conclave autofix --use-saas --pr <N>\` to let the worker agent attempt the fixes.`,
+    ].join("\n");
+  }
+  // No verdict, no error — odd but possible (e.g. cli exited 0 without
+  // emitting one). Surface the run as completed-without-judgment.
+  return [
+    `🤖 **Conclave AI** finished${dur ? ` in ${dur}` : ""} but didn't produce a verdict.`,
+    ``,
+    `This usually means the diff was below the review threshold or the council couldn't reach consensus. Push again to retry.`,
+  ].join("\n");
 }
