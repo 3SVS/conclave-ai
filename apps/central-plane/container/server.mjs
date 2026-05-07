@@ -299,17 +299,30 @@ async function runJob(payload) {
     //   - `{ status: "bailed-max-iter", ... }` (autonomy ceiling)
     // We coerce `status` into `verdict` when verdict isn't set so the
     // worker / PR-comment renderer always has something to show.
+    // cli's runAutofix has multiple result shapes depending on which
+    // path it took:
+    //   - dry-run (our review-only call): { status: "dry-run",
+    //       finalVerdict, remainingBlockers, totalCostUsd, ... }
+    //   - autofix approved early: { status: "approved", ... }
+    //   - autofix completed: { verdict, reviews, ... }
+    //   - bailed: { status: "bailed-no-patches" | "bailed-max-iter", ... }
+    // Pull the verdict from whichever field is populated.
     const rawVerdict =
-      result && typeof result === "object" && "verdict" in result ? result.verdict : undefined;
+      (result && typeof result === "object" && "verdict" in result ? result.verdict : undefined) ??
+      (result && typeof result === "object" && "finalVerdict" in result ? result.finalVerdict : undefined);
     const rawStatus =
       result && typeof result === "object" && "status" in result ? result.status : undefined;
     const verdict =
       rawVerdict ??
-      (rawStatus === "approved"
+      (rawStatus === "approved" || rawStatus === "merged"
         ? "approve"
-        : rawStatus === "bailed-no-patches" || rawStatus === "bailed-max-iter" || rawStatus === "errored"
-          ? "rework"
-          : undefined);
+        : rawStatus === "dry-run"
+          ? // dry-run with no finalVerdict means council had no consensus
+            // — surface as rework so the user knows to push fixes
+            "rework"
+          : rawStatus === "bailed-no-patches" || rawStatus === "bailed-max-iter" || rawStatus === "errored"
+            ? "rework"
+            : undefined);
     const blockers =
       result && typeof result === "object" && Array.isArray(result.remainingBlockers)
         ? result.remainingBlockers.length
