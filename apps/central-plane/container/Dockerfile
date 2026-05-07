@@ -43,7 +43,7 @@ WORKDIR /app
 # build context is `apps/central-plane/`; we need the parent monorepo,
 # so the build is invoked from the repo root via:
 #   docker build -f apps/central-plane/container/Dockerfile -t conclave-sandbox .
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./
 COPY packages packages
 COPY apps/central-plane/container/server.mjs ./server.mjs
 
