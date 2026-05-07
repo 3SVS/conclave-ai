@@ -133,17 +133,9 @@ budget when visual is on:
 }
 ```
 
-Effective cap on multi-modal runs: `0.50 × 1.5 = $0.75`. Example cost
-for a 4-pair run (2 routes × 2 viewports):
+Effective cap on multi-modal runs: `0.50 × 1.5 = $0.75`. Visual review uses a chunky token footprint (one image pair per route × viewport), so a typical 4-pair run takes a meaningful slice of the per-PR budget — but the cap stops it from runaway.
 
-```
-Input:  ~12k tokens (8 images × ~1.5k + text)   = $0.18
-Output: ~800 tokens                              = $0.06
-Per run:                                         ≈ $0.24
-```
-
-A `perPrUsd: 0.5` budget comfortably covers ~2 visual runs. For
-design-heavy projects, bump to `1.0`.
+For design-heavy projects, bump `perPrUsd` to `1.0` so two visual runs fit per PR without tripping the cap.
 
 Time envelope (measured on GitHub-hosted runners):
 

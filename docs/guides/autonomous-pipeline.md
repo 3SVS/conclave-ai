@@ -131,16 +131,13 @@ jobs:
 | Central plane not redeployed but CLI is v0.8 | Central plane rejects `rework_cycle: unknown field` — but we use lenient body parsing so old central planes silently ignore extra fields and fall back to legacy keyboard. Upgrade central plane FIRST. |
 | `autonomy.maxReworkCycles: 0` | Notifier falls through to the legacy v0.7 three-button keyboard for every rework verdict. Clean opt-out. |
 
-## Token budget implications
+## Budget knobs
 
-Each auto-rework cycle = 1 Worker call + 1 Council review. Default config:
+Each auto-rework cycle = 1 Worker call + 1 Council review.
 
-- Worker: ~$0.05–0.15 depending on diff size
-- Review: ~$0.20–0.50 (tier-1) + escalation
+The shared budget tracker enforces `budget.perPrUsd` across all cycles in a PR (default `0.50`). When the budget tracker fires, subsequent cycles get early-exited so a runaway loop can't blow past the cap.
 
-Rough cap per PR at `maxReworkCycles: 3` is `3 × ($0.10 + $0.40)` = **~$1.50** on top of the initial human-triggered review. This is within the default `budget.perPrUsd: 0.50` when the budget tracker is shared across cycles; in practice the first cycle eats most of the budget and subsequent cycles get early-exits when the gate fires.
-
-If you want tighter cost control: `maxReworkCycles: 1` gives you the main value ("one auto-fix attempt") at half the worst-case cost.
+For tighter control, lower `autonomy.maxReworkCycles` to `1` — that gives you the main value ("one auto-fix attempt") with the smallest worst-case spend.
 
 ## Debugging
 

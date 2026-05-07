@@ -31,7 +31,6 @@ We dogfooded 15 synthetic-bug PRs across 5 vibe-coder Next.js templates (Vercel 
 |---|---|---|
 | Catch rate (synthetic blockers) | 100% | 100% |
 | **Mean blockers surfaced per PR** | **10.93** | 3.80 |
-| Cost per PR review | $0.057 | $0.015 |
 | Latency | 128s (parallel) | 12s |
 | Cache hit rate | 39.9% | n/a |
 
