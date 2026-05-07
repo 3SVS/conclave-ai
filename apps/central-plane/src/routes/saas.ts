@@ -105,7 +105,9 @@ export async function spawnSandbox(
   };
 
   // Forward LLM keys via env so the container's pipeline can call
-  // Anthropic / OpenAI / Gemini. The container reads these from
+  // Anthropic / OpenAI / Gemini. Telegram bot token is also forwarded
+  // so the cli's integration-telegram package can deliver the verdict
+  // card from inside the container. The container reads these from
   // process.env at runtime.
   const headers: Record<string, string> = {
     "content-type": "application/json",
@@ -113,6 +115,7 @@ export async function spawnSandbox(
   if (env.ANTHROPIC_API_KEY) headers["x-anthropic-key"] = env.ANTHROPIC_API_KEY;
   if (env.OPENAI_API_KEY) headers["x-openai-key"] = env.OPENAI_API_KEY;
   if (env.GEMINI_API_KEY) headers["x-gemini-key"] = env.GEMINI_API_KEY;
+  if (env.TELEGRAM_BOT_TOKEN) headers["x-telegram-bot-token"] = env.TELEGRAM_BOT_TOKEN;
 
   try {
     const r = await stub.fetch("http://sandbox/run", {

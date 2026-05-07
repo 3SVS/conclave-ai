@@ -68,6 +68,21 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // Hoist Worker-forwarded secrets (LLM keys + Telegram bot token)
+  // from request headers into process.env so the cli pipeline picks
+  // them up via its standard env reads. CF Containers don't auto-inject
+  // Worker secrets, so this is the bridge.
+  const headerEnvMap = {
+    "x-anthropic-key": "ANTHROPIC_API_KEY",
+    "x-openai-key": "OPENAI_API_KEY",
+    "x-gemini-key": "GEMINI_API_KEY",
+    "x-telegram-bot-token": "TELEGRAM_BOT_TOKEN",
+  };
+  for (const [h, e] of Object.entries(headerEnvMap)) {
+    const v = req.headers[h];
+    if (typeof v === "string" && v.length > 0) process.env[e] = v;
+  }
+
   // Acknowledge the job immediately. The actual work runs async; result
   // is delivered via the callback. Keeping the original Worker request
   // open for 1–3 minutes would burn CF Worker CPU budget.
@@ -181,10 +196,24 @@ async function runJob(payload) {
     const { code, result } = await runAutofix(args);
     console.log(`[job ${jobId}] runAutofix exit=${code} status=${result.status}`);
 
-    // 7. Callback to Worker.
+    // 7. Callback to Worker. Worker's /internal/job-done expects flat
+    //    fields (jobId, repo, prNumber, verdict, blockers, error,
+    //    durationMs); without repo+prNumber it 400s and the row stays
+    //    in `accepted` forever. Flatten what the worker reads + keep
+    //    `result` for any future deeper introspection.
+    const verdict =
+      result && typeof result === "object" && "verdict" in result ? result.verdict : undefined;
+    const blockers =
+      result && typeof result === "object" && Array.isArray(result.blockers)
+        ? result.blockers.length
+        : undefined;
     await postCallback(callbackUrl, callbackToken, {
       jobId,
+      repo,
+      prNumber,
       status: "done",
+      ...(verdict !== undefined ? { verdict } : {}),
+      ...(blockers !== undefined ? { blockers } : {}),
       exitCode: code,
       result,
       headSha,
@@ -195,6 +224,8 @@ async function runJob(payload) {
     console.error(`[job ${jobId}] failed:`, err);
     await postCallback(callbackUrl, callbackToken, {
       jobId,
+      repo,
+      prNumber,
       status: "errored",
       error: err.message ?? String(err),
       durationMs: Date.now() - start,
