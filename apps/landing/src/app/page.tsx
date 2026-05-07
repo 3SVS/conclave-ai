@@ -222,12 +222,12 @@ function Pricing() {
           price="$0"
           sub="bring your own Anthropic API key"
           features={[
-            "Unlimited reviews",
-            "Unlimited autofix",
+            "Unlimited reviews + autofix",
+            "PR comment delivery",
             "Anonymous failure-pattern sharing",
             "All council features",
           ]}
-          cta="Sign in with GitHub"
+          cta="Connect GitHub"
           ctaHref={LOGIN_URL}
         />
         <PriceCard
@@ -239,7 +239,7 @@ function Pricing() {
             "30 reviews / month",
             "10 autofix cycles / month",
             "Council + PRD layer",
-            "Telegram + PR comment delivery",
+            "Telegram alerts (premium)",
             "$5 booster: +5 reviews",
           ]}
           cta="Start with Solo"
@@ -252,7 +252,7 @@ function Pricing() {
           features={[
             "80 reviews / month",
             "30 autofix cycles / month",
-            "Priority sandbox queue",
+            "Telegram alerts + priority sandbox",
             "Private mode (no data sharing)",
             "$5 booster",
           ]}
@@ -261,8 +261,10 @@ function Pricing() {
         />
       </div>
       <p className="mt-8 text-xs text-neutral-500 max-w-prose">
-        Trial tier (5 reviews / 2 autofix per month, platform-managed key) available without a card while we run open beta.
-        Stripe metering ships once moat data accumulates from real usage.
+        1 free review the moment you install the GitHub App — no card. After that,
+        BYO key for free unlimited usage, or upgrade to Solo / Pro for Telegram
+        alerts and priority delivery. Stripe metering ships once moat data
+        accumulates from real usage.
       </p>
     </section>
   );
