@@ -4,26 +4,115 @@
 
 :root {
   color-scheme: light;
+  --grain-opacity: 0.04;
 }
 
 html {
-  font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
+  /* OpenType extras — contextual ligatures, stylistic set 01 (Geist).
+     The ss01 toggle activates Geist's slashed zero + open-aperture
+     numerals — distinctive without being decorative. */
+  font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1, "cv11" 1;
   text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
-  background: #f7f7f5;
-  color: #0e1116;
+  background: #FAFAF7;
+  color: #09090B;
+  /* Almost-imperceptible grain, applied site-wide so light areas read
+     as paper rather than a flat fill. SVG noise in a data URI keeps it
+     a single network-free declaration. */
+  background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.04 0 0 0 0 0.04 0 0 0 0 0.04 0 0 0 0.4 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.7'/></svg>");
+  background-size: 160px;
 }
 
-/* Slim selection style to match the "serious dev tool" tone. */
+/* Editorial selection — deep ink blue against cream paper. */
 ::selection {
-  background: #0a3a5e;
-  color: #fff;
+  background: #0A2540;
+  color: #FAFAF7;
 }
 
-/* Very subtle dotted background that shows through the content edges. */
+/* Hairline rule for editorial section dividers. */
+.rule {
+  border: 0;
+  border-top: 1px solid #E4E2D9;
+}
+.rule-strong {
+  border: 0;
+  border-top: 1.5px solid #1A1817;
+}
+
+/* Subtle dotted backdrop reserved for the hero. Tighter dots + lower
+   opacity than before so the heading remains the dominant texture. */
 .bg-grid {
-  background-image: radial-gradient(rgba(10, 58, 94, 0.08) 1px, transparent 1px);
-  background-size: 20px 20px;
+  background-image: radial-gradient(rgba(10, 37, 64, 0.07) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+/* Mono section marker — used at the top-left of every <section> for
+   editorial wayfinding (01 / 02 / 03 / …). */
+.section-mark {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: #71717A;
+  text-transform: uppercase;
+}
+
+/* Standard focus ring for any interactive element — 2px gap then 2px
+   accent line. Beats Tailwind's default boxy outline + meets WCAG. */
+:where(a, button, [role="button"], input, textarea, select):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px #FAFAF7, 0 0 0 4px #0A2540;
+  border-radius: 4px;
+}
+
+/* Underline-on-hover with offset for inline links — subtle motion
+   without bouncy transforms. */
+.link-anim {
+  position: relative;
+  text-decoration: none;
+}
+.link-anim::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  height: 1px;
+  background: currentColor;
+  transform-origin: right;
+  transform: scaleX(0);
+  transition: transform 240ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+.link-anim:hover::after {
+  transform-origin: left;
+  transform: scaleX(1);
+}
+
+/* Pricing card hover lift — 1px upward float, no shadow change. */
+.card-lift {
+  transition: transform 240ms cubic-bezier(0.65, 0, 0.35, 1),
+    box-shadow 240ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+.card-lift:hover {
+  transform: translateY(-2px);
+}
+
+/* Marquee track — for the "Used in production by" logo strip; pauses
+   on hover so users can read it. */
+.marquee {
+  display: flex;
+  gap: 4rem;
+  width: max-content;
+  animation: ticker 32s linear infinite;
+}
+.marquee:hover {
+  animation-play-state: paused;
+}
+@keyframes ticker {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
 }
