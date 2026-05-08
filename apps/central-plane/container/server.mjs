@@ -323,12 +323,32 @@ async function runJob(payload) {
           : rawStatus === "bailed-no-patches" || rawStatus === "bailed-max-iter" || rawStatus === "errored"
             ? "rework"
             : undefined);
-    const blockers =
-      result && typeof result === "object" && Array.isArray(result.remainingBlockers)
-        ? result.remainingBlockers.length
-        : result && typeof result === "object" && Array.isArray(result.blockers)
-          ? result.blockers.length
-          : undefined;
+    const blockerArray =
+      result && typeof result === "object"
+        ? (Array.isArray(result.remainingBlockers)
+            ? result.remainingBlockers
+            : Array.isArray(result.blockers)
+              ? result.blockers
+              : null)
+        : null;
+    const blockers = blockerArray ? blockerArray.length : undefined;
+    // Top-8 blocker summaries surfaced into the PR comment so users can
+    // see what to fix without digging into the episodic log. Each
+    // entry capped to keep the comment compact + within GitHub's
+    // 65k-char limit even on large reviews.
+    const blockerSummaries = blockerArray
+      ? blockerArray.slice(0, 8).map((b) => ({
+          category: typeof b?.category === "string" ? b.category : "uncategorized",
+          severity: typeof b?.severity === "string" ? b.severity : "minor",
+          message: typeof b?.message === "string" ? b.message.slice(0, 240) : "",
+          file: typeof b?.filePath === "string"
+            ? b.filePath
+            : typeof b?.path === "string"
+              ? b.path
+              : "",
+          line: typeof b?.line === "number" ? b.line : undefined,
+        }))
+      : undefined;
     // Diagnostic: any time we can't produce a real verdict, pack the
     // raw cli result fragments into the error channel so D1's
     // error_message captures it. Otherwise the row reads "done +
@@ -352,6 +372,7 @@ async function runJob(payload) {
       status: verdict === undefined ? "errored" : "done",
       ...(verdict !== undefined ? { verdict } : {}),
       ...(blockers !== undefined ? { blockers } : {}),
+      ...(blockerSummaries !== undefined ? { blockerSummaries } : {}),
       ...(diagnosticError ? { error: diagnosticError } : {}),
       exitCode: code,
       result,

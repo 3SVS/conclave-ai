@@ -330,6 +330,13 @@ export function createSaasRoutes(): Hono<{ Bindings: Env }> {
           prNumber?: number;
           verdict?: string;
           blockers?: number;
+          blockerSummaries?: Array<{
+            category?: string;
+            severity?: string;
+            message?: string;
+            file?: string;
+            line?: number;
+          }>;
           cycles?: number;
           durationMs?: number;
           error?: string;
@@ -380,6 +387,7 @@ export function createSaasRoutes(): Hono<{ Bindings: Env }> {
       const commentBody = renderResultComment({
         verdict: body.verdict,
         blockers: body.blockers,
+        blockerSummaries: body.blockerSummaries,
         error: body.error,
         durationMs: body.durationMs,
         deployUrl: body.deployUrl,
@@ -468,6 +476,13 @@ function randHex(n: number): string {
 function renderResultComment(args: {
   verdict?: string;
   blockers?: number;
+  blockerSummaries?: Array<{
+    category?: string;
+    severity?: string;
+    message?: string;
+    file?: string;
+    line?: number;
+  }>;
   error?: string;
   durationMs?: number;
   deployUrl?: string;
@@ -490,19 +505,43 @@ function renderResultComment(args: {
       `Three-agent council found no blockers. Safe to merge.`,
     ].join("\n");
   }
-  if (v === "reject") {
-    return [
-      `🛑 **Conclave AI verdict: REJECT**${dur ? ` · ${dur}` : ""}`,
+  if (v === "reject" || v === "rework") {
+    const heading = v === "reject"
+      ? `🛑 **Conclave AI verdict: REJECT**${dur ? ` · ${dur}` : ""}`
+      : `🔁 **Conclave AI verdict: REWORK**${dur ? ` · ${dur}` : ""}`;
+    const total = args.blockers ?? 0;
+    const lines: string[] = [
+      heading,
       ``,
-      `${args.blockers ?? 0} blocker${(args.blockers ?? 0) === 1 ? "" : "s"} found. Council recommends not merging in current shape — see the inline review for specifics.`,
-    ].join("\n");
-  }
-  if (v === "rework") {
-    return [
-      `🔁 **Conclave AI verdict: REWORK**${dur ? ` · ${dur}` : ""}`,
-      ``,
-      `${args.blockers ?? 0} blocker${(args.blockers ?? 0) === 1 ? "" : "s"} found. Push a fix or run \`conclave autofix --use-saas --pr <N>\` to let the worker agent attempt the fixes.`,
-    ].join("\n");
+      `${total} blocker${total === 1 ? "" : "s"} found.`,
+    ];
+    const summaries = Array.isArray(args.blockerSummaries) ? args.blockerSummaries : [];
+    if (summaries.length > 0) {
+      lines.push("");
+      summaries.forEach((b, i) => {
+        const cat = b.category ?? "uncategorized";
+        const sev = b.severity ? ` · _${b.severity}_` : "";
+        const loc = b.file
+          ? `\n   \`${b.file}${typeof b.line === "number" ? `:${b.line}` : ""}\``
+          : "";
+        const msg = (b.message ?? "").trim();
+        lines.push(`${i + 1}. **[${cat}]**${sev} ${msg}${loc}`);
+      });
+      if (total > summaries.length) {
+        lines.push("");
+        lines.push(`_+ ${total - summaries.length} more — full set in the episodic log._`);
+      }
+    }
+    if (v === "rework") {
+      lines.push("");
+      lines.push(
+        `Push a fix or run \`conclave autofix --use-saas --pr <N>\` to let the worker agent attempt the fixes.`,
+      );
+    } else {
+      lines.push("");
+      lines.push(`Council recommends not merging in this shape — address the blockers above and push again.`);
+    }
+    return lines.join("\n");
   }
   // No verdict, no error — odd but possible (e.g. cli exited 0 without
   // emitting one). Surface the run as completed-without-judgment.
