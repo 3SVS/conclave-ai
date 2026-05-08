@@ -35,7 +35,12 @@ import { ClaudeAgent } from "@conclave-ai/agent-claude";
 import { DesignAgent } from "@conclave-ai/agent-design";
 import { OpenAIAgent } from "@conclave-ai/agent-openai";
 import { GeminiAgent } from "@conclave-ai/agent-gemini";
-import { loadConfig } from "../lib/config.js";
+import { loadConfig, resolveMemoryRoot } from "../lib/config.js";
+import {
+  FileSystemMemoryStore,
+  formatAnswerKeyForPrompt,
+  formatFailureForPrompt,
+} from "@conclave-ai/core";
 import { loadProjectContext, loadDesignContext } from "../lib/project-context.js";
 import {
   discoverAuditFiles,
@@ -453,6 +458,31 @@ export async function audit(argv: string[]): Promise<void> {
     process.stderr.write(`conclave audit: ${s}\n`);
   }
 
+  // v0.16.7 — RAG: pull domain-filtered answer-keys + failure-catalog
+  // once before the batch loop. Audit batches share the same retrieval
+  // because the corpus is repo-level, not batch-level. design audits
+  // get the bundled design seeds (8 patterns + 8 failures) plus any
+  // user-written .conclave/answer-keys/design entries; code audits stay
+  // code-domain.
+  const ctxDomain: "code" | "design" = resolvedDomain === "design" ? "design" : "code";
+  const memoryRoot = resolveMemoryRoot(config, cwd);
+  const memoryStore = new FileSystemMemoryStore({ root: memoryRoot });
+  const auditRetrieval = await memoryStore
+    .retrieve({
+      query: `audit domain=${ctxDomain} repo=${repo}`,
+      repo,
+      domain: ctxDomain,
+      k: 8,
+    })
+    .catch(() => ({ answerKeys: [], failures: [], rules: [] } as Awaited<ReturnType<FileSystemMemoryStore["retrieve"]>>));
+  const auditAnswerKeys = auditRetrieval.answerKeys.map(formatAnswerKeyForPrompt);
+  const auditFailures = auditRetrieval.failures.map(formatFailureForPrompt);
+  if (auditAnswerKeys.length > 0 || auditFailures.length > 0) {
+    process.stderr.write(
+      `conclave audit: RAG context — ${auditAnswerKeys.length} answer-key(s) + ${auditFailures.length} failure(s) from ${ctxDomain} domain\n`,
+    );
+  }
+
   // v0.6.4 — auto-inject project + design context so audit findings can
   // be judged against the repo's stated purpose, not just against
   // generic "what does this file do" heuristics.
@@ -510,6 +540,8 @@ export async function audit(argv: string[]): Promise<void> {
       mode: "audit",
       auditFiles: b.files.map((f) => f.path),
       domain: resolvedDomain === "design" ? "design" : "code",
+      answerKeys: auditAnswerKeys,
+      failureCatalog: auditFailures,
     };
     if (projectCtxLoaded.projectContext) {
       ctx.projectContext = projectCtxLoaded.projectContext;
