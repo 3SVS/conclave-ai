@@ -30,6 +30,7 @@ import {
   createJob,
   findDeviceCode,
   findInstallationById,
+  findJobByHeadSha,
   findUserByToken,
   issueToken,
   linkInstallationUser,
@@ -42,6 +43,7 @@ import {
   upsertUser,
 } from "../db/saas.js";
 import {
+  createCouncilCheckRun,
   exchangeOAuthCode,
   getAuthedUser,
   postPrComment,
@@ -199,6 +201,72 @@ export function createSaasAuthRoutes(): Hono<{ Bindings: Env }> {
         billed,
         spawn: spawn.accepted ? "accepted" : (spawn.reason ?? "queued"),
       });
+    }
+
+    // Sprint 2 — check_run: a third-party deploy preview (Vercel /
+    // Netlify / Cloudflare) finished. Most reviews fire +60-120s after
+    // the PR push when the deploy build is still running, so the
+    // initial council verdict can be APPROVE while the deploy fails
+    // shortly after. Without this branch the user sees green Council
+    // ✓ + green CI ✓ + red Vercel ✗ and gets confused. We re-write
+    // the council check-run conclusion to action_required and post a
+    // PR comment naming the failing deploy.
+    if (event === "check_run" && action === "completed") {
+      const checkRun = (p["check_run"] ?? {}) as Record<string, unknown>;
+      const repo = (p["repository"] ?? {}) as Record<string, unknown>;
+      const inst = (p["installation"] ?? {}) as Record<string, unknown>;
+      const checkName = String(checkRun["name"] ?? "");
+      const conclusion = String(checkRun["conclusion"] ?? "");
+      const headSha = String(checkRun["head_sha"] ?? "");
+      const repoSlug = String(repo["full_name"] ?? "");
+      const installationId = Number(inst["id"]);
+
+      // Skip our own check-run + non-deploy checks. Only react to
+      // failures of recognized deploy-platform runs.
+      const isDeployCheck = /vercel|netlify|cloudflare|deploy|preview/i.test(checkName);
+      const isOurCheck = /conclave/i.test(checkName);
+      if (!isDeployCheck || isOurCheck) {
+        return c.json({ ok: true, event, action, delivery, skipped: "not_a_deploy_check" });
+      }
+      if (conclusion !== "failure" && conclusion !== "timed_out" && conclusion !== "cancelled") {
+        return c.json({ ok: true, event, action, delivery, skipped: "deploy_did_not_fail" });
+      }
+      if (!headSha || !repoSlug || !installationId) {
+        return c.json({ ok: true, event, action, delivery, skipped: "missing_fields" });
+      }
+
+      // Find the job we ran for this exact head SHA. If our review
+      // hasn't fired yet (deploy finished before review), the
+      // pull_request handler's later spawn will probe deploy via cli
+      // and surface the failure on its own — no follow-up needed.
+      const job = await findJobByHeadSha(env, repoSlug, headSha);
+      if (!job) {
+        return c.json({ ok: true, event, action, delivery, skipped: "no_prior_job" });
+      }
+      // If the council already said REWORK / REJECT, the user already
+      // has a clear gate. Only act when our verdict was APPROVE — the
+      // mismatch case Bae flagged.
+      if (job.verdict !== "approve") {
+        return c.json({ ok: true, event, action, delivery, skipped: `council_already_${job.verdict ?? "unknown"}` });
+      }
+
+      const platformName = pickDeployPlatformName(checkName);
+      const failNote = [
+        `⚠️ **${platformName} deploy failed for this commit** after Conclave's APPROVE verdict.`,
+        ``,
+        `Council reviewed code only — the build failure trumps that. Don't merge until the build is green.`,
+        ``,
+        `Failed check: \`${checkName}\` · conclusion \`${conclusion}\``,
+      ].join("\n");
+      await postPrComment(env, installationId, repoSlug, job.prNumber, failNote).catch(() => undefined);
+      // Re-write our check-run to action_required so the merge gate
+      // reflects the build failure too.
+      await createCouncilCheckRun(env, installationId, repoSlug, headSha, {
+        verdict: "rework",
+        ...(job.blockers !== null && job.blockers !== undefined ? { blockers: job.blockers } : {}),
+        summary: `${platformName} deploy failed after council approve. Address the build failure before merging.`,
+      }).catch(() => undefined);
+      return c.json({ ok: true, event, action, delivery, action_taken: "downgraded_to_rework", platform: platformName });
     }
 
     // pull_request_review, push, etc. — ack for now.
@@ -371,4 +439,12 @@ function randHexLocal(n: number): string {
   const buf = new Uint8Array(n);
   crypto.getRandomValues(buf);
   return [...buf].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function pickDeployPlatformName(checkName: string): string {
+  const n = checkName.toLowerCase();
+  if (n.includes("vercel")) return "Vercel";
+  if (n.includes("netlify")) return "Netlify";
+  if (n.includes("cloudflare")) return "Cloudflare";
+  return "Deploy";
 }

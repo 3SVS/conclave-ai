@@ -562,13 +562,15 @@ export async function completeJob(
     smokeOutcome?: string;
     deployUrl?: string;
     errorMessage?: string;
+    headSha?: string;
   },
 ): Promise<void> {
   const now = new Date().toISOString();
   await env.DB.prepare(
     `UPDATE jobs
         SET status = ?, verdict = ?, blockers = ?, cycles = ?, duration_ms = ?,
-            smoke_outcome = ?, deploy_url = ?, error_message = ?, completed_at = ?
+            smoke_outcome = ?, deploy_url = ?, error_message = ?,
+            head_sha = COALESCE(?, head_sha), completed_at = ?
       WHERE id = ?`,
   )
     .bind(
@@ -580,10 +582,36 @@ export async function completeJob(
       input.smokeOutcome ?? null,
       input.deployUrl ?? null,
       input.errorMessage ?? null,
+      input.headSha ?? null,
       now,
       input.jobId,
     )
     .run();
+}
+
+/**
+ * Find the most recent review/autofix job for a repo + head SHA.
+ * Used by Sprint 2's check_run webhook handler when Vercel/Netlify/CF
+ * post a deploy result late — we need to map back to the council
+ * verdict for that exact commit so we can amend the PR comment +
+ * check-run conclusion.
+ */
+export async function findJobByHeadSha(
+  env: Env,
+  repoSlug: string,
+  headSha: string,
+): Promise<SaasJob | null> {
+  const r = await env.DB.prepare(
+    `SELECT id, user_id, repo_slug, pr_number, kind, status, verdict,
+            blockers, cycles, duration_ms, smoke_outcome, deploy_url,
+            error_message, prd_present, created_at, completed_at, head_sha
+       FROM jobs
+      WHERE repo_slug = ? AND head_sha = ?
+      ORDER BY created_at DESC LIMIT 1`,
+  )
+    .bind(repoSlug, headSha)
+    .first();
+  return r ? rowToJob(r) : null;
 }
 
 function rowToJob(r: any): SaasJob {

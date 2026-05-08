@@ -363,6 +363,7 @@ export function createSaasRoutes(): Hono<{ Bindings: Env }> {
     if (body.smokeOutcome !== undefined) completeArgs.smokeOutcome = body.smokeOutcome;
     if (body.deployUrl !== undefined) completeArgs.deployUrl = body.deployUrl;
     if (body.error !== undefined) completeArgs.errorMessage = body.error;
+    if (typeof body.headSha === "string" && body.headSha.length > 0) completeArgs.headSha = body.headSha;
 
     await completeJob(c.env, completeArgs).catch(() => undefined);
 

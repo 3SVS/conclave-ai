@@ -88,42 +88,41 @@ function TopBar() {
 function Hero() {
   return (
     <section className="bg-grid border-b border-paper-line">
-      <div className="mx-auto max-w-page px-6 pt-24 pb-28 md:pt-32 md:pb-36">
-        <div className="grid gap-x-12 md:grid-cols-12 items-start">
-          {/* Asymmetric column layout — heading + body span 8, CTAs span 4. */}
-          <div className="md:col-span-8 animate-rise">
-            <div className="flex items-center gap-3 mb-7">
-              <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-mute">
-                v0.16 · 2026
-              </span>
-              <span className="h-px flex-1 bg-paper-line" />
-              <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-mute">
-                code review SaaS
-              </span>
-            </div>
-            <h1 className="font-display font-bold text-[clamp(2.5rem,6vw,4.75rem)] leading-[1.02] tracking-tightxx text-ink">
-              A council of AI agents
-              <br />
-              reviews your PRs
-              <br />
-              <span className="font-serif italic font-medium text-accent-900">against your PRD.</span>
-            </h1>
-            <p className="mt-7 text-lg md:text-xl text-ink-subtle max-w-prose leading-[1.55]">
-              Three frontier models — Claude, GPT-5, and Gemini — independently review every
-              pull request. Disagreement surfaces blockers no single model catches alone. When
-              you attach a PRD, agents flag spec-mismatches as first-class blockers — not just
-              code-quality.
-            </p>
-          </div>
-
-          <div className="md:col-span-4 mt-10 md:mt-0 animate-rise" style={{ animationDelay: "120ms" }}>
-            <SignInButton />
-            <InstallCommand />
-            <p className="mt-5 text-xs text-ink-mute leading-relaxed">
-              Open beta · 1 free review on install · BYO Anthropic key = unlimited free · Solo $19/mo
-            </p>
-          </div>
+      <div className="mx-auto max-w-3xl px-6 pt-24 pb-28 md:pt-32 md:pb-36 animate-rise">
+        <div className="flex items-center gap-3 mb-7">
+          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-mute">
+            v0.16 · 2026
+          </span>
+          <span className="h-px flex-1 bg-paper-line" />
+          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-mute">
+            code review SaaS
+          </span>
         </div>
+        <h1 className="font-display font-bold text-[clamp(2.5rem,6vw,4.75rem)] leading-[1.02] tracking-tightxx text-ink">
+          A council of AI agents
+          <br />
+          reviews your PRs
+          <br />
+          <span className="font-serif italic font-medium text-accent-900">against your PRD.</span>
+        </h1>
+        <p className="mt-7 text-lg md:text-xl text-ink-subtle leading-[1.55]">
+          Three frontier models — Claude, GPT-5, and Gemini — independently review every
+          pull request. Disagreement surfaces blockers no single model catches alone. When you
+          attach a PRD, agents flag spec-mismatches as first-class blockers — not just
+          code-quality.
+        </p>
+
+        {/* CTA row — horizontal on md+, stacked on mobile. Sign-in is
+            the dominant primary action; the install command sits next
+            to it as a power-user lane. Both kept left-aligned inside
+            the centered narrow column. */}
+        <div className="mt-10 grid gap-4 sm:grid-cols-[auto_1fr] items-stretch">
+          <SignInButton />
+          <InstallCommand />
+        </div>
+        <p className="mt-6 text-xs text-ink-mute leading-relaxed">
+          Open beta · 1 free review on install · BYO Anthropic key = unlimited free · Solo $19/mo
+        </p>
       </div>
     </section>
   );
@@ -187,7 +186,7 @@ function HowItWorks() {
     },
   ];
   return (
-    <section id="how" className="border-b border-paper-line">
+    <section id="how" className="border-b border-paper-line bg-paper-dim/40">
       <div className="mx-auto max-w-page px-6 py-28">
         <SectionHeader mark="01 — workflow" title="How it works" />
         <p className="mt-3 max-w-prose text-ink-muted">
@@ -219,7 +218,7 @@ function HowItWorks() {
 
 function CouncilEvidence() {
   return (
-    <section className="border-b border-paper-line bg-paper-dim/40">
+    <section className="border-b border-paper-line">
       <div className="mx-auto max-w-page px-6 py-28">
         <SectionHeader mark="02 — moat data" title={<>Why a council, <span className="font-serif italic font-medium">not Claude alone</span></>} />
         <p className="mt-3 max-w-prose text-ink-muted">
@@ -284,7 +283,7 @@ function Stat({
 
 function DemoSection() {
   return (
-    <section id="try" className="border-b border-paper-line">
+    <section id="try" className="border-b border-paper-line bg-paper-dim/40">
       <div className="mx-auto max-w-page px-6 py-28">
         <SectionHeader mark="03 — try it" title="Run a council pass on a public PR" />
         <p className="mt-3 max-w-prose text-ink-muted">
@@ -304,7 +303,7 @@ function DemoSection() {
 
 function Pricing() {
   return (
-    <section id="pricing" className="border-b border-paper-line bg-paper-dim/40">
+    <section id="pricing" className="border-b border-paper-line">
       <div className="mx-auto max-w-page px-6 py-28">
         <SectionHeader mark="04 — pricing" title="Hard cutoffs. No surprise invoices." />
         <p className="mt-3 max-w-prose text-ink-muted">
@@ -460,7 +459,7 @@ function FAQ() {
     },
   ];
   return (
-    <section id="faq" className="border-b border-paper-line">
+    <section id="faq" className="border-b border-paper-line bg-paper-dim/40">
       <div className="mx-auto max-w-page px-6 py-28">
         <SectionHeader mark="05 — questions" title="FAQ" />
         <dl className="mt-14 divide-y divide-paper-line border-y border-paper-line">
