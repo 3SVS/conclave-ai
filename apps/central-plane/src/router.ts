@@ -17,6 +17,7 @@ import { createAdminRoutes } from "./routes/admin.js";
 import { createSaasAuthRoutes } from "./routes/saas-auth.js";
 import { createSaasRoutes } from "./routes/saas.js";
 import { createDemoRoutes } from "./routes/demo.js";
+import { createReferencesRoutes } from "./routes/references.js";
 import type { FetchLike } from "./github.js";
 
 /**
@@ -59,6 +60,9 @@ export function createApp(opts: { fetch?: FetchLike } = {}): Hono<{ Bindings: En
   // Tasks #51 — landing demo (no-auth, IP rate-limited). Single Claude
   // pass with optional PRD; designed to convert landing visitors.
   app.route("/", createDemoRoutes());
+  // v0.16.8 — Phase 4: external design-reference cache. CLI review +
+  // audit GET /references/:domain to inject curated lessons into RAG.
+  app.route("/", createReferencesRoutes());
   app.onError((err, c) => {
     console.error("central-plane error:", err);
     return c.json({ error: err.message || "internal error" }, 500);

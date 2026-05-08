@@ -47,6 +47,7 @@ import { autoPullFederatedBaselineInBackground } from "../lib/auto-pull-federate
 import { pushEpisodicAnchor } from "../lib/episodic-anchor.js";
 import { fetchDeployStatus } from "@conclave-ai/scm-github";
 import { loadConfig, resolveMemoryRoot } from "../lib/config.js";
+import { fetchExternalReferences } from "../lib/external-references.js";
 import { loadProjectContext, loadDesignContext, loadPrd } from "../lib/project-context.js";
 import { loadPrDiff, loadGitDiff, loadFileDiff, type LoadedDiff } from "../lib/diff-source.js";
 import { renderPlainSummarySection, renderReview, verdictToExitCode } from "../lib/output.js";
@@ -405,6 +406,15 @@ export async function review(argv: string[]): Promise<void> {
     ...(federatedFrequency ? { federatedFrequency } : {}),
   });
 
+  // v0.16.8 — Phase 4: pull external design-reference lessons from
+  // central-plane (cached extraction of Vercel Design / shadcn/ui /
+  // Refactoring UI / etc). Best-effort — network failure returns empty
+  // and the review proceeds with local + bundled data.
+  const externalRefs = await fetchExternalReferences(ctxDomain).catch(() => ({
+    answerKeys: [] as string[],
+    failureCatalog: [] as string[],
+  }));
+
   // For tier-build we may need the "code" domain config (mixed pulls
   // from BOTH). For non-mixed, fall through to the standard path.
   const codeDomainCfg = config.council.domains?.["code"];
@@ -622,8 +632,17 @@ export async function review(argv: string[]): Promise<void> {
     repo: loaded.repo,
     pullNumber: loaded.pullNumber,
     newSha: loaded.newSha,
-    answerKeys: retrieval.answerKeys.map(formatAnswerKeyForPrompt),
-    failureCatalog: retrieval.failures.map(formatFailureForPrompt),
+    // Local memory first (user .conclave/ + bundled seeds), then
+    // external curated references appended. Order matters when
+    // prompts cap at 8 — local wins over external.
+    answerKeys: [
+      ...retrieval.answerKeys.map(formatAnswerKeyForPrompt),
+      ...externalRefs.answerKeys,
+    ],
+    failureCatalog: [
+      ...retrieval.failures.map(formatFailureForPrompt),
+      ...externalRefs.failureCatalog,
+    ],
     domain: ctxDomain,
     deployStatus,
   };

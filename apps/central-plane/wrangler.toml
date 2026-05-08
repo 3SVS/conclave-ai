@@ -29,9 +29,10 @@ enabled = true
 # `getWebhookInfo`, and rebinds `setWebhook` if our URL is missing.
 # Worst-case window of inert action buttons = 10 min.
 [triggers]
-# */10 — Telegram webhook self-heal (rebinds when getUpdates drops it)
-# */5  — SaaS jobs stuck-cleanup (fail jobs stuck in `accepted` >30 min)
-crons = ["*/10 * * * *", "*/5 * * * *"]
+# */10  — Telegram webhook self-heal (rebinds when getUpdates drops it)
+# */5   — SaaS jobs stuck-cleanup (fail jobs stuck in `accepted` >30 min)
+# 03:00 UTC daily — external design-reference refresh (Phase 4)
+crons = ["*/10 * * * *", "*/5 * * * *", "0 3 * * *"]
 
 # v0.16.2 — Conclave AI sandbox container.
 #

@@ -36,6 +36,7 @@ import { DesignAgent } from "@conclave-ai/agent-design";
 import { OpenAIAgent } from "@conclave-ai/agent-openai";
 import { GeminiAgent } from "@conclave-ai/agent-gemini";
 import { loadConfig, resolveMemoryRoot } from "../lib/config.js";
+import { fetchExternalReferences } from "../lib/external-references.js";
 import {
   FileSystemMemoryStore,
   formatAnswerKeyForPrompt,
@@ -475,11 +476,18 @@ export async function audit(argv: string[]): Promise<void> {
       k: 8,
     })
     .catch(() => ({ answerKeys: [], failures: [], rules: [] } as Awaited<ReturnType<FileSystemMemoryStore["retrieve"]>>));
-  const auditAnswerKeys = auditRetrieval.answerKeys.map(formatAnswerKeyForPrompt);
-  const auditFailures = auditRetrieval.failures.map(formatFailureForPrompt);
+  const localAnswerKeys = auditRetrieval.answerKeys.map(formatAnswerKeyForPrompt);
+  const localFailures = auditRetrieval.failures.map(formatFailureForPrompt);
+  // v0.16.8 — Phase 4 external curated references (best-effort).
+  const externalRefs = await fetchExternalReferences(ctxDomain).catch(() => ({
+    answerKeys: [] as string[],
+    failureCatalog: [] as string[],
+  }));
+  const auditAnswerKeys = [...localAnswerKeys, ...externalRefs.answerKeys];
+  const auditFailures = [...localFailures, ...externalRefs.failureCatalog];
   if (auditAnswerKeys.length > 0 || auditFailures.length > 0) {
     process.stderr.write(
-      `conclave audit: RAG context — ${auditAnswerKeys.length} answer-key(s) + ${auditFailures.length} failure(s) from ${ctxDomain} domain\n`,
+      `conclave audit: RAG context — ${auditAnswerKeys.length} answer-key(s) (${externalRefs.answerKeys.length} external) + ${auditFailures.length} failure(s) (${externalRefs.failureCatalog.length} external) from ${ctxDomain} domain\n`,
     );
   }
 
