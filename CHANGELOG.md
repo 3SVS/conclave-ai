@@ -54,13 +54,13 @@
   reason in the prompt — capped at 2 retries by default (3 total
   worker calls per blocker per iteration; hard cap 4).
 
-  Live RC: eventbadge#29 burnt all 3 OUTER cycles ($0.60) because
-  each cycle's single worker call emitted a bad patch and the loop
-  bailed. With this retry, the second call sees "your last patch
-  landed at line 17 but the deletion is at line 18" and corrects
-  in-cycle — the outer cycle ceiling never has to be exhausted.
+  Live RC: eventbadge#29 burnt all 3 OUTER cycles because each
+  cycle's single worker call emitted a bad patch and the loop bailed.
+  With this retry, the second call sees "your last patch landed at
+  line 17 but the deletion is at line 18" and corrects in-cycle —
+  the outer cycle ceiling never has to be exhausted.
 
-  Each retry costs roughly $0.20. New fields:
+  New fields:
   - `WorkerContext.previousAttempts: WorkerRejectedAttempt[]` —
     populated on retry calls. Worker prompt renders a "Previous
     attempts that were REJECTED" section with the rejected patch +
@@ -976,7 +976,7 @@
   - **Cross-agent blocker deduplication** — blockers pointing at the same `file:line` merge into one entry with an `"Claude + OpenAI agree"` marker so consensus is obvious.
   - **Humanized category labels** — `workflow-security` → `CI workflow security`, `secrets-exposure` → `Possible secret leak`, `supply-chain` → `Supply-chain risk`, `type-error` → `Type mismatch`, plus ~10 more. Unknown categories pass through verbatim so custom tags aren't rewritten.
   - **Top-3 distinct blockers** across all agents (was: top-3 per agent, so 9 with 3 agents and massive overlap). Remainder shown as `"+ N more issues"`.
-  - **Compact footer** — `💰 $0.37 · agents: 3` instead of `cost: 0.3664 · episodic: ep-abc…`. Episodic id kept on its own line for ops lookup.
+  - **Compact footer** — `agents: 3` summary line; episodic id kept on its own line for ops lookup.
   - `approve` verdict gets a friendly single-line blessing (`All agents agreed the change is ready to ship`) instead of empty per-agent blocks.
   - 11 tests cover verdict labels, category humanization, cross-agent merge, severity ordering, truncation at the 4096-char Telegram limit, HTML escape.
 

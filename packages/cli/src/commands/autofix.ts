@@ -171,7 +171,6 @@ export function renderAutofixSummary(result: AutofixResult, repo: string, prNumb
   lines.push(`  status:         ${result.status}`);
   if (result.finalVerdict) lines.push(`  final verdict:  ${result.finalVerdict}`);
   lines.push(`  iterations:     ${result.iterations.length}`);
-  lines.push(`  total cost:     $${result.totalCostUsd.toFixed(4)}`);
   lines.push(`  merge status:   ${result.mergeStatus}`);
   if (result.reason) lines.push(`  reason:         ${result.reason}`);
   for (const it of result.iterations) {

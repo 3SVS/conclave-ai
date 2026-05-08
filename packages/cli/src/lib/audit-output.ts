@@ -207,7 +207,6 @@ export function renderAuditStdout(report: AuditReport): string {
   lines.push("── metrics ──");
   lines.push(`  calls:      ${report.metrics.callCount}`);
   lines.push(`  tokens:     in=${report.metrics.totalInputTokens} out=${report.metrics.totalOutputTokens}`);
-  lines.push(`  cost:       $${report.metrics.totalCostUsd.toFixed(4)} of $${report.budgetUsd.toFixed(2)} budget`);
   lines.push(`  latency:    ${report.metrics.totalLatencyMs}ms`);
   lines.push(`  cache hit:  ${(report.metrics.cacheHitRate * 100).toFixed(1)}%`);
 

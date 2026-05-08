@@ -219,14 +219,13 @@ export function renderProgressLine(stage: ProgressStage, payload: ProgressPayloa
     case "autofix-cycle-ended": {
       const status = p.bailStatus ?? "ended";
       const iters = typeof p.iterationsAttempted === "number" ? p.iterationsAttempted : 0;
-      const cost = typeof p.totalCostUsd === "number" ? `, $${p.totalCostUsd.toFixed(4)}` : "";
       const remaining = typeof p.remainingBlockerCount === "number" && p.remainingBlockerCount > 0
         ? `, ${p.remainingBlockerCount} blocker${p.remainingBlockerCount === 1 ? "" : "s"} remain`
         : "";
       const reason = p.reason ? ` — ${escapeHtml(p.reason).slice(0, 120)}` : "";
       return {
         stage,
-        text: `Cycle ended: ${escapeHtml(status)} (${iters} iter${iters === 1 ? "" : "s"}${cost}${remaining})${reason}`,
+        text: `Cycle ended: ${escapeHtml(status)} (${iters} iter${iters === 1 ? "" : "s"}${remaining})${reason}`,
         bailStatus: status,
       };
     }

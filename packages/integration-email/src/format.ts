@@ -57,7 +57,7 @@ export function renderEmail(input: NotifyReviewInput): RenderedEmail {
     if (r.summary) textLines.push(`  summary: ${r.summary}`);
     textLines.push("");
   }
-  textLines.push(`cost: $${totalCostUsd.toFixed(4)} · episodic: ${episodicId}`);
+  textLines.push(`episodic: ${episodicId}`);
   const text = textLines.join("\n");
 
   // HTML rendering — self-contained, no external CSS, email-safe.
