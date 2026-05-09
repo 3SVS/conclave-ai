@@ -5,6 +5,7 @@ import { selfHealWebhook } from "./webhook-heal.js";
 import { cleanupStuckJobs } from "./stuck-cleanup.js";
 import { refreshAllSources } from "./external-references.js";
 import { retryPendingFeedback } from "./routes/feedback.js";
+import { promoteSeedsPass } from "./seed-promoter.js";
 
 const app = createApp();
 
@@ -78,6 +79,21 @@ export default {
         );
       } catch (err) {
         console.error("[feedback-classify-retry] crashed:", err);
+      }
+      return;
+    }
+    if (event.cron === "0 4 * * *") {
+      try {
+        const result = await promoteSeedsPass(env);
+        console.log(
+          JSON.stringify({
+            cron: "seed-promoter",
+            cronExpression: event.cron,
+            ...result,
+          }),
+        );
+      } catch (err) {
+        console.error("[seed-promoter] crashed:", err);
       }
       return;
     }

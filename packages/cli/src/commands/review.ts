@@ -48,6 +48,7 @@ import { pushEpisodicAnchor } from "../lib/episodic-anchor.js";
 import { fetchDeployStatus } from "@conclave-ai/scm-github";
 import { loadConfig, resolveMemoryRoot } from "../lib/config.js";
 import { fetchExternalReferences } from "../lib/external-references.js";
+import { fetchPromotedSeeds } from "../lib/promoted-seeds.js";
 import { loadProjectContext, loadDesignContext, loadPrd } from "../lib/project-context.js";
 import { loadPrDiff, loadGitDiff, loadFileDiff, type LoadedDiff } from "../lib/diff-source.js";
 import { renderPlainSummarySection, renderReview, verdictToExitCode } from "../lib/output.js";
@@ -414,6 +415,14 @@ export async function review(argv: string[]): Promise<void> {
     answerKeys: [] as string[],
     failureCatalog: [] as string[],
   }));
+  // v0.16.10 — Sprint C: pull promoted seeds (synthesized from
+  // accumulated user_feedback). These are higher-signal than external
+  // refs because they come from real conclave users, but lower-priority
+  // than this repo's local memory.
+  const promotedSeeds = await fetchPromotedSeeds(ctxDomain).catch(() => ({
+    answerKeys: [] as string[],
+    failureCatalog: [] as string[],
+  }));
 
   // For tier-build we may need the "code" domain config (mixed pulls
   // from BOTH). For non-mixed, fall through to the standard path.
@@ -635,12 +644,16 @@ export async function review(argv: string[]): Promise<void> {
     // Local memory first (user .conclave/ + bundled seeds), then
     // external curated references appended. Order matters when
     // prompts cap at 8 — local wins over external.
+    // Order: local > promoted (community user feedback) > external
+    // (public curated). Prompt cap drops from the tail when needed.
     answerKeys: [
       ...retrieval.answerKeys.map(formatAnswerKeyForPrompt),
+      ...promotedSeeds.answerKeys,
       ...externalRefs.answerKeys,
     ],
     failureCatalog: [
       ...retrieval.failures.map(formatFailureForPrompt),
+      ...promotedSeeds.failureCatalog,
       ...externalRefs.failureCatalog,
     ],
     domain: ctxDomain,

@@ -33,7 +33,8 @@ enabled = true
 # */5   — SaaS jobs stuck-cleanup (fail jobs stuck in `accepted` >30 min)
 # 03:00 UTC daily — external design-reference refresh (Phase 4)
 # every 6h     — feedback classification retry (Sprint A: pending → classified)
-crons = ["*/10 * * * *", "*/5 * * * *", "0 3 * * *", "0 */6 * * *"]
+# 04:00 UTC daily — seed-promoter (Sprint C: classified feedback → promoted_seeds)
+crons = ["*/10 * * * *", "*/5 * * * *", "0 3 * * *", "0 */6 * * *", "0 4 * * *"]
 
 # v0.16.2 — Conclave AI sandbox container.
 #

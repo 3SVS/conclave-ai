@@ -19,6 +19,7 @@ import { createSaasRoutes } from "./routes/saas.js";
 import { createDemoRoutes } from "./routes/demo.js";
 import { createReferencesRoutes } from "./routes/references.js";
 import { createFeedbackRoutes } from "./routes/feedback.js";
+import { createPromotedSeedsRoutes } from "./routes/promoted-seeds.js";
 import type { FetchLike } from "./github.js";
 
 /**
@@ -68,6 +69,10 @@ export function createApp(opts: { fetch?: FetchLike } = {}): Hono<{ Bindings: En
   // GET /me/feedback, POST /admin/classify-feedback). Closes the
   // self-evolve loop by capturing user signal back into the substrate.
   app.route("/", createFeedbackRoutes());
+  // v0.16.10 — Sprint C: promoted seeds (GET /seeds/promoted/:domain,
+  // POST /admin/promote-seeds). Synthesizes promoted seeds from
+  // accumulated user feedback so the CLI fetches them at review time.
+  app.route("/", createPromotedSeedsRoutes());
   app.onError((err, c) => {
     console.error("central-plane error:", err);
     return c.json({ error: err.message || "internal error" }, 500);

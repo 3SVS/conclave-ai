@@ -37,6 +37,7 @@ import { OpenAIAgent } from "@conclave-ai/agent-openai";
 import { GeminiAgent } from "@conclave-ai/agent-gemini";
 import { loadConfig, resolveMemoryRoot } from "../lib/config.js";
 import { fetchExternalReferences } from "../lib/external-references.js";
+import { fetchPromotedSeeds } from "../lib/promoted-seeds.js";
 import {
   FileSystemMemoryStore,
   formatAnswerKeyForPrompt,
@@ -483,11 +484,24 @@ export async function audit(argv: string[]): Promise<void> {
     answerKeys: [] as string[],
     failureCatalog: [] as string[],
   }));
-  const auditAnswerKeys = [...localAnswerKeys, ...externalRefs.answerKeys];
-  const auditFailures = [...localFailures, ...externalRefs.failureCatalog];
+  // v0.16.10 — Sprint C promoted seeds (community-user-derived).
+  const promotedSeeds = await fetchPromotedSeeds(ctxDomain).catch(() => ({
+    answerKeys: [] as string[],
+    failureCatalog: [] as string[],
+  }));
+  const auditAnswerKeys = [
+    ...localAnswerKeys,
+    ...promotedSeeds.answerKeys,
+    ...externalRefs.answerKeys,
+  ];
+  const auditFailures = [
+    ...localFailures,
+    ...promotedSeeds.failureCatalog,
+    ...externalRefs.failureCatalog,
+  ];
   if (auditAnswerKeys.length > 0 || auditFailures.length > 0) {
     process.stderr.write(
-      `conclave audit: RAG context — ${auditAnswerKeys.length} answer-key(s) (${externalRefs.answerKeys.length} external) + ${auditFailures.length} failure(s) (${externalRefs.failureCatalog.length} external) from ${ctxDomain} domain\n`,
+      `conclave audit: RAG context — ${auditAnswerKeys.length} answer-key(s) (${promotedSeeds.answerKeys.length} promoted, ${externalRefs.answerKeys.length} external) + ${auditFailures.length} failure(s) (${promotedSeeds.failureCatalog.length} promoted, ${externalRefs.failureCatalog.length} external) from ${ctxDomain} domain\n`,
     );
   }
 
