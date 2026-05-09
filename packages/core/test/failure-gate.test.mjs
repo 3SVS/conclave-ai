@@ -389,3 +389,117 @@ test("applyFailureGate calibration: 2 overrides on minor → skip", () => {
   assert.equal(result.stickyBlockers.length, 0);
   assert.equal(result.calibrationSkips.length, 1);
 });
+
+// --- v0.16.10: focus-filter precision tests ----------------------------
+// Regression target: an a11y-focused PR was triggering visual-decoration
+// stickies (rainbow palette, accent spread) because raw token overlap
+// matched generic words like "color" / "background". The fix adds focus
+// detection on both sides; we drop the sticky when both have signals
+// and they don't intersect.
+
+test("focus-filter: a11y diff + visual-decoration failure → SKIP (the precision fix)", () => {
+  const decorationFailure = mkFailure({
+    id: "bundled-design-fail-rainbow-palette",
+    category: "visual-decoration",
+    severity: "major",
+    title: "Rainbow palette across pricing / section / category cards",
+    body: "Assigning a different bright color to each pricing tier or category card signals weak hierarchy. Stick to a single accent + neutrals.",
+    tags: ["palette", "color", "accent"],
+  });
+  const a11yDiff = [
+    "+++ b/app/settings/page.tsx",
+    "+      <div onClick={() => setCount(count + 1)}",
+    "+        style={{ background: \"#222\", color: \"#999\", padding: 8, cursor: \"pointer\" }}",
+    "+      >",
+    "+        Increment ({count})",
+    "+      </div>",
+    "+      <input type=\"email\" placeholder=\"email\" />",
+    "+      <a onClick={() => alert('hello')}>Open hello</a>",
+  ].join("\n");
+  const outcome = mkOutcome("rework", [
+    { agent: "claude", verdict: "rework", blockers: [
+      { severity: "blocker", category: "accessibility", message: "missing alt", file: "app/settings/page.tsx" },
+    ], summary: "" },
+  ]);
+  const result = applyFailureGate(outcome, [decorationFailure], { ...baseCtx, diff: a11yDiff });
+  assert.equal(
+    result.stickyBlockers.length,
+    0,
+    "decoration failure must NOT fire on a11y-focused diff",
+  );
+});
+
+test("focus-filter: visual-decoration diff + visual-decoration failure → MATCH (regression-safe)", () => {
+  const decorationFailure = mkFailure({
+    id: "bundled-design-fail-rainbow-palette",
+    category: "visual-decoration",
+    severity: "major",
+    title: "Rainbow palette across pricing tiers",
+    body: "Assigning bright distinct accent colors to each pricing tier signals weak hierarchy and decorative compensation. Use one accent.",
+    tags: ["palette", "accent", "rainbow", "color"],
+  });
+  const decorationDiff = [
+    "+++ b/components/PricingTiers.tsx",
+    "+const tierColors = ['#ff5555', '#55ff55', '#5555ff', '#ffff55'];  // rainbow palette",
+    "+function Tier({ tier, idx }) {",
+    "+  return <div style={{ background: tierColors[idx], padding: 16 }}>{tier.name}</div>;",
+    "+}",
+  ].join("\n");
+  const outcome = mkOutcome("approve", [
+    { agent: "claude", verdict: "approve", blockers: [], summary: "" },
+  ]);
+  const result = applyFailureGate(outcome, [decorationFailure], { ...baseCtx, diff: decorationDiff });
+  assert.equal(
+    result.stickyBlockers.length,
+    1,
+    "decoration failure SHOULD fire on decoration diff",
+  );
+});
+
+test("focus-filter: failure with no detectable focus tags → MATCHES regardless (regression-safe)", () => {
+  const genericFailure = mkFailure({
+    id: "fc-debug",
+    category: "debug-noise",
+    severity: "major",
+    title: "console.log debug call left in production code",
+    body: "Remove console.log debug calls before merging — they leak operational data.",
+  });
+  const a11yDiff = [
+    "+++ b/app/page.tsx",
+    "+function Page() {",
+    "+  console.log('debug aria-label tabIndex');",
+    "+  return <div>x</div>;",
+    "+}",
+  ].join("\n");
+  const outcome = mkOutcome("approve", [
+    { agent: "claude", verdict: "approve", blockers: [], summary: "" },
+  ]);
+  const result = applyFailureGate(outcome, [genericFailure], { ...baseCtx, diff: a11yDiff });
+  assert.equal(
+    result.stickyBlockers.length,
+    1,
+    "failure with no focus tags should still fire (focus filter is conservative)",
+  );
+});
+
+test("focus-filter: a11y diff + a11y failure → MATCH (existing path preserved)", () => {
+  const a11yFailure = mkFailure({
+    id: "fc-aria-required",
+    category: "accessibility",
+    severity: "major",
+    title: "Missing aria-label on icon-only button",
+    body: "Icon-only buttons need an aria-label so screen readers announce them. Add aria-label or visible text.",
+    tags: ["aria", "screen reader", "label"],
+  });
+  const a11yDiff = [
+    "+++ b/app/Toolbar.tsx",
+    "+<button aria-hidden onClick={save}>",
+    "+  <SaveIcon />",
+    "+</button>",
+  ].join("\n");
+  const outcome = mkOutcome("approve", [
+    { agent: "claude", verdict: "approve", blockers: [], summary: "" },
+  ]);
+  const result = applyFailureGate(outcome, [a11yFailure], { ...baseCtx, diff: a11yDiff });
+  assert.equal(result.stickyBlockers.length, 1, "a11y failure must fire on a11y diff");
+});

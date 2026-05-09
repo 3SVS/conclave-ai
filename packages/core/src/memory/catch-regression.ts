@@ -3,6 +3,7 @@ import type { Blocker, ReviewContext, ReviewResult } from "../agent.js";
 import type { CouncilOutcome } from "../council.js";
 import type { FailureEntry } from "./schema.js";
 import type { MemoryStore } from "./store.js";
+import { detectDiffFocus, detectFailureFocus, shouldMatchByFocus } from "./focus-tags.js";
 
 /**
  * H3 #15 — regression-detection meta-loop.
@@ -68,6 +69,11 @@ export function detectCatchRegressions(
   const maxOut = opts.maxRegressions ?? 5;
   const diffTokens = extractAddedLineTokens(input.ctx.diff);
   if (diffTokens.size === 0) return [];
+  // v0.16.10 — same focus filter as failure-gate. Without it, low-
+  // threshold token overlap (default 1) routinely flags decoration
+  // catalog entries on a11y diffs (or vice versa) and we get noisy
+  // "catch-regression" alerts the user can't act on.
+  const diffFocus = detectDiffFocus(input.ctx.diff);
 
   // Categories the council OR gate already raised this round count as
   // "caught" — don't flag them as regressions.
@@ -86,6 +92,11 @@ export function detectCatchRegressions(
     // Don't recurse on meta entries — they describe past misses, not
     // patterns themselves.
     if (failure.tags.some((t) => META_TAGS.has(t))) continue;
+
+    // Focus-filter — same conservative semantic as failure-gate:
+    // skip only when both sides have detectable focus and they don't
+    // intersect.
+    if (!shouldMatchByFocus(diffFocus, detectFailureFocus(failure))) continue;
 
     // Tokens from this failure's title + body + tags.
     const failureTokens = collectFailureTokens(failure);

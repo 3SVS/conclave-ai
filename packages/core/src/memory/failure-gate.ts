@@ -1,6 +1,7 @@
 import type { Blocker, ReviewContext, ReviewResult } from "../agent.js";
 import type { CouncilOutcome } from "../council.js";
 import type { CalibrationEntry, FailureEntry } from "./schema.js";
+import { detectDiffFocus, detectFailureFocus, shouldMatchByFocus } from "./focus-tags.js";
 
 export interface FailureGateOptions {
   /**
@@ -82,6 +83,13 @@ export function applyFailureGate(
   const severityFloor = severityRank(opts.minSeverity ?? "minor");
   const diffAddedTokens = extractAddedLineTokens(ctx.diff);
   const changedFiles = extractChangedFiles(ctx.diff);
+  // v0.16.10 — focus-filter precision fix. Detect what categories the
+  // diff is *about* (a11y, decoration, typography, etc.) so we can drop
+  // catalog matches that share generic tokens but live in unrelated
+  // sub-domains. Falls through to bare token-overlap when either side
+  // has no detectable focus signal — preserves prior behavior, only
+  // narrows when we have signal on both sides.
+  const diffFocus = detectDiffFocus(ctx.diff);
 
   // Index by FREE-FORM category — same key the gate uses below for
   // alreadyCoveredByCouncil. Council blockers carry free-form
@@ -106,6 +114,10 @@ export function applyFailureGate(
 
     const matchedTokens = matchTokens(failure, diffAddedTokens, minOverlap);
     if (matchedTokens.length === 0) continue;
+
+    // Focus-filter (focus-tags.ts) — when both diff and failure have
+    // detectable focus and they don't intersect, drop the match.
+    if (!shouldMatchByFocus(diffFocus, detectFailureFocus(failure))) continue;
 
     const cat = effectiveCategory(failure);
 

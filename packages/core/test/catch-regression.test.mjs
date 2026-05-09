@@ -258,3 +258,43 @@ test("writeCatchRegression: distinct categories produce distinct ids", async () 
     cleanup(root);
   }
 });
+
+// --- v0.16.10: focus-filter precision (mirror failure-gate fix) ----------
+
+test("focus-filter: a11y diff + visual-decoration failure → skipped (no false catch-regression alert)", () => {
+  const decorationFailure = {
+    id: "bundled-design-fail-rainbow-palette",
+    createdAt: new Date().toISOString(),
+    domain: "design",
+    category: "visual-decoration",
+    severity: "major",
+    title: "Rainbow palette across pricing tiers",
+    body: "Assigning bright accent colors to each tier signals weak hierarchy.",
+    tags: ["palette", "accent", "color", "rainbow"],
+  };
+  const a11yDiff = [
+    "+++ b/app/page.tsx",
+    "+      <div onClick={() => setCount(count + 1)}",
+    "+        style={{ background: \"#222\", color: \"#999\" }}",
+    "+      >Increment</div>",
+    "+      <input type=\"email\" />",
+  ].join("\n");
+  const outcome = {
+    verdict: "rework",
+    rounds: 1,
+    consensusReached: true,
+    results: [
+      { agent: "claude", verdict: "rework", blockers: [
+        { severity: "blocker", category: "accessibility", message: "missing alt", file: "app/page.tsx" },
+      ], summary: "" },
+    ],
+  };
+  const found = detectCatchRegressions({
+    outcome,
+    ctx: { diff: a11yDiff },
+    retrievedFailures: [decorationFailure],
+  });
+  // Decoration failure should NOT be flagged as a catch-regression on
+  // an a11y-only diff — that was the noise the precision fix targets.
+  assert.equal(found.length, 0);
+});
