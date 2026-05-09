@@ -18,6 +18,7 @@ import { createSaasAuthRoutes } from "./routes/saas-auth.js";
 import { createSaasRoutes } from "./routes/saas.js";
 import { createDemoRoutes } from "./routes/demo.js";
 import { createReferencesRoutes } from "./routes/references.js";
+import { createFeedbackRoutes } from "./routes/feedback.js";
 import type { FetchLike } from "./github.js";
 
 /**
@@ -63,6 +64,10 @@ export function createApp(opts: { fetch?: FetchLike } = {}): Hono<{ Bindings: En
   // v0.16.8 — Phase 4: external design-reference cache. CLI review +
   // audit GET /references/:domain to inject curated lessons into RAG.
   app.route("/", createReferencesRoutes());
+  // v0.16.9 — Sprint A: user feedback intake (POST /feedback,
+  // GET /me/feedback, POST /admin/classify-feedback). Closes the
+  // self-evolve loop by capturing user signal back into the substrate.
+  app.route("/", createFeedbackRoutes());
   app.onError((err, c) => {
     console.error("central-plane error:", err);
     return c.json({ error: err.message || "internal error" }, 500);

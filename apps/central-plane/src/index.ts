@@ -4,6 +4,7 @@ import { assertPreflight } from "./preflight.js";
 import { selfHealWebhook } from "./webhook-heal.js";
 import { cleanupStuckJobs } from "./stuck-cleanup.js";
 import { refreshAllSources } from "./external-references.js";
+import { retryPendingFeedback } from "./routes/feedback.js";
 
 const app = createApp();
 
@@ -30,6 +31,7 @@ export default {
   //   - every 10 min → Telegram webhook self-heal (v0.13.7)
   //   - every 5 min  → SaaS jobs stuck-cleanup (v0.16.4)
   //   - every day 03:00 UTC → external design references refresh (v0.16.8)
+  //   - every 6 hours      → retry pending user_feedback classification (v0.16.9)
   //
   // Each branch logs a structured outcome so `wrangler tail` is the
   // audit trail (the scheduled trigger has no caller to return data to).
@@ -61,6 +63,21 @@ export default {
         );
       } catch (err) {
         console.error("[external-references-refresh] crashed:", err);
+      }
+      return;
+    }
+    if (event.cron === "0 */6 * * *") {
+      try {
+        const result = await retryPendingFeedback(env, 50);
+        console.log(
+          JSON.stringify({
+            cron: "feedback-classify-retry",
+            cronExpression: event.cron,
+            ...result,
+          }),
+        );
+      } catch (err) {
+        console.error("[feedback-classify-retry] crashed:", err);
       }
       return;
     }

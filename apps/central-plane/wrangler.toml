@@ -32,7 +32,8 @@ enabled = true
 # */10  — Telegram webhook self-heal (rebinds when getUpdates drops it)
 # */5   — SaaS jobs stuck-cleanup (fail jobs stuck in `accepted` >30 min)
 # 03:00 UTC daily — external design-reference refresh (Phase 4)
-crons = ["*/10 * * * *", "*/5 * * * *", "0 3 * * *"]
+# every 6h     — feedback classification retry (Sprint A: pending → classified)
+crons = ["*/10 * * * *", "*/5 * * * *", "0 3 * * *", "0 */6 * * *"]
 
 # v0.16.2 — Conclave AI sandbox container.
 #
