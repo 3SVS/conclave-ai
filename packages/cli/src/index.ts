@@ -18,6 +18,7 @@ import { status } from "./commands/status.js";
 import { login } from "./commands/login.js";
 import { logout } from "./commands/logout.js";
 import { whoami } from "./commands/whoami.js";
+import { feedback } from "./commands/feedback.js";
 import { CLI_VERSION } from "./version.js";
 import { hydrateEnvFromStorage } from "./lib/credentials.js";
 
@@ -47,6 +48,7 @@ Commands:
   login                 Authenticate the CLI with the Conclave AI SaaS via Device Flow (v0.16)
   logout                Revoke the SaaS bearer token + remove ~/.conclave/auth.json (v0.16)
   whoami                Print the current SaaS user (github_login + tier) (v0.16)
+  feedback              Submit feedback on a prior conclave review (v0.16.10)
   --help, -h            Show this
   --version, -v         Show version
 
@@ -63,6 +65,8 @@ Examples:
   conclave seed                           # one-time bootstrap from the bundled solo-cto-agent catalog
   conclave migrate --dry-run              # preview migration from solo-cto-agent
   conclave migrate --from ../solo-cto-agent
+  conclave feedback                       # interactive — submit feedback on a prior review (v0.16.10)
+  conclave feedback --list                # show your last 50 feedback entries + classifier categories
 `;
 
 export async function run(argv: string[]): Promise<void> {
@@ -152,6 +156,9 @@ export async function run(argv: string[]): Promise<void> {
       return;
     case "whoami":
       await whoami(rest);
+      return;
+    case "feedback":
+      await feedback(rest);
       return;
     default:
       process.stderr.write(`Unknown command: ${cmd}\n\n${HELP}`);
