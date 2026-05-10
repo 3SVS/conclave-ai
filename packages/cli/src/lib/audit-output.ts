@@ -57,6 +57,19 @@ export interface AuditReport {
   batchesRun: number;
   batchesTotal: number;
   metrics: MetricsSummary;
+  /**
+   * v0.16.11 — Sprint D RAG-injection telemetry. Same shape as
+   * review-json-output's RagInjectionTelemetry so dashboards can read
+   * both surfaces with one parser.
+   */
+  ragInjection?: {
+    answerKeysLocal: number;
+    answerKeysPromoted: number;
+    answerKeysExternal: number;
+    failureCatalogLocal: number;
+    failureCatalogPromoted: number;
+    failureCatalogExternal: number;
+  };
 }
 
 const SEVERITY_ORDER: Record<Blocker["severity"], number> = {

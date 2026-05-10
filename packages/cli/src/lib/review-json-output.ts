@@ -48,6 +48,28 @@ export interface ReviewJsonInput {
     tier2Verdict?: "approve" | "rework" | "reject";
   };
   plainSummary?: PlainSummary;
+  /**
+   * v0.16.11 — Sprint D: RAG-injection telemetry. Counts of context
+   * entries that were available to agents in this review pass. Lets
+   * downstream measurement tools answer "did Phase 4 / Sprint C add
+   * meaningful context, or were the prompts effectively unchanged?"
+   */
+  ragInjection?: RagInjectionTelemetry;
+}
+
+export interface RagInjectionTelemetry {
+  /** Local-memory answer-keys (user .conclave/ + bundled solo-cto seeds). */
+  answerKeysLocal: number;
+  /** Promoted seeds fetched from /seeds/promoted/:domain (Sprint C). */
+  answerKeysPromoted: number;
+  /** External curated references fetched from /references/:domain (Phase 4). */
+  answerKeysExternal: number;
+  /** Local-memory failure-catalog entries. */
+  failureCatalogLocal: number;
+  /** Promoted seeds (failure kind). */
+  failureCatalogPromoted: number;
+  /** External curated references (failure kind). */
+  failureCatalogExternal: number;
 }
 
 export interface ReviewJsonOutputAgent {
@@ -74,6 +96,8 @@ export interface ReviewJsonOutput {
     costUsd: number;
     latencyMs: number;
     cacheHitRate: number;
+    /** v0.16.11 — Sprint D RAG-injection telemetry. */
+    rag?: RagInjectionTelemetry;
   };
   episodicId: string;
   sha: string;
@@ -117,7 +141,7 @@ export function buildReviewJson(input: ReviewJsonInput): ReviewJsonOutput {
         tier2Verdict: "" as const,
       };
 
-  const metrics = {
+  const metrics: ReviewJsonOutput["metrics"] = {
     calls: input.metrics.callCount,
     tokensIn: input.metrics.totalInputTokens,
     tokensOut: input.metrics.totalOutputTokens,
@@ -125,6 +149,9 @@ export function buildReviewJson(input: ReviewJsonInput): ReviewJsonOutput {
     latencyMs: input.metrics.totalLatencyMs,
     cacheHitRate: input.metrics.cacheHitRate,
   };
+  if (input.ragInjection) {
+    metrics.rag = input.ragInjection;
+  }
 
   const out: ReviewJsonOutput = {
     verdict: input.councilVerdict,

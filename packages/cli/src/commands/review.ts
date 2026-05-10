@@ -1293,6 +1293,17 @@ export async function review(argv: string[]): Promise<void> {
       results: outcome.results,
       metrics: gate.metrics.summary(),
       episodicId: episodic.id,
+      // v0.16.11 — Sprint D RAG-injection telemetry. Counts come from
+      // the same arrays we built ctx.answerKeys/failureCatalog from
+      // above, so they reflect what actually went into agent prompts.
+      ragInjection: {
+        answerKeysLocal: retrieval.answerKeys.length,
+        answerKeysPromoted: promotedSeeds.answerKeys.length,
+        answerKeysExternal: externalRefs.answerKeys.length,
+        failureCatalogLocal: retrieval.failures.length,
+        failureCatalogPromoted: promotedSeeds.failureCatalog.length,
+        failureCatalogExternal: externalRefs.failureCatalog.length,
+      },
     };
     if (loaded.pullNumber) jsonInput.pullNumber = loaded.pullNumber;
     if (tieredOutcome) {

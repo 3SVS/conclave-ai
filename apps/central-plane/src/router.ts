@@ -20,6 +20,7 @@ import { createDemoRoutes } from "./routes/demo.js";
 import { createReferencesRoutes } from "./routes/references.js";
 import { createFeedbackRoutes } from "./routes/feedback.js";
 import { createPromotedSeedsRoutes } from "./routes/promoted-seeds.js";
+import { createLearningStatsRoutes } from "./routes/learning-stats.js";
 import type { FetchLike } from "./github.js";
 
 /**
@@ -73,6 +74,11 @@ export function createApp(opts: { fetch?: FetchLike } = {}): Hono<{ Bindings: En
   // POST /admin/promote-seeds). Synthesizes promoted seeds from
   // accumulated user feedback so the CLI fetches them at review time.
   app.route("/", createPromotedSeedsRoutes());
+  // v0.16.11 — Sprint D: GET /admin/learning-stats. Snapshot of
+  // current self-evolve substrate state (feedback, promoted seeds,
+  // external references) so operators / dashboards can answer "is the
+  // substrate working?" with hard numbers.
+  app.route("/", createLearningStatsRoutes());
   app.onError((err, c) => {
     console.error("central-plane error:", err);
     return c.json({ error: err.message || "internal error" }, 500);

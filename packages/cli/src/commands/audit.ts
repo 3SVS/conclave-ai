@@ -645,6 +645,17 @@ export async function audit(argv: string[]): Promise<void> {
     batchesRun,
     batchesTotal: batches.length,
     metrics: metrics.summary(),
+    // v0.16.11 — Sprint D RAG-injection telemetry. Mirrors the values
+    // we logged to stderr earlier so machine-readable + human-readable
+    // outputs agree.
+    ragInjection: {
+      answerKeysLocal: localAnswerKeys.length,
+      answerKeysPromoted: promotedSeeds.answerKeys.length,
+      answerKeysExternal: externalRefs.answerKeys.length,
+      failureCatalogLocal: localFailures.length,
+      failureCatalogPromoted: promotedSeeds.failureCatalog.length,
+      failureCatalogExternal: externalRefs.failureCatalog.length,
+    },
   };
 
   // 7a. v0.6.1 — plain-language summary for non-dev stakeholders. Same
