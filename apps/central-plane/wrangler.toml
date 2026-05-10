@@ -38,7 +38,13 @@ enabled = true
 # 06:00 UTC daily   — oss-pr-miner (Sprint E2: extract patterns from popular OSS bugfix PRs)
 # 07:00 UTC Mondays — changelog-monitor (Sprint E3: track new releases of React/Next.js/Tailwind/TS/shadcn-ui/Storybook)
 # 08:00 UTC Mondays — agent-spawner (Sprint E5 shadow: detect new domains in classified-as-other feedback, propose new agent persona)
-crons = ["*/10 * * * *", "*/5 * * * *", "0 3 * * *", "0 */6 * * *", "0 4 * * *", "0 5 * * 0", "0 6 * * *", "0 7 * * 1", "0 8 * * 1"]
+#
+# v0.14.4 — day-of-week=0 (Sunday) is rejected by Cloudflare's cron parser
+# (`code: 10100, invalid cron string`). CF Workers cron uses 1-7 with
+# Sunday=7 (NOT the POSIX 0-6 range). The dispatcher in src/index.ts
+# branches on the literal cron expression, so `0 5 * * 7` here MUST
+# match the same string in the scheduled() handler.
+crons = ["*/10 * * * *", "*/5 * * * *", "0 3 * * *", "0 */6 * * *", "0 4 * * *", "0 5 * * 7", "0 6 * * *", "0 7 * * 1", "0 8 * * 1"]
 
 # v0.16.2 — Conclave AI sandbox container.
 #

@@ -101,7 +101,9 @@ export default {
       }
       return;
     }
-    if (event.cron === "0 5 * * 0") {
+    // v0.14.4 — day-of-week=7 (Sunday) since CF cron parser rejects 0.
+    // See wrangler.toml header comment.
+    if (event.cron === "0 5 * * 7") {
       try {
         const result = await runSourceDiscovery(env);
         console.log(

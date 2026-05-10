@@ -11,8 +11,8 @@
  *                                                between weekly cron firings).
  *
  * All endpoints require INTERNAL_CALLBACK_TOKEN. The weekly cron in
- * src/index.ts (`0 5 * * 0`, 0500 UTC every Sunday) calls
- * runSourceDiscovery() directly.
+ * src/index.ts (`0 5 * * 7`, 0500 UTC every Sunday — CF cron uses
+ * 1-7 with Sunday=7) calls runSourceDiscovery() directly.
  */
 import { Hono } from "hono";
 import type { Env } from "../env.js";
