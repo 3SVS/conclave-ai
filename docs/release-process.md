@@ -45,9 +45,13 @@ What it does:
   `pnpm -r exec npm version <bump> --no-git-tag-version`.
 - Commits `chore(release): v<new-version>` + tags `v<new-version>` +
   pushes both back to `main`.
-- Publishes every package via `pnpm publish -r --access public`
-  with `NPM_CONFIG_PROVENANCE=true` (signed attestations on each
-  tarball).
+- Publishes via `scripts/release/publish-unpublished.mjs`, which wraps
+  `pnpm -r --filter <new-pkgs> publish --access public --no-git-checks`
+  but first queries `npm view <name>@<version>` per workspace package
+  and skips the ones already on the registry. This makes the workflow
+  idempotent when its own tag pushes (`v$X.Y.Z` and the floating
+  `v0.4` tag) re-fire it. `NPM_CONFIG_PROVENANCE` is enabled when the
+  repo is public.
 
 ## Option B — Cut the tag locally
 
@@ -84,6 +88,9 @@ to confirm the release landed.
   secret is missing, expired, or doesn't have `@conclave-ai` scope.
 - **Workflow fails at bump commit push** → repo workflow permissions
   aren't "Read and write." Fix in repo settings.
-- **`pnpm publish -r` skips a package** → probably already published
-  at that version. pnpm silently no-ops rather than fail, which is
-  correct for re-runs.
+- **"All package versions already on registry — skipping publish"** →
+  expected. `publish-unpublished.mjs` saw every workspace package
+  already at the requested version on npm. Most common cause: this
+  workflow run was triggered by its own tag push (the `workflow_dispatch`
+  run pushed `v$X.Y.Z` + the floating `v0.4`, both of which re-fire the
+  `push: tags: ["v*"]` trigger). The re-runs exit 0 cleanly.

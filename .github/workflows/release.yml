@@ -3,10 +3,12 @@ name: release
 # Two triggers:
 #   1. workflow_dispatch — manual "ship a release" button in the Actions UI.
 #      Bumps every public package in lockstep (monorepo pre-1.0 policy) and
-#      publishes via `pnpm publish -r`.
+#      publishes via scripts/release/publish-unpublished.mjs (a `pnpm publish -r`
+#      wrapper that skips already-published versions, so tag-trigger re-fires
+#      from this same dispatch are idempotent no-ops).
 #   2. tag push on `v*` — for when you want to cut the tag locally and let
 #      CI handle the actual publish. Skips the version bump step since the
-#      tag is the source of truth.
+#      tag is the source of truth. Also covers the self-re-trigger above.
 
 on:
   workflow_dispatch:
@@ -164,11 +166,22 @@ jobs:
       # source repository visibility: private". We leave the feature off
       # by default and enable it via `PROVENANCE=true` env input once the
       # repo is flipped to public.
+      #
+      # v0.14.3 — replaced bare `pnpm publish -r` with publish-unpublished.mjs,
+      # which queries `npm view <name>@<version>` per package and only
+      # invokes pnpm publish for the ones that aren't on the registry yet.
+      # Reason: every workflow_dispatch run pushes vX.Y.Z + the floating
+      # tag (e.g. v0.4), and BOTH tag pushes re-fire this workflow's
+      # `push: tags: ["v*"]` trigger. Pre-fix, those re-fires hit
+      # already-published versions, npm returns 403, and Actions UI
+      # shows "1 success + 2 false-failure" for every release. Now the
+      # tag-push path detects the no-op and exits 0 cleanly.
+      # See scripts/release/publish-unpublished.test.mjs for unit tests.
       - name: Publish to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: ${{ vars.NPM_CONFIG_PROVENANCE || 'false' }}
-        run: pnpm publish -r --access public --no-git-checks
+        run: node scripts/release/publish-unpublished.mjs
 
       # v0.13.9 — auto-move the current floating tag (e.g. v0.4) onto
       # the just-published release commit. Pre-fix this was manual:
