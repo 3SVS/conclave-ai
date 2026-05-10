@@ -16,14 +16,24 @@ import { feedback } from "../dist/commands/feedback.js";
 // --- tiny harness ---------------------------------------------------------
 
 function tmpHome() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "concfb-"));
-  fs.mkdirSync(path.join(dir, ".conclave"), { recursive: true });
-  return dir;
+  return fs.mkdtempSync(path.join(os.tmpdir(), "concfb-"));
+}
+
+// Mirrors authDir() in src/lib/auth-token.ts when XDG_CONFIG_HOME is unset
+// (withHome below deletes it). Computed eagerly so writeAuth() can run
+// before withHome installs the env vars.
+function authPathFor(home) {
+  if (process.platform === "win32") {
+    return path.join(home, ".conclave", "auth.json");
+  }
+  return path.join(home, ".config", "conclave", "auth.json");
 }
 
 function writeAuth(home) {
+  const p = authPathFor(home);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
   fs.writeFileSync(
-    path.join(home, ".conclave", "auth.json"),
+    p,
     JSON.stringify({
       version: 1,
       token: "test-bearer-token",
