@@ -30,7 +30,11 @@ export type FocusTag =
   | "responsive"
   | "interaction"
   | "dead-code"
-  | "performance";
+  | "performance"
+  | "security"
+  | "i18n"
+  | "forms"
+  | "state-management";
 
 interface FocusPattern {
   tag: FocusTag;
@@ -77,6 +81,34 @@ const FOCUS_PATTERNS: ReadonlyArray<FocusPattern> = [
   {
     tag: "performance",
     re: /\b(perf(ormance)?|memo(ize|ization)?|lazy|debounce|throttle|n\+1|bundle\s+size|next\/image)/i,
+  },
+  // Security — XSS / injection / auth bypass / hardcoded creds / dangerous APIs.
+  // Conservative: matches specific dangerous primitives + explicit
+  // hard-coded-credential phrasing rather than the bare word "security",
+  // which appears too commonly in unrelated comments to be a useful tag.
+  {
+    tag: "security",
+    re: /\b(xss|csrf|sql[\s-]?inject(ion)?|prototype[\s-]?pollut|hard[\s-]?coded\s+(credential|password|secret|token|key)|jwt\.(sign|verify|decode)|bcrypt|argon2|sanitiz(e|ation)|escape[\s-]?html)|dangerouslySetInnerHTML|innerHTML\s*=|eval\s*\(|new\s+Function\s*\(/i,
+  },
+  // Internationalization — locale / translation / RTL.
+  {
+    tag: "i18n",
+    re: /\b(i18n|l10n|locali[zs]ation|useTranslation|formatMessage|IntlProvider|next-intl|react-intl|messages\.(json|po|xliff)|translation[s]?[\s-]?(file|key)|locale\s*[:=]|rtl[\s-]?(support|layout)|dir\s*=\s*["']rtl)/i,
+  },
+  // Form validation — zod / yup / react-hook-form / schema parsing.
+  {
+    tag: "forms",
+    re: /\b(zod|yup|formik|react-hook-form|useForm|safeParse|\.parse\s*\(|formState|fieldError|FieldError|register\s*\(|controller\s*=|getValues|setValue|trigger\s*\()/i,
+  },
+  // State management — local hooks + popular global stores.
+  // Note: useState / useReducer overlap with general React code, so the
+  // pattern leans on stronger global-store signals (redux/zustand/jotai/
+  // recoil + dispatch / createStore) for distinctiveness. The hook
+  // matches stay because PR-level catalog entries about state often
+  // call them out by name.
+  {
+    tag: "state-management",
+    re: /\b(useState|useReducer|redux|zustand|jotai|recoil|createStore|combineReducers|dispatch\s*\(|atomFamily|atomWithStorage|configureStore|createSlice|useSelector|useDispatch)/i,
   },
 ];
 
