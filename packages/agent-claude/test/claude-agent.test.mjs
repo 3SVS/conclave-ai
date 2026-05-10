@@ -146,6 +146,66 @@ test("ClaudeAgent: respects a shared budget cap across calls", async () => {
   await assert.rejects(() => agent.review(ctx), /budget/);
 });
 
+// --- v0.14.3: Sprint E5 council wire-in — custom id + system-prompt override ---
+
+test("ClaudeAgent: opts.id overrides agent identity for outcome attribution", async () => {
+  const gate = new EfficiencyGate({ perPrUsd: 1 });
+  const client = makeMockClient([okResponse({ verdict: "approve", summary: "LGTM" })]);
+  const agent = new ClaudeAgent({ apiKey: "test-key", gate, client, id: "sa_k8s-manifest", displayName: "K8s Manifest" });
+  assert.equal(agent.id, "sa_k8s-manifest");
+  assert.equal(agent.displayName, "K8s Manifest");
+  const result = await agent.review(ctx);
+  assert.equal(result.agent, "sa_k8s-manifest", "ReviewResult.agent must reflect the custom id");
+});
+
+test("ClaudeAgent: opts.systemPromptOverride replaces baseline system prompt", async () => {
+  const gate = new EfficiencyGate({ perPrUsd: 1 });
+  const client = makeMockClient([okResponse({ verdict: "approve", summary: "LGTM" })]);
+  const agent = new ClaudeAgent({
+    apiKey: "test-key",
+    gate,
+    client,
+    id: "sa_k8s",
+    systemPromptOverride: "You are a senior K8s reviewer. Flag missing resource limits.",
+  });
+  await agent.review(ctx);
+  const sentSystem = client.calls[0].system[0].text;
+  assert.ok(
+    sentSystem.startsWith("You are a senior K8s reviewer."),
+    "spawned-agent system prompt must replace baseline at the head of the cacheable prefix",
+  );
+  // Defensive: the default Claude baseline starts with "You are Claude" —
+  // make sure that substring isn't there at all.
+  assert.ok(
+    !sentSystem.includes("multi-agent council") || sentSystem.indexOf("senior K8s reviewer") < sentSystem.indexOf("multi-agent council"),
+    "the override prompt must come BEFORE any baseline tail",
+  );
+});
+
+test("ClaudeAgent: with no opts.id, falls back to 'claude' (existing behavior)", async () => {
+  const gate = new EfficiencyGate({ perPrUsd: 1 });
+  const client = makeMockClient([okResponse()]);
+  const agent = new ClaudeAgent({ apiKey: "test-key", gate, client });
+  assert.equal(agent.id, "claude");
+  assert.equal(agent.displayName, "Claude");
+});
+
+test("ClaudeAgent: opts.systemPromptOverride wins over ctx.systemPromptOverrides[id]", async () => {
+  const gate = new EfficiencyGate({ perPrUsd: 1 });
+  const client = makeMockClient([okResponse()]);
+  const agent = new ClaudeAgent({
+    apiKey: "test-key",
+    gate,
+    client,
+    id: "sa_x",
+    systemPromptOverride: "DIRECT-OVERRIDE",
+  });
+  await agent.review({ ...ctx, systemPromptOverrides: { sa_x: "MAP-OVERRIDE" } });
+  const sentSystem = client.calls[0].system[0].text;
+  assert.ok(sentSystem.startsWith("DIRECT-OVERRIDE"), "constructor override beats ctx map");
+  assert.ok(!sentSystem.includes("MAP-OVERRIDE"));
+});
+
 test("ClaudeAgent: missing API key AND no injected client throws in constructor", () => {
   const orig = process.env.ANTHROPIC_API_KEY;
   delete process.env.ANTHROPIC_API_KEY;

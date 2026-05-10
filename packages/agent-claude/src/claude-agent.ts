@@ -55,6 +55,22 @@ export interface ClaudeAgentOptions {
   client?: AnthropicLike;
   /** Factory used when `client` is not supplied. Defaults to lazy-loading @anthropic-ai/sdk. */
   clientFactory?: (apiKey: string) => Promise<AnthropicLike>;
+  /**
+   * v0.14.3 — Sprint E5 council wire-in. Override the agent identity so a
+   * spawned-agent persona can ride on top of the same Claude engine.
+   * Defaults to "claude" / "Claude" when omitted (existing behavior).
+   * Outcome attribution + agent-score weights key off this id.
+   */
+  id?: string;
+  displayName?: string;
+  /**
+   * v0.14.3 — Direct system-prompt override for spawned-agent personas.
+   * When set, this string replaces both the hardcoded baseline AND any
+   * `ctx.systemPromptOverrides[id]` map entry — review-mode only;
+   * audit mode keeps its baseline. Use the constructor option (not the
+   * ctx map) for spawned agents so the call is self-contained.
+   */
+  systemPromptOverride?: string;
 }
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
@@ -74,8 +90,8 @@ async function defaultClientFactory(apiKey: string): Promise<AnthropicLike> {
  * efficiency gate. Returns a parsed ReviewResult.
  */
 export class ClaudeAgent implements Agent {
-  readonly id = "claude";
-  readonly displayName = "Claude";
+  readonly id: string;
+  readonly displayName: string;
 
   private readonly apiKey: string;
   private readonly model: string;
@@ -83,6 +99,7 @@ export class ClaudeAgent implements Agent {
   private readonly gate: EfficiencyGate;
   private readonly clientFactory: (apiKey: string) => Promise<AnthropicLike>;
   private clientPromise: Promise<AnthropicLike> | null;
+  private readonly systemPromptOverride: string | undefined;
 
   constructor(opts: ClaudeAgentOptions = {}) {
     const key = opts.apiKey ?? process.env["ANTHROPIC_API_KEY"] ?? "";
@@ -95,6 +112,9 @@ export class ClaudeAgent implements Agent {
     this.gate = opts.gate ?? new EfficiencyGate();
     this.clientFactory = opts.clientFactory ?? defaultClientFactory;
     this.clientPromise = opts.client ? Promise.resolve(opts.client) : null;
+    this.id = opts.id ?? "claude";
+    this.displayName = opts.displayName ?? "Claude";
+    this.systemPromptOverride = opts.systemPromptOverride;
   }
 
   private async getClient(): Promise<AnthropicLike> {
@@ -105,7 +125,10 @@ export class ClaudeAgent implements Agent {
   }
 
   async review(ctx: ReviewContext): Promise<ReviewResult> {
-    const cacheablePrefix = buildCacheablePrefix(ctx);
+    const cacheablePrefix = buildCacheablePrefix(ctx, {
+      agentId: this.id,
+      ...(this.systemPromptOverride ? { systemPromptOverride: this.systemPromptOverride } : {}),
+    });
     const userPrompt = buildReviewPrompt(ctx);
     const inputTokenEstimate = estimateTokens(cacheablePrefix) + estimateTokens(userPrompt);
     const estimatedCost = estimateCallCost(this.model, inputTokenEstimate, this.maxTokens);

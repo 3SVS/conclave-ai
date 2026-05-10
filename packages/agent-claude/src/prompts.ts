@@ -146,13 +146,26 @@ export function buildReviewPrompt(ctx: ReviewContext): string {
  * Anthropic's prompt cache works best when this prefix is marked
  * `cache_control: ephemeral` and sits at the head of the messages array.
  */
-export function buildCacheablePrefix(ctx: ReviewContext): string {
+export function buildCacheablePrefix(
+  ctx: ReviewContext,
+  opts: { agentId?: string; systemPromptOverride?: string } = {},
+): string {
   // v0.16.16 — Sprint E4 activation. Per-agent override takes
   // precedence over hardcoded baseline. Audit mode keeps its own
   // baseline (overrides target review mode for now).
+  //
+  // v0.14.3 — Sprint E5 council wire-in. ClaudeAgent now accepts a
+  // direct `systemPromptOverride` (used by spawned-agent personas)
+  // and a custom `agentId` so the override-map lookup respects the
+  // caller's identity instead of the hardcoded "claude" key. Both
+  // are optional — pass nothing and behavior is identical to v0.16.16.
+  const agentId = opts.agentId ?? "claude";
   const baseline = ctx.mode === "audit" ? AUDIT_SYSTEM_PROMPT : SYSTEM_PROMPT;
-  const override = ctx.mode !== "audit" ? ctx.systemPromptOverrides?.["claude"] : undefined;
-  const parts: string[] = [override ?? baseline];
+  // Direct override (E5 spawned-agent path) wins over the map lookup
+  // (E4 prompt-variant path). Audit mode still bypasses overrides.
+  const directOverride = ctx.mode !== "audit" ? opts.systemPromptOverride : undefined;
+  const mapOverride = ctx.mode !== "audit" ? ctx.systemPromptOverrides?.[agentId] : undefined;
+  const parts: string[] = [directOverride ?? mapOverride ?? baseline];
   if (ctx.answerKeys && ctx.answerKeys.length > 0) {
     parts.push("answer-keys:\n" + ctx.answerKeys.slice(0, 8).join("\n"));
   }

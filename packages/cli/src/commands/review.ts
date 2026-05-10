@@ -58,6 +58,13 @@ import {
   type AgentPromptVariants,
   type OutcomeReport,
 } from "../lib/prompt-variant-resolver.js";
+import {
+  fetchActiveSpawnedAgents,
+  buildTrialAgentWeights,
+  reportSpawnedAgentOutcomes,
+  type ActiveSpawnedAgent,
+  type SpawnedAgentOutcomeReport,
+} from "../lib/spawned-agents-resolver.js";
 import { loadProjectContext, loadDesignContext, loadPrd } from "../lib/project-context.js";
 import { loadPrDiff, loadGitDiff, loadFileDiff, type LoadedDiff } from "../lib/diff-source.js";
 import { renderPlainSummarySection, renderReview, verdictToExitCode } from "../lib/output.js";
@@ -535,6 +542,47 @@ export async function review(argv: string[]): Promise<void> {
     }
   }
 
+  // v0.14.3 — Sprint E5 council wire-in. Fetch promoted + trial spawned
+  // agents matching the resolved domain (operator-only — BYO sees []).
+  // Each becomes a ClaudeAgent with custom id + systemPromptOverride
+  // and joins tier1 alongside the baseline agents. Trial members get
+  // weight=0.4 in `agentWeights`, which the H2 #10 routing demotes to
+  // advisory-rework — so a brand-new spawned persona cannot block a
+  // merge during its trial window.
+  const adminToken = process.env["INTERNAL_CALLBACK_TOKEN"] ?? undefined;
+  const activeSpawnedAgents: ActiveSpawnedAgent[] = await fetchActiveSpawnedAgents({
+    ...(adminToken ? { bearerToken: adminToken } : {}),
+    domain: resolvedDomain,
+  }).catch(() => [] as ActiveSpawnedAgent[]);
+  const spawnedAgentInstances: Agent[] = [];
+  if (activeSpawnedAgents.length > 0) {
+    const claudeKey = resolveKey("anthropic");
+    for (const sa of activeSpawnedAgents) {
+      if (!claudeKey) break; // no anthropic key — skip silently (the baseline agents would also fail)
+      spawnedAgentInstances.push(
+        new ClaudeAgent({
+          apiKey: claudeKey,
+          gate,
+          id: sa.agentId,
+          displayName: sa.displayName,
+          systemPromptOverride: sa.systemPrompt,
+        }),
+      );
+    }
+    const trialWeights = buildTrialAgentWeights(activeSpawnedAgents);
+    if (trialWeights.size > 0) {
+      if (!agentWeights) agentWeights = new Map();
+      for (const [k, v] of trialWeights) agentWeights.set(k, v);
+    }
+    if (spawnedAgentInstances.length > 0) {
+      infoOut(
+        `conclave review: spawned agents — ${activeSpawnedAgents
+          .map((a) => `${a.agentId}(${a.status})`)
+          .join(", ")}\n`,
+      );
+    }
+  }
+
   type CouncilLike = {
     deliberate: (ctx: ReviewContext) => Promise<TieredCouncilOutcome | Awaited<ReturnType<Council["deliberate"]>>>;
   };
@@ -565,6 +613,11 @@ export async function review(argv: string[]): Promise<void> {
       const a = buildAgent(id, tier1Models[id]);
       if (a) tier1.push(a);
     }
+    // v0.14.3 — Sprint E5 wire-in. Spawned agents always join tier1
+    // (entry-level deliberation) regardless of trial vs promoted. Tier2
+    // is reserved for the established cross-review pair (Opus + GPT-5.4)
+    // and stays unchanged for now.
+    for (const inst of spawnedAgentInstances) tier1.push(inst);
     const tier2: Agent[] = [];
     for (const id of tier2Ids) {
       const a = buildAgent(id, tier2Models[id]);
@@ -623,6 +676,8 @@ export async function review(argv: string[]): Promise<void> {
       const a = buildAgent(id);
       if (a) flatAgents.push(a);
     }
+    // v0.14.3 — Sprint E5 wire-in (flat-council path).
+    for (const inst of spawnedAgentInstances) flatAgents.push(inst);
     if (flatAgents.length === 0) {
       process.stderr.write("conclave review: no agents available. Set at least ANTHROPIC_API_KEY.\n");
       process.exit(1);
@@ -667,7 +722,8 @@ export async function review(argv: string[]): Promise<void> {
   // gated behind operator opt-in to avoid 2x agent cost on every PR).
   // BYO users without INTERNAL_CALLBACK_TOKEN see baselines-only —
   // safe default.
-  const adminToken = process.env["INTERNAL_CALLBACK_TOKEN"] ?? undefined;
+  // v0.14.3 — `adminToken` is now declared earlier (above council
+  // build) so the spawned-agents fetch can share the same value.
   const allAgentIds = ["claude", "openai", "gemini", "design"] as const;
   const activeVariants: Record<string, AgentPromptVariants> = await fetchActivePromptVariants({
     ...(adminToken ? { bearerToken: adminToken } : {}),
@@ -1603,6 +1659,37 @@ export async function review(argv: string[]): Promise<void> {
     }
     if (outcomesToReport.length > 0) {
       reportPromptOutcomes(outcomesToReport, { bearerToken: adminToken }).catch(() => undefined);
+    }
+  }
+
+  // v0.14.3 — Sprint E5 council wire-in. Per-agent spawned-agent outcome
+  // reporting. Each spawned agent that participated in the council
+  // posts a row to /admin/spawned-agent-outcomes so the auto-graduation
+  // cron can compute the trial-window pass-rate. `smoke_passed` is null
+  // here because review.ts doesn't run smoke (autofix-pipeline does);
+  // the smoke gate is satisfied as long as smoke didn't fail (matches
+  // isTrialPass on the worker — null counts as a pass).
+  if (adminToken && activeSpawnedAgents.length > 0) {
+    const spawnedById = new Map(activeSpawnedAgents.map((a) => [a.agentId, a]));
+    const outcomesToReport: SpawnedAgentOutcomeReport[] = [];
+    for (const r of outcome.results) {
+      if (!spawnedById.has(r.agent)) continue;
+      const blockerCount = r.blockers?.length ?? 0;
+      outcomesToReport.push({
+        agentId: r.agent,
+        reviewId: episodic.id,
+        verdict: r.verdict,
+        blockerCount,
+        costUsd: typeof r.costUsd === "number" ? r.costUsd : 0,
+        // Council aggregates ReviewResults but drops per-call latency,
+        // so we report 0 (placeholder). The auto-graduation gate only
+        // looks at verdict + smoke; latency is purely diagnostic.
+        latencyMs: 0,
+        smokePassed: null,
+      });
+    }
+    if (outcomesToReport.length > 0) {
+      reportSpawnedAgentOutcomes(outcomesToReport, { bearerToken: adminToken }).catch(() => undefined);
     }
   }
 

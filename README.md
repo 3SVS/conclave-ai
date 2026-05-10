@@ -221,7 +221,7 @@ Hard cutoffs (no surprise overage bills). $5 booster top-ups for one-off bursts.
 | OSS bugfix-PR pattern miner | ✅ shipped (v0.16.13 / Sprint E2) |
 | Changelog/spec monitor (React/Next.js/Tailwind/TS/shadcn-ui/Storybook releases) | ✅ shipped (v0.16.14 / Sprint E3) |
 | Prompt-variant override + outcome ingestion + Bayesian confidence intervals | ✅ shipped (v0.16.15-16 / Sprint E4 — operator-opt-in via `INTERNAL_CALLBACK_TOKEN`) |
-| Agent self-spawning (shadow only — detection + persona synthesis + manual graduation) | 🟡 scaffold (v0.16.17 / Sprint E5 — promoted-agent wiring into runtime council follows) |
+| Agent self-spawning + council wire-in (trial state, advisory verdict during trial, auto-graduation by pass-rate window) | ✅ shipped (v0.14.3 / Sprint E5 — operator-opt-in via `INTERNAL_CALLBACK_TOKEN`) |
 | `/saas/review` + `/saas/autofix` endpoints | 🟡 stub (container wiring next) |
 | Cloudflare Containers worker | 🟡 in progress |
 | Stripe metering + paid tiers | ⏳ deferred until moat data accumulates from real usage |
