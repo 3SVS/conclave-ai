@@ -57,7 +57,10 @@ export function renderEmail(input: NotifyReviewInput): RenderedEmail {
     if (r.summary) textLines.push(`  summary: ${r.summary}`);
     textLines.push("");
   }
-  textLines.push(`episodic: ${episodicId}`);
+  // v0.16.17 — keep text + HTML versions in sync. The HTML footer
+  // already shows `cost $X.XXXX · episodic …`; mirror that in text
+  // so plaintext-only mail clients see the same telemetry.
+  textLines.push(`cost $${totalCostUsd.toFixed(4)} · episodic ${episodicId}`);
   const text = textLines.join("\n");
 
   // HTML rendering — self-contained, no external CSS, email-safe.

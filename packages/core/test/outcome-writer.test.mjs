@@ -7,7 +7,7 @@ import { FileSystemMemoryStore, FileSystemCalibrationStore, OutcomeWriter } from
 
 function freshFs() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aic-outcome-"));
-  return { store: new FileSystemMemoryStore({ root }), root };
+  return { store: new FileSystemMemoryStore({ root, skipBundledSeeds: true }), root };
 }
 function cleanup(root) {
   fs.rmSync(root, { recursive: true, force: true });

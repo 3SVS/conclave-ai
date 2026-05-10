@@ -13,7 +13,7 @@ import {
 
 function freshStore() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aic-seed-"));
-  return { store: new FileSystemMemoryStore({ root }), root };
+  return { store: new FileSystemMemoryStore({ root, skipBundledSeeds: true }), root };
 }
 function cleanup(root) {
   fs.rmSync(root, { recursive: true, force: true });

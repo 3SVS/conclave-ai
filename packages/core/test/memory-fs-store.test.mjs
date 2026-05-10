@@ -7,7 +7,10 @@ import { FileSystemMemoryStore } from "../dist/index.js";
 
 function freshStore() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aic-mem-"));
-  return { store: new FileSystemMemoryStore({ root }), root };
+  // skipBundledSeeds: tests in this file assert exact list lengths of
+  // user-written entries; the Phase 3 design bundle would otherwise
+  // inflate those counts.
+  return { store: new FileSystemMemoryStore({ root, skipBundledSeeds: true }), root };
 }
 
 function cleanup(root) {

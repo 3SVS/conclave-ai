@@ -100,6 +100,7 @@ export function renderReview(input: PrintReviewInput): string {
   lines.push(`  calls:      ${input.metrics.callCount}`);
   lines.push(`  tokens:     in=${input.metrics.totalInputTokens} out=${input.metrics.totalOutputTokens}`);
   lines.push(`  latency:    ${input.metrics.totalLatencyMs}ms`);
+  lines.push(`  cost:       $${input.metrics.totalCostUsd.toFixed(4)}`);
   lines.push(`  cache hit:  ${(input.metrics.cacheHitRate * 100).toFixed(1)}%`);
 
   return lines.join("\n") + "\n";

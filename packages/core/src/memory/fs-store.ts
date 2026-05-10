@@ -21,6 +21,14 @@ import { rerankByFrequency } from "../federated/frequency.js";
 
 export interface FsStoreOptions {
   root: string;
+  /**
+   * v0.16.17 — when true, skip appending the bundled design seed
+   * fallback (Phase 3) onto listAnswerKeys / listFailures results.
+   * Tests use this to assert exclusively against user-written entries.
+   * Production callers leave this unset (default false → bundled seeds
+   * load).
+   */
+  skipBundledSeeds?: boolean;
 }
 
 /**
@@ -37,9 +45,11 @@ export interface FsStoreOptions {
  */
 export class FileSystemMemoryStore implements MemoryStore {
   private readonly root: string;
+  private readonly skipBundledSeeds: boolean;
 
   constructor(opts: FsStoreOptions) {
     this.root = opts.root;
+    this.skipBundledSeeds = opts.skipBundledSeeds === true;
   }
 
   async retrieve(q: MemoryReadQuery): Promise<MemoryRetrieval> {
@@ -148,8 +158,10 @@ export class FileSystemMemoryStore implements MemoryStore {
     // v0.16.7 — append bundled default seeds when the requested domain
     // includes 'design'. Bundled entries have no `repo` so the
     // queryRepo boost in retrieval prefers user-written entries when
-    // both match (bundled is a fallback, not a competitor).
-    if (!domain || domain === "design") {
+    // both match (bundled is a fallback, not a competitor). v0.16.17 —
+    // tests set skipBundledSeeds:true to assert against user-written
+    // only.
+    if (!this.skipBundledSeeds && (!domain || domain === "design")) {
       out.push(...BUNDLED_DESIGN_ANSWER_KEYS);
     }
     return out;
@@ -169,7 +181,7 @@ export class FileSystemMemoryStore implements MemoryStore {
       }
     }
     // v0.16.7 — same fallback for design failure catalog. See above.
-    if (!domain || domain === "design") {
+    if (!this.skipBundledSeeds && (!domain || domain === "design")) {
       out.push(...BUNDLED_DESIGN_FAILURES);
     }
     return out;

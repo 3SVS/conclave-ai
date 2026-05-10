@@ -53,7 +53,7 @@ test("retrieve: no federatedFrequency → legacy ordering preserved", async () =
     writeJson(dir, "answer-keys/code", "a1", ak("ak-1", ["auth"]));
     writeJson(dir, "answer-keys/code", "a2", ak("ak-2", ["react"]));
     writeJson(dir, "failure-catalog/code", "f1", fc("fc-1", ["auth"]));
-    const store = new FileSystemMemoryStore({ root: dir });
+    const store = new FileSystemMemoryStore({ root: dir, skipBundledSeeds: true });
     const out = await store.retrieve({ query: "matches query", k: 8 });
     assert.equal(out.answerKeys.length, 2);
     assert.equal(out.failures.length, 1);
@@ -71,7 +71,7 @@ test("retrieve: federatedFrequency promotes matching-hash answer-key to the top"
     writeJson(dir, "answer-keys/code", "ak-popular", popular);
     writeJson(dir, "answer-keys/code", "ak-rare", rare);
 
-    const store = new FileSystemMemoryStore({ root: dir });
+    const store = new FileSystemMemoryStore({ root: dir, skipBundledSeeds: true });
 
     // Baseline that hashes the "auth + security" combination, seen 100 times
     const popularHash = hashAnswerKey(popular);
@@ -95,7 +95,7 @@ test("retrieve: federatedFrequency boosts failure entries by hash match", async 
     const rare = fc("fc-rare", ["react"], "accessibility", "minor");
     writeJson(dir, "failure-catalog/code", "fc-popular", popular);
     writeJson(dir, "failure-catalog/code", "fc-rare", rare);
-    const store = new FileSystemMemoryStore({ root: dir });
+    const store = new FileSystemMemoryStore({ root: dir, skipBundledSeeds: true });
     const popularHash = hashFailure(popular);
     const freqMap = new Map([[popularHash, 250]]);
     const out = await store.retrieve({
@@ -114,7 +114,7 @@ test("retrieve: buildFrequencyMap from baselines → plugs into retrieve directl
   try {
     const popular = ak("ak-pop", ["auth"]);
     writeJson(dir, "answer-keys/code", "ak-pop", popular);
-    const store = new FileSystemMemoryStore({ root: dir });
+    const store = new FileSystemMemoryStore({ root: dir, skipBundledSeeds: true });
     const popularHash = hashAnswerKey(popular);
     const baselines = [
       { version: 1, kind: "answer-key", contentHash: popularHash, domain: "code", tags: ["auth"], dayBucket: "2026-04-19" },
