@@ -6,6 +6,7 @@ import { cleanupStuckJobs } from "./stuck-cleanup.js";
 import { refreshAllSources } from "./external-references.js";
 import { retryPendingFeedback } from "./routes/feedback.js";
 import { promoteSeedsPass } from "./seed-promoter.js";
+import { runSourceDiscovery } from "./source-discovery.js";
 
 const app = createApp();
 
@@ -94,6 +95,21 @@ export default {
         );
       } catch (err) {
         console.error("[seed-promoter] crashed:", err);
+      }
+      return;
+    }
+    if (event.cron === "0 5 * * 0") {
+      try {
+        const result = await runSourceDiscovery(env);
+        console.log(
+          JSON.stringify({
+            cron: "source-discovery",
+            cronExpression: event.cron,
+            ...result,
+          }),
+        );
+      } catch (err) {
+        console.error("[source-discovery] crashed:", err);
       }
       return;
     }

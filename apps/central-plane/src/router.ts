@@ -21,6 +21,7 @@ import { createReferencesRoutes } from "./routes/references.js";
 import { createFeedbackRoutes } from "./routes/feedback.js";
 import { createPromotedSeedsRoutes } from "./routes/promoted-seeds.js";
 import { createLearningStatsRoutes } from "./routes/learning-stats.js";
+import { createSourceCandidatesRoutes } from "./routes/source-candidates.js";
 import type { FetchLike } from "./github.js";
 
 /**
@@ -79,6 +80,10 @@ export function createApp(opts: { fetch?: FetchLike } = {}): Hono<{ Bindings: En
   // external references) so operators / dashboards can answer "is the
   // substrate working?" with hard numbers.
   app.route("/", createLearningStatsRoutes());
+  // v0.16.12 — Sprint E1: source-candidate discovery + review.
+  // GET /admin/source-candidates, POST /admin/source-candidates/:id/decide,
+  // POST /admin/run-source-discovery. Weekly cron also runs discovery.
+  app.route("/", createSourceCandidatesRoutes());
   app.onError((err, c) => {
     console.error("central-plane error:", err);
     return c.json({ error: err.message || "internal error" }, 500);
