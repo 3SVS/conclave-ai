@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Conclave AI — PR comment preview</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!--
+    Marketing screenshot source. Open this file in a browser → screenshot
+    the .comment block at 2x (retina) → use as the SNS hero image for
+    LinkedIn / Twitter / Show HN posts.
+
+    Renders the format that the production /internal/job-done callback
+    actually posts to PRs (apps/central-plane/src/routes/saas.ts:495
+    `renderResultComment`). Realistic 4-blocker REWORK verdict with one
+    of each high-value category: spec-mismatch, security, a11y, testing.
+
+    Style: GitHub light-mode comment box. The bot avatar carries the
+    Conclave logo (3-dots-in-ring) on the brand oxblood — small but
+    consistent identity hit.
+
+    Recommended: hold a 1280×800 viewport for the screenshot so the
+    comment fills the frame nicely. Crop to just the comment.
+  -->
+  <style>
+    body {
+      margin: 0;
+      padding: 56px 32px;
+      background: #f6f8fa;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans",
+        Helvetica, Arial, sans-serif;
+      color: #1f2328;
+      line-height: 1.55;
+      font-size: 14px;
+    }
+    .comment {
+      max-width: 920px;
+      margin: 0 auto;
+      background: white;
+      border: 1px solid #d1d9e0;
+      border-radius: 6px;
+      box-shadow: 0 1px 3px rgba(31, 35, 40, 0.06);
+    }
+    .comment-header {
+      display: flex;
+      align-items: center;
+      padding: 10px 16px;
+      background: #f6f8fa;
+      border-bottom: 1px solid #d1d9e0;
+      border-radius: 6px 6px 0 0;
+      gap: 10px;
+    }
+    .avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: #5c111c;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .avatar svg {
+      width: 22px;
+      height: 22px;
+    }
+    .author {
+      font-weight: 600;
+      font-size: 14px;
+      color: #1f2328;
+    }
+    .author-bot {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 500;
+      color: #57606a;
+      background: #ddf4ff;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-left: 4px;
+      vertical-align: middle;
+    }
+    .timestamp {
+      color: #57606a;
+      font-size: 14px;
+    }
+    .timestamp::before {
+      content: "commented ";
+    }
+    .comment-body {
+      padding: 18px 20px 4px;
+    }
+    .comment-body p {
+      margin: 0 0 14px;
+    }
+    .comment-body code {
+      background: #f6f8fa;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 0.86em;
+      font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas,
+        monospace;
+      color: #1f2328;
+    }
+    .comment-body em {
+      color: #57606a;
+      font-style: italic;
+    }
+    .comment-body strong {
+      color: #1f2328;
+    }
+    .comment-body ol {
+      padding-left: 26px;
+      margin: 0 0 14px;
+    }
+    .comment-body li {
+      margin-bottom: 18px;
+    }
+    .comment-body li .filepath {
+      display: block;
+      margin-top: 6px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: #57606a;
+      background: #f6f8fa;
+      border-radius: 3px;
+      font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas,
+        monospace;
+      width: fit-content;
+    }
+    .verdict-line {
+      font-size: 17px;
+      font-weight: 600;
+      margin: 0 0 14px !important;
+    }
+    .footnote {
+      color: #57606a;
+      font-size: 13px;
+      padding-top: 6px;
+      border-top: 1px solid #f0f0f0;
+    }
+  </style>
+</head>
+<body>
+  <div class="comment">
+    <div class="comment-header">
+      <div class="avatar">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="12" cy="12" r="10" stroke="#F4ECDC" stroke-width="1.6" fill="none"/>
+          <circle cx="12" cy="7.5" r="1.6" fill="#F4ECDC"/>
+          <circle cx="15.897" cy="14.25" r="1.6" fill="#F4ECDC"/>
+          <circle cx="8.103" cy="14.25" r="1.6" fill="#F4ECDC"/>
+        </svg>
+      </div>
+      <span class="author">
+        conclave-ai-code-council<span class="author-bot">bot</span>
+      </span>
+      <span class="timestamp">2 minutes ago</span>
+    </div>
+    <div class="comment-body">
+      <p class="verdict-line">🔁 <strong>Conclave AI verdict: REWORK</strong> · 187s</p>
+      <p>4 blockers found across spec, security, a11y, and testing.</p>
+      <ol>
+        <li>
+          <strong>[spec-mismatch]</strong> · <em>blocker</em>
+          Endpoint <code>POST /billing/refund</code> is not in the PRD's
+          acceptance criteria. Either remove the route or extend
+          <code>.conclave/prd.md</code> §3 to include it; shipping refund
+          flow without spec coverage is exactly the audit-trail gap legal
+          flagged last quarter.
+          <span class="filepath">apps/api/src/routes/billing.ts:84</span>
+        </li>
+        <li>
+          <strong>[security]</strong> · <em>blocker</em>
+          <code>dangerouslySetInnerHTML</code> renders the user-supplied
+          <code>bio</code> field unchanged. XSS-trivial. Sanitize via
+          DOMPurify or use plain text + line breaks.
+          <span class="filepath">apps/web/src/components/Profile.tsx:31</span>
+        </li>
+        <li>
+          <strong>[a11y]</strong> · <em>major</em>
+          Icon-only close button has no <code>aria-label</code>. Screen
+          readers announce nothing — the modal becomes inescapable for
+          keyboard / VoiceOver users.
+          <span class="filepath">apps/web/src/components/Modal.tsx:18</span>
+        </li>
+        <li>
+          <strong>[testing]</strong> · <em>major</em>
+          New <code>/billing/refund</code> route ships with zero
+          integration tests. Refund logic untested in the same PR that
+          introduces it inverts the safe order — add a test before merge.
+          <span class="filepath">apps/api/test/billing.test.ts (missing)</span>
+        </li>
+      </ol>
+      <p class="footnote">
+        Push a fix or run <code>conclave autofix --use-saas --pr 142</code>
+        to let the worker agent attempt the fixes automatically.
+      </p>
+    </div>
+  </div>
+</body>
+</html>
