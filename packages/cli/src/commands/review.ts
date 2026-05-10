@@ -50,6 +50,7 @@ import { loadConfig, resolveMemoryRoot } from "../lib/config.js";
 import { fetchExternalReferences } from "../lib/external-references.js";
 import { fetchPromotedSeeds } from "../lib/promoted-seeds.js";
 import { fetchOssPatterns } from "../lib/oss-patterns.js";
+import { fetchSpecUpdates } from "../lib/spec-updates.js";
 import { loadProjectContext, loadDesignContext, loadPrd } from "../lib/project-context.js";
 import { loadPrDiff, loadGitDiff, loadFileDiff, type LoadedDiff } from "../lib/diff-source.js";
 import { renderPlainSummarySection, renderReview, verdictToExitCode } from "../lib/output.js";
@@ -432,6 +433,13 @@ export async function review(argv: string[]): Promise<void> {
     answerKeys: [] as string[],
     failureCatalog: [] as string[],
   }));
+  // v0.16.14 — Sprint E3: pull spec-updates (new release notes from
+  // React/Next.js/Tailwind/TS/shadcn-ui/Storybook → answer-keys for
+  // new patterns, failures for deprecated ones).
+  const specUpdates = await fetchSpecUpdates(ctxDomain).catch(() => ({
+    answerKeys: [] as string[],
+    failureCatalog: [] as string[],
+  }));
 
   // For tier-build we may need the "code" domain config (mixed pulls
   // from BOTH). For non-mixed, fall through to the standard path.
@@ -653,18 +661,21 @@ export async function review(argv: string[]): Promise<void> {
     // Local memory first (user .conclave/ + bundled seeds), then
     // external curated references appended. Order matters when
     // prompts cap at 8 — local wins over external.
-    // Order: local > promoted (community user feedback) > OSS PR
-    // patterns (real bugfixes from popular OSS) > external curated
-    // (public docs). Prompt cap drops from the tail when needed.
+    // Order: local > promoted (community user feedback) > spec-updates
+    // (latest framework/spec versions) > OSS PR patterns (real bugfixes
+    // from popular OSS) > external curated (public docs). Prompt cap
+    // drops from the tail when needed.
     answerKeys: [
       ...retrieval.answerKeys.map(formatAnswerKeyForPrompt),
       ...promotedSeeds.answerKeys,
+      ...specUpdates.answerKeys,
       ...ossPatterns.answerKeys,
       ...externalRefs.answerKeys,
     ],
     failureCatalog: [
       ...retrieval.failures.map(formatFailureForPrompt),
       ...promotedSeeds.failureCatalog,
+      ...specUpdates.failureCatalog,
       ...ossPatterns.failureCatalog,
       ...externalRefs.failureCatalog,
     ],
@@ -1313,10 +1324,12 @@ export async function review(argv: string[]): Promise<void> {
         answerKeysPromoted: promotedSeeds.answerKeys.length,
         answerKeysExternal: externalRefs.answerKeys.length,
         answerKeysOssPatterns: ossPatterns.answerKeys.length,
+        answerKeysSpecUpdates: specUpdates.answerKeys.length,
         failureCatalogLocal: retrieval.failures.length,
         failureCatalogPromoted: promotedSeeds.failureCatalog.length,
         failureCatalogExternal: externalRefs.failureCatalog.length,
         failureCatalogOssPatterns: ossPatterns.failureCatalog.length,
+        failureCatalogSpecUpdates: specUpdates.failureCatalog.length,
       },
     };
     if (loaded.pullNumber) jsonInput.pullNumber = loaded.pullNumber;

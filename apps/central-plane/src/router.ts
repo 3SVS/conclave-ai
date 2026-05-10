@@ -23,6 +23,7 @@ import { createPromotedSeedsRoutes } from "./routes/promoted-seeds.js";
 import { createLearningStatsRoutes } from "./routes/learning-stats.js";
 import { createSourceCandidatesRoutes } from "./routes/source-candidates.js";
 import { createOssPatternsRoutes } from "./routes/oss-patterns.js";
+import { createSpecUpdatesRoutes } from "./routes/spec-updates.js";
 import type { FetchLike } from "./github.js";
 
 /**
@@ -89,6 +90,10 @@ export function createApp(opts: { fetch?: FetchLike } = {}): Hono<{ Bindings: En
   // (public, CLI consumes) + POST /admin/run-oss-pr-miner. Daily cron runs
   // runOssPrMiner() directly.
   app.route("/", createOssPatternsRoutes());
+  // v0.16.14 — Sprint E3: changelog/spec monitor. GET /seeds/spec-updates/:domain
+  // + POST /admin/run-changelog-monitor. Weekly cron tracks new versions of
+  // React/Next.js/Tailwind/TS/shadcn-ui/Storybook for new patterns + deprecations.
+  app.route("/", createSpecUpdatesRoutes());
   app.onError((err, c) => {
     console.error("central-plane error:", err);
     return c.json({ error: err.message || "internal error" }, 500);

@@ -8,6 +8,7 @@ import { retryPendingFeedback } from "./routes/feedback.js";
 import { promoteSeedsPass } from "./seed-promoter.js";
 import { runSourceDiscovery } from "./source-discovery.js";
 import { runOssPrMiner } from "./oss-pr-miner.js";
+import { runChangelogMonitor } from "./changelog-monitor.js";
 
 const app = createApp();
 
@@ -134,6 +135,24 @@ export default {
         );
       } catch (err) {
         console.error("[oss-pr-miner] crashed:", err);
+      }
+      return;
+    }
+    if (event.cron === "0 7 * * 1") {
+      try {
+        const result = await runChangelogMonitor(env);
+        console.log(
+          JSON.stringify({
+            cron: "changelog-monitor",
+            cronExpression: event.cron,
+            total_releases_processed: result.total_releases_processed,
+            total_entries_saved: result.total_entries_saved,
+            total_failed: result.total_failed,
+            per_source: result.per_source,
+          }),
+        );
+      } catch (err) {
+        console.error("[changelog-monitor] crashed:", err);
       }
       return;
     }

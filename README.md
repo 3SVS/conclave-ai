@@ -92,6 +92,8 @@ Authorization`). Same as you'd do for Dependabot. See
 
 ## How it works
 
+We don't stop at "your PR has problems." Conclave takes responsibility for the full lifecycle: review → debate → rewrite → re-review → ship. You get a green check or a clear blocker, never a half-finished verdict.
+
 ```text
 PR opens
   ↓
@@ -101,24 +103,48 @@ Auth + repo allow-list check
   ↓
 Spawn ephemeral Cloudflare Container (Node 20)
   ↓
+─────────────────────────────────────────────
+  COUNCIL  (up to 3 deliberation rounds)
+─────────────────────────────────────────────
+  Round 1: agents review IN PARALLEL
    ┌──── Claude Sonnet 4.6 ────┐
-   ├──── GPT-5-mini ───────────┤  (parallel)
+   ├──── GPT-5-mini ───────────┤  + design / failure-gate when relevant
    └──── Gemini 2.5 Pro ───────┘
+       ↓
+   Consensus?  ─── yes ────────────────► verdict locked
+       ↓ no
+  Round 2: each agent sees others' blockers + rebuts
+       ↓
+   Consensus?  ─── yes ────────────────► verdict locked
+       ↓ no
+  Round 3: final round, majority verdict locked
+─────────────────────────────────────────────
   ↓
-Tier-1 verdict tally
-  ↓
-   approve     rework       reject
-       │         │             │
-       │      Worker rewrites  │
-       │      (Opus 4.7,       │
-       │      full-file)       │
-       │         │             │
-       │      git push         │
-       │         │             │
-       │      re-review ───────┘
+final verdict
+   ↓
+   approve     rework               reject
+       │         │                    │
+       │   Worker (Opus 4.7) rewrites │  rejected: human escalation,
+       │   the offending files in     │  no auto-merge, comment posted
+       │   full ──► git push          │
+       │         │                    │
+       │   AUTOFIX LOOP (up to 3      │
+       │   attempts — same Council    │
+       │   re-runs each push) ────────┘
+       │         │
+       │   council re-converges OR caps out
+       │         │
+   ✓ approve   merge gate held until human ack
        │
-   ✓ ready to merge → Telegram keyboard
+   Telegram + GitHub check-run keyboard
 ```
+
+End-to-end guarantees:
+
+- **3 council rounds** before locking a verdict — single-agent disagreement never wins by itself.
+- **Up to 3 autofix cycles** when the verdict is `rework` — worker rewrites whole files (not minimal patches), Council re-reviews each push.
+- **Hard stop** if the loop can't converge: a `reject` verdict + clear human-readable blocker list lands as a PR check, never silent.
+- **Smoke verification** runs against the deploy URL after autofix lands — if the build/runtime fails post-merge, the verdict downgrades to `rework` automatically and the PR check goes red. (Phase 5 catch-regression detector also tracks "this category was missed; flag harder next time.")
 
 The full architecture is in [`ARCHITECTURE.md`](ARCHITECTURE.md). The 34 design decisions locked on 2026-04-19 are in [`docs/decisions.md`](docs/decisions.md).
 

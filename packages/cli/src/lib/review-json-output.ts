@@ -66,6 +66,8 @@ export interface RagInjectionTelemetry {
   answerKeysExternal: number;
   /** OSS PR patterns fetched from /seeds/oss-patterns/:domain (Sprint E2). */
   answerKeysOssPatterns?: number;
+  /** Spec-update entries from /seeds/spec-updates/:domain (Sprint E3). */
+  answerKeysSpecUpdates?: number;
   /** Local-memory failure-catalog entries. */
   failureCatalogLocal: number;
   /** Promoted seeds (failure kind). */
@@ -74,6 +76,8 @@ export interface RagInjectionTelemetry {
   failureCatalogExternal: number;
   /** OSS PR patterns (failure kind). */
   failureCatalogOssPatterns?: number;
+  /** Spec-update entries (failure kind). */
+  failureCatalogSpecUpdates?: number;
 }
 
 export interface ReviewJsonOutputAgent {
