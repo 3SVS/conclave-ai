@@ -151,12 +151,27 @@ export async function applyPlan(plan: MigratePlan, cwd: string): Promise<{ wrote
   return { wroteConfig, seeded };
 }
 
+/**
+ * v0.14.3 — `migrate` is the only commit-on-1.0 deprecation candidate
+ * in the pre-1.0 surface audit (`docs/pre-1.0-surface-audit.md`). It
+ * exists to port solo-cto-agent installs into conclave-ai (decision
+ * #27 keeps solo-cto-agent installable in parallel). New installs in
+ * 2026 don't have a solo-cto-agent state to migrate from, so this
+ * command will be removed in 2.x. Print a one-line warning so anyone
+ * still relying on it can plan ahead. Exported for tests.
+ */
+export const MIGRATE_DEPRECATION_NOTICE =
+  "conclave migrate: deprecated since v0.14.3 — will be removed in 2.x. " +
+  "If you're a solo-cto-agent user this command still works; new users should use `conclave init` instead.";
+
 export async function migrate(argv: string[]): Promise<void> {
   const args = parseMigrateArgs(argv);
   if (args.help) {
     process.stdout.write(HELP);
     return;
   }
+
+  process.stderr.write(`${MIGRATE_DEPRECATION_NOTICE}\n`);
 
   const cwd = process.cwd();
   const legacy = args.from ? await detectLegacy(args.from) : await findLegacyUpwards(cwd);

@@ -9,6 +9,7 @@ import {
   findLegacyUpwards,
   buildPlan,
   applyPlan,
+  MIGRATE_DEPRECATION_NOTICE,
 } from "../dist/commands/migrate.js";
 
 function mkLegacyRoot({ withCatalog = true, withTiers = true, withTracked = false } = {}) {
@@ -46,6 +47,13 @@ function mkCwd() {
 function cleanup(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
+
+test("MIGRATE_DEPRECATION_NOTICE: mentions deprecation + replacement command + 2.x removal window", () => {
+  assert.match(MIGRATE_DEPRECATION_NOTICE, /deprecated/i);
+  assert.match(MIGRATE_DEPRECATION_NOTICE, /2\.x/);
+  // Replacement guidance (point new users at conclave init).
+  assert.match(MIGRATE_DEPRECATION_NOTICE, /conclave init/);
+});
 
 test("parseMigrateArgs: flags + --from value", () => {
   assert.deepEqual(parseMigrateArgs(["--help"]), { dryRun: false, help: true });

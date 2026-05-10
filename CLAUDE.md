@@ -79,7 +79,7 @@ pnpm migrate:apply      # wrangler d1 migrations apply --remote
 
 ## CLI surface
 
-`packages/cli` ships the `conclave` binary with 17 commands: `init`, `audit`, `review`, `autofix`, `doctor`, `repos`, `watch`, `record-outcome`, `poll-outcomes`, `config`, `seed`, `migrate`, `scores`, `sync`, `mcp-server`. The MCP server (stdio) is how IDEs (Claude Desktop, Cursor, Windsurf) integrate — there are no IDE-specific extensions beyond the v2.1 VSCode app.
+`packages/cli` ships the `conclave` binary with 21 commands: `init`, `config`, `audit`, `review`, `rework`, `autofix`, `record-outcome`, `poll-outcomes`, `seed`, `migrate`, `scores`, `sync`, `mcp-server`, `repos`, `watch`, `doctor`, `status`, `login`, `logout`, `whoami`, `feedback`. The MCP server (stdio) is how IDEs (Claude Desktop, Cursor, Windsurf) integrate — there are no IDE-specific extensions beyond the v2.1 VSCode app. See `docs/pre-1.0-surface-audit.md` for per-command 1.0 stability classification.
 
 ## Config
 
