@@ -48,6 +48,16 @@ export interface ReviewContext {
   newSha: string;
   answerKeys?: string[];
   failureCatalog?: string[];
+  /**
+   * v0.16.16 — Sprint E4 activation. Per-agent system-prompt override.
+   * When `systemPromptOverrides[agentId]` is set, the agent uses that
+   * string in place of its hardcoded baseline SYSTEM_PROMPT. CLI
+   * populates this from /admin/prompt-variants?status=promoted before
+   * each council pass. Shadow-mode treatment is handled by the CLI
+   * spawning a parallel agent with the shadow variant — the agent
+   * itself just reads whichever override it's given.
+   */
+  systemPromptOverrides?: Readonly<Record<string, string>>;
   /** 1-indexed round number. Absent ≡ first (or only) round. */
   round?: number;
   /** Other agents' results from the previous round. Used only in Round 2+. */

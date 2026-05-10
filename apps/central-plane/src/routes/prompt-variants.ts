@@ -24,6 +24,7 @@ import { Hono } from "hono";
 import type { Env } from "../env.js";
 import {
   listPromptVariants,
+  recordVariantOutcome,
   registerPromptVariant,
   setVariantStatus,
   type VariantStatus,
@@ -118,6 +119,109 @@ export function createPromptVariantsRoutes(): Hono<{ Bindings: Env }> {
     const ok = await setVariantStatus(c.env, id, newStatus);
     if (!ok) return c.json({ error: "not_found" }, 404);
     return c.json({ id, status: newStatus });
+  });
+
+  // v0.16.16 — Sprint E4 activation: outcome ingestion. CLI POSTs one
+  // row per agent per review when a promoted variant was used.
+  app.post("/admin/prompt-variant-outcomes", async (c) => {
+    const auth = requireAdmin(c);
+    if (!auth.ok) return c.json(auth.body, auth.status);
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body || typeof body !== "object") {
+      return c.json({ error: "invalid_request", error_description: "JSON body required" }, 400);
+    }
+    if (typeof body.variant_pk !== "string" || typeof body.agent_id !== "string" || typeof body.review_id !== "string") {
+      return c.json(
+        { error: "invalid_request", error_description: "variant_pk + agent_id + review_id required" },
+        400,
+      );
+    }
+    const verdict =
+      body.verdict === "approve" || body.verdict === "rework" || body.verdict === "reject"
+        ? body.verdict
+        : undefined;
+    const blockerCount = typeof body.blocker_count === "number" ? body.blocker_count : undefined;
+    const costUsd = typeof body.cost_usd === "number" ? body.cost_usd : undefined;
+    const latencyMs = typeof body.latency_ms === "number" ? body.latency_ms : undefined;
+    await recordVariantOutcome(c.env, {
+      variant_pk: body.variant_pk,
+      agent_id: body.agent_id,
+      review_id: body.review_id,
+      ...(verdict ? { verdict } : {}),
+      ...(blockerCount !== undefined ? { blocker_count: blockerCount } : {}),
+      ...(costUsd !== undefined ? { cost_usd: costUsd } : {}),
+      ...(latencyMs !== undefined ? { latency_ms: latencyMs } : {}),
+    });
+    return c.json({ recorded: true }, 201);
+  });
+
+  // v0.16.16 — Sprint E4 activation: evaluation. Reads aggregated
+  // outcomes per variant and computes a Bayesian beta-binomial 95%
+  // confidence interval on the "approved without rework" rate. Pure
+  // read-only; never auto-promotes — operators decide.
+  app.get("/admin/prompt-evaluation", async (c) => {
+    const auth = requireAdmin(c);
+    if (!auth.ok) return c.json(auth.body, auth.status);
+    const agentId = c.req.query("agent_id");
+    const sql = agentId
+      ? `SELECT v.id as variant_pk, v.agent_id, v.variant_id, v.is_baseline, v.status,
+                COUNT(o.id) as outcomes,
+                SUM(CASE WHEN o.verdict = 'approve' THEN 1 ELSE 0 END) as approves,
+                SUM(CASE WHEN o.verdict = 'rework'  THEN 1 ELSE 0 END) as reworks,
+                SUM(CASE WHEN o.verdict = 'reject'  THEN 1 ELSE 0 END) as rejects,
+                AVG(o.cost_usd) as avg_cost_usd,
+                AVG(o.latency_ms) as avg_latency_ms,
+                AVG(o.blocker_count) as avg_blockers
+           FROM prompt_variants v
+           LEFT JOIN prompt_variant_outcomes o ON o.variant_pk = v.id
+          WHERE v.removed_at IS NULL AND v.agent_id = ?
+          GROUP BY v.id
+          ORDER BY v.agent_id, v.created_at DESC`
+      : `SELECT v.id as variant_pk, v.agent_id, v.variant_id, v.is_baseline, v.status,
+                COUNT(o.id) as outcomes,
+                SUM(CASE WHEN o.verdict = 'approve' THEN 1 ELSE 0 END) as approves,
+                SUM(CASE WHEN o.verdict = 'rework'  THEN 1 ELSE 0 END) as reworks,
+                SUM(CASE WHEN o.verdict = 'reject'  THEN 1 ELSE 0 END) as rejects,
+                AVG(o.cost_usd) as avg_cost_usd,
+                AVG(o.latency_ms) as avg_latency_ms,
+                AVG(o.blocker_count) as avg_blockers
+           FROM prompt_variants v
+           LEFT JOIN prompt_variant_outcomes o ON o.variant_pk = v.id
+          WHERE v.removed_at IS NULL
+          GROUP BY v.id
+          ORDER BY v.agent_id, v.created_at DESC`;
+    const stmt = c.env.DB.prepare(sql);
+    const r = agentId ? await stmt.bind(agentId).all() : await stmt.all();
+    const rows = (r.results ?? []) as Array<Record<string, unknown>>;
+    const evaluations = rows.map((row) => {
+      const approves = Number(row.approves ?? 0);
+      const outcomes = Number(row.outcomes ?? 0);
+      // Beta-binomial conjugate. Prior Beta(1, 1) (uniform). Posterior
+      // mean = (approves + 1) / (outcomes + 2). 95% interval via
+      // wilson-score approximation since exact beta-quantile is
+      // overkill here.
+      const p = (approves + 1) / Math.max(1, outcomes + 2);
+      const se = Math.sqrt((p * (1 - p)) / Math.max(1, outcomes + 2));
+      const lo = Math.max(0, p - 1.96 * se);
+      const hi = Math.min(1, p + 1.96 * se);
+      return {
+        variant_pk: String(row.variant_pk),
+        agent_id: String(row.agent_id),
+        variant_id: String(row.variant_id),
+        is_baseline: Number(row.is_baseline ?? 0) === 1,
+        status: String(row.status),
+        outcomes,
+        approves,
+        reworks: Number(row.reworks ?? 0),
+        rejects: Number(row.rejects ?? 0),
+        approve_rate_estimate: Number(p.toFixed(4)),
+        approve_rate_95ci: [Number(lo.toFixed(4)), Number(hi.toFixed(4))],
+        avg_cost_usd: row.avg_cost_usd === null || row.avg_cost_usd === undefined ? null : Number(row.avg_cost_usd),
+        avg_latency_ms: row.avg_latency_ms === null || row.avg_latency_ms === undefined ? null : Number(row.avg_latency_ms),
+        avg_blockers: row.avg_blockers === null || row.avg_blockers === undefined ? null : Number(row.avg_blockers),
+      };
+    });
+    return c.json({ count: evaluations.length, evaluations });
   });
 
   return app;

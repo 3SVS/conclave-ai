@@ -51,6 +51,13 @@ import { fetchExternalReferences } from "../lib/external-references.js";
 import { fetchPromotedSeeds } from "../lib/promoted-seeds.js";
 import { fetchOssPatterns } from "../lib/oss-patterns.js";
 import { fetchSpecUpdates } from "../lib/spec-updates.js";
+import {
+  fetchActivePromptVariants,
+  buildOverrides,
+  reportPromptOutcomes,
+  type AgentPromptVariants,
+  type OutcomeReport,
+} from "../lib/prompt-variant-resolver.js";
 import { loadProjectContext, loadDesignContext, loadPrd } from "../lib/project-context.js";
 import { loadPrDiff, loadGitDiff, loadFileDiff, type LoadedDiff } from "../lib/diff-source.js";
 import { renderPlainSummarySection, renderReview, verdictToExitCode } from "../lib/output.js";
@@ -653,6 +660,21 @@ export async function review(argv: string[]): Promise<void> {
         })
       : {};
 
+  // v0.16.16 — Sprint E4 activation. Fetch active prompt-variant
+  // overrides per agent BEFORE building reviewCtx so promoted variants
+  // replace baselines for THIS run. Shadow variants are also returned
+  // (used below for outcome attribution; treatment-run scaffolding is
+  // gated behind operator opt-in to avoid 2x agent cost on every PR).
+  // BYO users without INTERNAL_CALLBACK_TOKEN see baselines-only —
+  // safe default.
+  const adminToken = process.env["INTERNAL_CALLBACK_TOKEN"] ?? undefined;
+  const allAgentIds = ["claude", "openai", "gemini", "design"] as const;
+  const activeVariants: Record<string, AgentPromptVariants> = await fetchActivePromptVariants({
+    ...(adminToken ? { bearerToken: adminToken } : {}),
+    agentIds: allAgentIds,
+  }).catch(() => Object.fromEntries(allAgentIds.map((id) => [id, { shadow: [] }])));
+  const promptOverrides = buildOverrides(activeVariants);
+
   const reviewCtx: ReviewContext = {
     diff: loaded.diff,
     repo: loaded.repo,
@@ -681,6 +703,7 @@ export async function review(argv: string[]): Promise<void> {
     ],
     domain: ctxDomain,
     deployStatus,
+    ...(Object.keys(promptOverrides).length > 0 ? { systemPromptOverrides: promptOverrides } : {}),
   };
   if (loaded.prevSha) reviewCtx.prevSha = loaded.prevSha;
   if (projectCtxLoaded.projectContext) {
@@ -1554,6 +1577,32 @@ export async function review(argv: string[]): Promise<void> {
       process.stderr.write(
         `conclave review: review-finished emit failed — ${(err as Error).message}\n`,
       );
+    }
+  }
+
+  // v0.16.16 — Sprint E4 activation. Per-agent prompt-variant outcome
+  // reporting. For each agent that ran with a promoted variant, record
+  // the outcome (verdict, blocker count, latency, cost) so the worker
+  // can compute confidence intervals via /admin/prompt-evaluation.
+  // Best-effort — failures don't affect the review result.
+  if (adminToken && Object.keys(activeVariants).some((id) => activeVariants[id]?.promoted)) {
+    const outcomesToReport: OutcomeReport[] = [];
+    for (const r of outcome.results) {
+      const av = activeVariants[r.agent];
+      if (!av?.promoted) continue;
+      const blockerCount = r.blockers?.length ?? 0;
+      const report: OutcomeReport = {
+        variantPk: av.promoted.variantPk,
+        agentId: r.agent,
+        reviewId: episodic.id,
+        verdict: r.verdict,
+        blockerCount,
+      };
+      if (typeof r.costUsd === "number") report.costUsd = r.costUsd;
+      outcomesToReport.push(report);
+    }
+    if (outcomesToReport.length > 0) {
+      reportPromptOutcomes(outcomesToReport, { bearerToken: adminToken }).catch(() => undefined);
     }
   }
 

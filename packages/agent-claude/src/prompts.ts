@@ -147,7 +147,12 @@ export function buildReviewPrompt(ctx: ReviewContext): string {
  * `cache_control: ephemeral` and sits at the head of the messages array.
  */
 export function buildCacheablePrefix(ctx: ReviewContext): string {
-  const parts: string[] = [ctx.mode === "audit" ? AUDIT_SYSTEM_PROMPT : SYSTEM_PROMPT];
+  // v0.16.16 — Sprint E4 activation. Per-agent override takes
+  // precedence over hardcoded baseline. Audit mode keeps its own
+  // baseline (overrides target review mode for now).
+  const baseline = ctx.mode === "audit" ? AUDIT_SYSTEM_PROMPT : SYSTEM_PROMPT;
+  const override = ctx.mode !== "audit" ? ctx.systemPromptOverrides?.["claude"] : undefined;
+  const parts: string[] = [override ?? baseline];
   if (ctx.answerKeys && ctx.answerKeys.length > 0) {
     parts.push("answer-keys:\n" + ctx.answerKeys.slice(0, 8).join("\n"));
   }

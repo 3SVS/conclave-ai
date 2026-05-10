@@ -15,6 +15,18 @@ import { diffTouchesUi, isUiPath } from "./ui-globs.js";
 import { extractUiDiff, MAX_UI_DIFF_CHARS } from "./text-ui-extract.js";
 
 /**
+ * v0.16.16 — Sprint E4 activation. Resolve the active system prompt for
+ * this agent: an operator-promoted variant from /admin/prompt-variants
+ * (delivered via ctx.systemPromptOverrides["design"]) takes precedence
+ * over the hardcoded baseline. Audit mode is exempted today (overrides
+ * target review mode only).
+ */
+function resolveSystemPrompt(ctx: ReviewContext, baseline: string): string {
+  if (ctx.mode === "audit") return baseline;
+  return ctx.systemPromptOverrides?.["design"] ?? baseline;
+}
+
+/**
  * Minimal shape of the Anthropic vision-capable messages API. Narrowed so
  * tests can inject a mock without loading the SDK.
  */
@@ -280,8 +292,8 @@ export class DesignAgent implements Agent {
     const outcome = await this.gate.run<ReviewResult>(
       {
         agent: this.id,
-        cacheablePrefix: SYSTEM_PROMPT,
-        prompt: SYSTEM_PROMPT + "\n" + userText,
+        cacheablePrefix: resolveSystemPrompt(ctx, SYSTEM_PROMPT),
+        prompt: resolveSystemPrompt(ctx, SYSTEM_PROMPT) + "\n" + userText,
         estimatedCostUsd,
         forceModel: this.model,
       },
@@ -292,7 +304,7 @@ export class DesignAgent implements Agent {
         const response = await client.messages.create({
           model,
           max_tokens: this.maxTokens,
-          system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+          system: [{ type: "text", text: resolveSystemPrompt(ctx, SYSTEM_PROMPT), cache_control: { type: "ephemeral" } }],
           messages: [{ role: "user", content }],
           tools: [
             {
@@ -352,8 +364,8 @@ export class DesignAgent implements Agent {
     const outcome = await this.gate.run<ReviewResult>(
       {
         agent: this.id,
-        cacheablePrefix: TEXT_UI_SYSTEM_PROMPT,
-        prompt: TEXT_UI_SYSTEM_PROMPT + "\n" + userText,
+        cacheablePrefix: resolveSystemPrompt(ctx, TEXT_UI_SYSTEM_PROMPT),
+        prompt: resolveSystemPrompt(ctx, TEXT_UI_SYSTEM_PROMPT) + "\n" + userText,
         estimatedCostUsd,
         forceModel: this.model,
       },
@@ -364,7 +376,7 @@ export class DesignAgent implements Agent {
           model,
           max_tokens: this.maxTokens,
           system: [
-            { type: "text", text: TEXT_UI_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
+            { type: "text", text: resolveSystemPrompt(ctx, TEXT_UI_SYSTEM_PROMPT), cache_control: { type: "ephemeral" } },
           ],
           messages: [
             {

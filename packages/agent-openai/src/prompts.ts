@@ -188,7 +188,10 @@ export function buildAuditPrompt(ctx: ReviewContext): string {
 }
 
 export function buildCacheablePrefix(ctx: ReviewContext): string {
-  const parts: string[] = [ctx.mode === "audit" ? AUDIT_SYSTEM_PROMPT : SYSTEM_PROMPT];
+  // v0.16.16 — Sprint E4 activation: per-agent override.
+  const baseline = ctx.mode === "audit" ? AUDIT_SYSTEM_PROMPT : SYSTEM_PROMPT;
+  const override = ctx.mode !== "audit" ? ctx.systemPromptOverrides?.["openai"] : undefined;
+  const parts: string[] = [override ?? baseline];
   if (ctx.answerKeys && ctx.answerKeys.length > 0) {
     parts.push("answer-keys:\n" + ctx.answerKeys.slice(0, 8).join("\n"));
   }
