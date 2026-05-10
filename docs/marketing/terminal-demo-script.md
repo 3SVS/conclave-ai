@@ -63,7 +63,7 @@ $ conclave review --pr 142 --use-saas
   ⏳ deliberation (round 1) …
   ⚖  CONSENSUS: REWORK · 4 blockers (deduplicated)
 
-  Verdict: REWORK · 187s · $0.024
+  Verdict: REWORK · 187s
   → Comment posted to PR #142
   → Telegram dispatch sent
   → Run `conclave autofix --pr 142 --use-saas` to attempt fixes
