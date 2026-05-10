@@ -222,8 +222,8 @@ Hard cutoffs (no surprise overage bills). $5 booster top-ups for one-off bursts.
 | Changelog/spec monitor (React/Next.js/Tailwind/TS/shadcn-ui/Storybook releases) | ✅ shipped (v0.16.14 / Sprint E3) |
 | Prompt-variant override + outcome ingestion + Bayesian confidence intervals | ✅ shipped (v0.16.15-16 / Sprint E4 — operator-opt-in via `INTERNAL_CALLBACK_TOKEN`) |
 | Agent self-spawning + council wire-in (trial state, advisory verdict during trial, auto-graduation by pass-rate window) | ✅ shipped (v0.14.3 / Sprint E5 — operator-opt-in via `INTERNAL_CALLBACK_TOKEN`) |
-| `/saas/review` + `/saas/autofix` endpoints | 🟡 stub (container wiring next) |
-| Cloudflare Containers worker | 🟡 in progress |
+| `/saas/review` + `/saas/autofix` endpoints | ✅ shipped (v0.14.4 / Sprint E6 — operator runs `wrangler deploy` per [`docs/saas-deploy-checklist.md`](docs/saas-deploy-checklist.md)) |
+| Cloudflare Containers worker (`ConclaveSandbox`) | ✅ shipped (v0.14.4 / Sprint E6 — Node 20 + git + GH CLI; runs autofix-pipeline per /saas/* request, callback to `/internal/job-done`) |
 | Stripe metering + paid tiers | ⏳ deferred until moat data accumulates from real usage |
 
 ## Project structure

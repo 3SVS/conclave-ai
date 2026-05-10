@@ -45,7 +45,10 @@ WORKDIR /app
 #   docker build -f apps/central-plane/container/Dockerfile -t conclave-sandbox .
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./
 COPY packages packages
+# v0.14.4 — server.mjs imports from ./coerce-result.mjs (extracted pure
+# helpers). Both files must be in the same dir for the relative import.
 COPY apps/central-plane/container/server.mjs ./server.mjs
+COPY apps/central-plane/container/coerce-result.mjs ./coerce-result.mjs
 
 # Install deps + build the cli + its workspace dependencies. Using
 # --frozen-lockfile to catch lockfile drift early (would block deploy).

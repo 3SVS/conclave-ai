@@ -25,6 +25,11 @@ import { promisify } from "node:util";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import {
+  coerceResult,
+  extractHeaderEnv,
+  validateRunPayload,
+} from "./coerce-result.mjs";
 
 const execFileP = promisify(execFile);
 
@@ -65,12 +70,12 @@ const server = createServer(async (req, res) => {
 
   // Validate the minimum required fields. We don't trust the Worker
   // entirely — some fields are user-supplied (PRD, repo slug) and
-  // could have unexpected shapes.
-  const required = ["jobId", "repo", "prNumber", "installationToken", "callbackUrl", "callbackToken"];
-  const missing = required.filter((k) => payload[k] === undefined || payload[k] === null);
-  if (missing.length > 0) {
+  // could have unexpected shapes. Logic lives in coerce-result.mjs so
+  // it's testable without an HTTP server.
+  const validation = validateRunPayload(payload);
+  if (!validation.ok) {
     res.writeHead(400, { "content-type": "application/json" });
-    res.end(JSON.stringify({ error: `missing fields: ${missing.join(", ")}` }));
+    res.end(JSON.stringify({ error: `missing fields: ${validation.missing.join(", ")}` }));
     return;
   }
 
@@ -78,15 +83,8 @@ const server = createServer(async (req, res) => {
   // from request headers into process.env so the cli pipeline picks
   // them up via its standard env reads. CF Containers don't auto-inject
   // Worker secrets, so this is the bridge.
-  const headerEnvMap = {
-    "x-anthropic-key": "ANTHROPIC_API_KEY",
-    "x-openai-key": "OPENAI_API_KEY",
-    "x-gemini-key": "GEMINI_API_KEY",
-    "x-telegram-bot-token": "TELEGRAM_BOT_TOKEN",
-  };
-  for (const [h, e] of Object.entries(headerEnvMap)) {
-    const v = req.headers[h];
-    if (typeof v === "string" && v.length > 0) process.env[e] = v;
+  for (const [envName, value] of Object.entries(extractHeaderEnv(req.headers))) {
+    process.env[envName] = value;
   }
 
   // Acknowledge the job immediately. The actual work runs async; result
@@ -304,79 +302,14 @@ async function runJob(payload) {
     //    in `accepted` forever. Flatten what the worker reads + keep
     //    `result` for any future deeper introspection.
     //
-    // runAutofix has multiple result shapes:
-    //   - `{ verdict: "approve|rework|reject", reviews, ... }` (normal)
-    //   - `{ status: "approved", ... }` (fast-return when council OKs)
-    //   - `{ status: "bailed-no-patches", reason, ... }` (review fail)
-    //   - `{ status: "bailed-max-iter", ... }` (autonomy ceiling)
-    // We coerce `status` into `verdict` when verdict isn't set so the
-    // worker / PR-comment renderer always has something to show.
-    // cli's runAutofix has multiple result shapes depending on which
-    // path it took:
-    //   - dry-run (our review-only call): { status: "dry-run",
-    //       finalVerdict, remainingBlockers, totalCostUsd, ... }
-    //   - autofix approved early: { status: "approved", ... }
-    //   - autofix completed: { verdict, reviews, ... }
-    //   - bailed: { status: "bailed-no-patches" | "bailed-max-iter", ... }
-    // Pull the verdict from whichever field is populated.
-    const rawVerdict =
-      (result && typeof result === "object" && "verdict" in result ? result.verdict : undefined) ??
-      (result && typeof result === "object" && "finalVerdict" in result ? result.finalVerdict : undefined);
-    const rawStatus =
-      result && typeof result === "object" && "status" in result ? result.status : undefined;
-    const verdict =
-      rawVerdict ??
-      (rawStatus === "approved" || rawStatus === "merged"
-        ? "approve"
-        : rawStatus === "dry-run"
-          ? // dry-run with no finalVerdict means council had no consensus
-            // — surface as rework so the user knows to push fixes
-            "rework"
-          : rawStatus === "bailed-no-patches" || rawStatus === "bailed-max-iter" || rawStatus === "errored"
-            ? "rework"
-            : undefined);
-    const blockerArray =
-      result && typeof result === "object"
-        ? (Array.isArray(result.remainingBlockers)
-            ? result.remainingBlockers
-            : Array.isArray(result.blockers)
-              ? result.blockers
-              : null)
-        : null;
-    const blockers = blockerArray ? blockerArray.length : undefined;
-    // Top-8 blocker summaries surfaced into the PR comment so users can
-    // see what to fix without digging into the episodic log. Each
-    // entry capped to keep the comment compact + within GitHub's
-    // 65k-char limit even on large reviews.
-    const blockerSummaries = blockerArray
-      ? blockerArray.slice(0, 8).map((b) => ({
-          category: typeof b?.category === "string" ? b.category : "uncategorized",
-          severity: typeof b?.severity === "string" ? b.severity : "minor",
-          message: typeof b?.message === "string" ? b.message.slice(0, 240) : "",
-          file: typeof b?.filePath === "string"
-            ? b.filePath
-            : typeof b?.path === "string"
-              ? b.path
-              : "",
-          line: typeof b?.line === "number" ? b.line : undefined,
-        }))
-      : undefined;
-    // Diagnostic: any time we can't produce a real verdict, pack the
-    // raw cli result fragments into the error channel so D1's
-    // error_message captures it. Otherwise the row reads "done +
-    // verdict null" and we have to redeploy with extra logging just
-    // to see what cli actually returned.
-    const reasonSnippet =
-      typeof result?.reason === "string" ? result.reason.slice(0, 200) : "";
-    const itersCount = Array.isArray(result?.iterations) ? result.iterations.length : 0;
-    const totalCost = typeof result?.totalCostUsd === "number" ? result.totalCostUsd : 0;
-    console.log(
-      `[job ${jobId}] result keys=[${Object.keys(result ?? {}).join(",")}] status=${rawStatus} verdict=${rawVerdict} reason=${reasonSnippet.slice(0, 80)} iters=${itersCount} cost=$${totalCost}`,
-    );
-    const diagnosticError =
-      verdict === undefined
-        ? `cli result: status=${rawStatus} reason=${reasonSnippet || "(none)"} iters=${itersCount} cost=$${totalCost} keys=[${Object.keys(result ?? {}).join(",")}] exitCode=${code}`
-        : undefined;
+    // coerceResult handles the four runAutofix result shapes (see
+    // coerce-result.mjs) and produces a uniform { verdict, blockers,
+    // blockerSummaries, diagnosticError } envelope. When verdict is
+    // undefined the diagnosticError captures whatever cli actually
+    // returned so D1's error_message has actionable detail.
+    const coerced = coerceResult(result, code);
+    const { verdict, blockers, blockerSummaries, diagnosticError } = coerced;
+    console.log(`[job ${jobId}] ${coerced.debugLine}`);
     await postCallback(callbackUrl, callbackToken, {
       jobId,
       repo,
