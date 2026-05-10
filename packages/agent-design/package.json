@@ -2,7 +2,7 @@
   "name": "@conclave-ai/agent-design",
   "version": "0.13.2",
   "description": "Conclave AI design-specialist agent — vision-based review over before/after screenshots.",
-  "license": "MIT",
+  "license": "FSL-1.1-Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

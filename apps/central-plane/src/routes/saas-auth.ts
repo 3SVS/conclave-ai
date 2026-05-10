@@ -398,31 +398,247 @@ export function createSaasAuthRoutes(): Hono<{ Bindings: Env }> {
 
 // --- HTML helpers --------------------------------------------------------
 
+// v0.14.5 — login pages match the judicial-conclave brand from
+// apps/landing (parchment cream + oxblood seal + gold leaf accents +
+// Bodoni-style display serif). One-shot HTML pages served direct from
+// the Worker; Google Fonts loads once per browser visit. Both pages
+// share the same shell so they look like a pair, not two unrelated
+// templates.
+const SHARED_HEAD = `<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,wght@0,500;0,600;1,500&family=Crimson+Pro:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" />
+<style>
+  :root {
+    --parchment: #F4ECDC;
+    --parchment-light: #FBF6E9;
+    --parchment-line: #D9C9A6;
+    --ink: #1A1310;
+    --ink-subtle: #3D2E26;
+    --ink-muted: #5C463A;
+    --ink-mute: #7A685A;
+    --oxblood: #5C111C;
+    --oxblood-soft: #8E2C39;
+    --gold: #9B7A30;
+    --gold-light: #C7A554;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: "Crimson Pro", Georgia, serif;
+    color: var(--ink);
+    background: var(--parchment);
+    background-image:
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.78' numOctaves='2' stitchTiles='stitch' seed='3'/><feColorMatrix values='0 0 0 0 0.10 0 0 0 0 0.07 0 0 0 0 0.05 0 0 0 0.5 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/></svg>"),
+      radial-gradient(ellipse 80% 50% at 50% 0%, rgba(155, 122, 48, 0.04), transparent 60%),
+      radial-gradient(ellipse 70% 50% at 50% 100%, rgba(92, 17, 28, 0.03), transparent 65%);
+    background-size: 220px, 100% 100%, 100% 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  ::selection { background: var(--oxblood); color: var(--parchment); }
+  .stage {
+    width: 100%;
+    max-width: 560px;
+    text-align: center;
+    animation: rise 600ms cubic-bezier(0.2, 0, 0.15, 1);
+  }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .seal {
+    margin: 0 auto 36px;
+    width: 64px; height: 64px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .marker {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+    display: flex; align-items: center; gap: 12px; margin-bottom: 24px;
+  }
+  .marker::before, .marker::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--gold) 40%, var(--gold) 60%, transparent);
+    opacity: 0.55;
+  }
+  h1 {
+    font-family: "Bodoni Moda", Bodoni, Didot, serif;
+    font-weight: 500;
+    font-size: clamp(2.25rem, 5vw, 3.25rem);
+    line-height: 1.05;
+    letter-spacing: -0.01em;
+    margin: 0 0 8px;
+    color: var(--ink);
+  }
+  h1 em { font-style: italic; font-weight: 500; }
+  .subtitle {
+    font-family: "Bodoni Moda", Bodoni, Didot, serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: 1.25rem;
+    color: var(--oxblood);
+    margin: 0 0 28px;
+  }
+  .body {
+    font-size: 17px;
+    line-height: 1.65;
+    color: var(--ink-muted);
+    max-width: 42ch;
+    margin: 0 auto 28px;
+  }
+  .latin {
+    font-family: "Bodoni Moda", Bodoni, Didot, serif;
+    font-style: italic;
+    color: var(--ink-mute);
+    font-size: 15px;
+    margin: 36px 0 0;
+  }
+  .gold-rule {
+    height: 2px;
+    width: 56px;
+    margin: 32px auto;
+    background: linear-gradient(90deg, transparent 0%, var(--gold) 30%, var(--gold-light) 50%, var(--gold) 70%, transparent 100%);
+  }
+  .meta {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+    margin-top: 48px;
+  }
+  code {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    background: var(--parchment-light);
+    border: 1px solid var(--parchment-line);
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 0.9em;
+    color: var(--ink);
+  }
+  .who {
+    display: inline-block;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    color: var(--oxblood);
+    font-weight: 500;
+  }
+  /* Wax seal — circular stamp built from gradients (no asset) */
+  .wax {
+    width: 64px; height: 64px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, var(--oxblood-soft), var(--oxblood) 60%, #4B0E17);
+    box-shadow:
+      inset 0 0 0 2px rgba(199, 165, 84, 0.35),
+      inset 4px 8px 16px rgba(0, 0, 0, 0.35),
+      inset -4px -6px 12px rgba(255, 215, 165, 0.18),
+      0 4px 8px rgba(40, 10, 15, 0.25);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--parchment);
+    font-family: "Bodoni Moda", Bodoni, Didot, serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: 18px;
+    letter-spacing: 0.04em;
+  }
+  /* Logo: three council dots inside an outline ring */
+  .ring { stroke: var(--oxblood); fill: none; stroke-width: 1.4; }
+  .dot  { fill: var(--oxblood); }
+  /* Error variant: replace seal with a struck-through ring */
+  .seal--err .ring { stroke: var(--oxblood); }
+  .seal--err .dot  { fill: var(--ink-mute); opacity: 0.4; }
+  .seal--err .strike {
+    stroke: var(--oxblood);
+    stroke-width: 1.4;
+    stroke-linecap: round;
+  }
+  .err-message {
+    background: var(--parchment-light);
+    border-left: 3px solid var(--oxblood);
+    padding: 14px 18px;
+    text-align: left;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 13px;
+    color: var(--ink-subtle);
+    margin: 24px auto;
+    max-width: 480px;
+    line-height: 1.55;
+  }
+</style>`;
+
+function logoSvgInline(): string {
+  // Three filled dots inscribed in an outline ring — Conclave AI mark.
+  // Coords match apps/landing/src/components/Logo.tsx geometry (cy=12,
+  // r=4.5, dots at -90/30/150°), so the brand is identical across web
+  // and login pages.
+  return `<svg width="56" height="56" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <circle class="ring" cx="12" cy="12" r="10" />
+    <circle class="dot" cx="12" cy="7.5" r="1.6" />
+    <circle class="dot" cx="15.897" cy="14.25" r="1.6" />
+    <circle class="dot" cx="8.103" cy="14.25" r="1.6" />
+  </svg>`;
+}
+
+function logoSvgInlineErr(): string {
+  // Same ring + dots, but with a slash struck across — visual "session
+  // not granted" without abandoning the mark.
+  return `<svg width="56" height="56" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" class="seal--err" aria-hidden="true">
+    <circle class="ring" cx="12" cy="12" r="10" />
+    <circle class="dot" cx="12" cy="7.5" r="1.6" />
+    <circle class="dot" cx="15.897" cy="14.25" r="1.6" />
+    <circle class="dot" cx="8.103" cy="14.25" r="1.6" />
+    <line class="strike" x1="5" y1="19" x2="19" y2="5" />
+  </svg>`;
+}
+
 function htmlOk(login: string): string {
   return `<!doctype html>
-<html><head><meta charset="utf-8"><title>Conclave AI — login complete</title>
-<style>
-  body{font:14px/1.5 ui-monospace,monospace;color:#222;max-width:560px;margin:80px auto;padding:0 24px}
-  .ok{color:#0a8}
-  code{background:#f4f4f4;padding:2px 6px;border-radius:4px}
-</style></head><body>
-<h1 class="ok">✓ Logged in as ${escapeHtml(login)}</h1>
-<p>You can close this tab. Your terminal will pick up the token automatically.</p>
-<p><small>Conclave AI Code Council · device flow login complete</small></p>
+<html lang="en"><head>${SHARED_HEAD}<title>Conclave AI · Audience granted</title></head>
+<body>
+  <main class="stage">
+    <div class="seal">${logoSvgInline()}</div>
+    <p class="marker">device flow · session approved</p>
+    <h1>The council has <em>granted</em> audience.</h1>
+    <p class="subtitle">Habemus consensum.</p>
+    <div class="gold-rule"></div>
+    <p class="body">
+      You may close this tab. Your terminal will receive the seal automatically — no further action is required of you.
+    </p>
+    <p class="body">
+      Logged in as <span class="who">@${escapeHtml(login)}</span>.
+    </p>
+    <p class="latin">Verify with <code>conclave whoami</code> · revoke with <code>conclave logout</code>.</p>
+    <p class="meta">Conclave AI · Code Council · MMXXVI</p>
+  </main>
 </body></html>`;
 }
 
 function htmlError(message: string): string {
   return `<!doctype html>
-<html><head><meta charset="utf-8"><title>Conclave AI — login failed</title>
-<style>
-  body{font:14px/1.5 ui-monospace,monospace;color:#222;max-width:560px;margin:80px auto;padding:0 24px}
-  .err{color:#c33}
-  code{background:#f4f4f4;padding:2px 6px;border-radius:4px}
-</style></head><body>
-<h1 class="err">✗ Login failed</h1>
-<p>${message}</p>
-<p><small>Conclave AI Code Council · device flow</small></p>
+<html lang="en"><head>${SHARED_HEAD}<title>Conclave AI · Session closed</title></head>
+<body>
+  <main class="stage">
+    <div class="seal">${logoSvgInlineErr()}</div>
+    <p class="marker">device flow · session closed</p>
+    <h1>The session is <em>closed</em>.</h1>
+    <p class="subtitle">Sessio clausa est.</p>
+    <div class="gold-rule"></div>
+    <div class="err-message">${message}</div>
+    <p class="body">
+      Return to your terminal and run <code>conclave login</code> to begin a new audience. The previous device code is no longer valid.
+    </p>
+    <p class="meta">Conclave AI · Code Council · MMXXVI</p>
+  </main>
 </body></html>`;
 }
 

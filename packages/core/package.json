@@ -2,7 +2,7 @@
   "name": "@conclave-ai/core",
   "version": "0.14.2",
   "description": "Conclave AI core — Agent interface, council orchestration, self-evolve substrate, efficiency gate.",
-  "license": "MIT",
+  "license": "FSL-1.1-Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

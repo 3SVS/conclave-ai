@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "Conclave AI monorepo — AI drafted. Council refined.",
-  "license": "MIT",
+  "license": "FSL-1.1-Apache-2.0",
   "author": "Seunghun Bae",
   "repository": {
     "type": "git",
