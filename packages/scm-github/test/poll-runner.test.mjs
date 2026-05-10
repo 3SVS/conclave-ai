@@ -52,6 +52,7 @@ test("pollOutcomes: empty store → scanned 0", async () => {
 test("pollOutcomes: merged PR writes AnswerKey", async () => {
   const { store, root } = freshFs();
   try {
+    const baselineAnswerKeys = (await store.listAnswerKeys()).length;
     const writer = new OutcomeWriter({ store });
     await writer.writeReview({
       ctx: approveCtx,
@@ -67,7 +68,7 @@ test("pollOutcomes: merged PR writes AnswerKey", async () => {
     assert.equal(summary.merged, 1);
     assert.equal(summary.scanned, 1);
     assert.equal(summary.results[0].wrote, true);
-    assert.equal((await store.listAnswerKeys()).length, 1);
+    assert.equal((await store.listAnswerKeys()).length - baselineAnswerKeys, 1);
   } finally {
     cleanup(root);
   }
@@ -76,6 +77,7 @@ test("pollOutcomes: merged PR writes AnswerKey", async () => {
 test("pollOutcomes: closed PR → rejected + FailureEntry", async () => {
   const { store, root } = freshFs();
   try {
+    const baselineFailures = (await store.listFailures()).length;
     const writer = new OutcomeWriter({ store });
     await writer.writeReview({
       ctx: approveCtx,
@@ -89,7 +91,7 @@ test("pollOutcomes: closed PR → rejected + FailureEntry", async () => {
       run: runner([{ state: "CLOSED", headRefOid: "head-sha", updatedAt: "2026-04-19T00:00:00Z" }]),
     });
     assert.equal(summary.rejected, 1);
-    assert.equal((await store.listFailures()).length, 1);
+    assert.equal((await store.listFailures()).length - baselineFailures, 1);
   } finally {
     cleanup(root);
   }
@@ -98,6 +100,11 @@ test("pollOutcomes: closed PR → rejected + FailureEntry", async () => {
 test("pollOutcomes: open with advanced head → reworked + FailureEntry", async () => {
   const { store, root } = freshFs();
   try {
+    // v0.16.17 — Phase 3 ships a bundled design failure-catalog (8
+    // entries) that listFailures() includes alongside user-written
+    // ones. Capture the baseline so we assert the DELTA produced by
+    // OutcomeWriter, not the absolute count.
+    const baselineFailures = (await store.listFailures()).length;
     const writer = new OutcomeWriter({ store });
     await writer.writeReview({
       ctx: approveCtx,
@@ -111,7 +118,7 @@ test("pollOutcomes: open with advanced head → reworked + FailureEntry", async 
       run: runner([{ state: "OPEN", headRefOid: "different-sha", updatedAt: "2026-04-19T00:00:00Z" }]),
     });
     assert.equal(summary.reworked, 1);
-    assert.equal((await store.listFailures()).length, 1);
+    assert.equal((await store.listFailures()).length - baselineFailures, 1);
   } finally {
     cleanup(root);
   }
@@ -120,6 +127,8 @@ test("pollOutcomes: open with advanced head → reworked + FailureEntry", async 
 test("pollOutcomes: open with same head → pending (no write)", async () => {
   const { store, root } = freshFs();
   try {
+    // v0.16.17 — bundled answer-keys baseline (Phase 3 design seeds).
+    const baselineAnswerKeys = (await store.listAnswerKeys()).length;
     const writer = new OutcomeWriter({ store });
     await writer.writeReview({
       ctx: approveCtx,
@@ -134,7 +143,7 @@ test("pollOutcomes: open with same head → pending (no write)", async () => {
     });
     assert.equal(summary.merged + summary.rejected + summary.reworked, 0);
     assert.equal(summary.pending, 1);
-    assert.equal((await store.listAnswerKeys()).length, 0);
+    assert.equal((await store.listAnswerKeys()).length - baselineAnswerKeys, 0);
   } finally {
     cleanup(root);
   }
