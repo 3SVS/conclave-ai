@@ -9,7 +9,7 @@ import { promoteSeedsPass } from "./seed-promoter.js";
 import { runSourceDiscovery } from "./source-discovery.js";
 import { runOssPrMiner } from "./oss-pr-miner.js";
 import { runChangelogMonitor } from "./changelog-monitor.js";
-import { runAgentSpawner } from "./agent-spawner.js";
+import { runAgentSpawner, runAutoGraduation } from "./agent-spawner.js";
 
 const app = createApp();
 
@@ -160,11 +160,17 @@ export default {
     if (event.cron === "0 8 * * 1") {
       try {
         const result = await runAgentSpawner(env);
+        // Always also run auto-graduation in the same pass — keeps the
+        // weekly Monday cron's two phases (detection of new clusters +
+        // graduation of trial agents) atomic. Cheap (single aggregate
+        // query + at most a handful of UPDATEs).
+        const grad = await runAutoGraduation(env);
         console.log(
           JSON.stringify({
             cron: "agent-spawner",
             cronExpression: event.cron,
             ...result,
+            auto_graduation: grad,
           }),
         );
       } catch (err) {

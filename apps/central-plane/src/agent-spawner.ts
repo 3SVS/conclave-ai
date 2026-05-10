@@ -42,11 +42,32 @@ interface OtherFeedbackRow {
 interface SpawnedAgentSpec {
   agent_id: string;
   display_name: string;
+  /** Strict 'code' | 'design' filter the runtime council uses to gate which reviews recruit this agent. */
+  domain: "code" | "design";
   domain_hint: string;
   system_prompt: string;
   base_agent_id: string | null;
   emergence_signal: string;
 }
+
+/**
+ * Auto-graduation thresholds. Lifted out of `runAutoGraduation` so the
+ * tests can read the same constants the cron path uses.
+ *
+ * trial → promoted requires:
+ *   - agent has been in trial ≥ TRIAL_MIN_DURATION_MS
+ *   - ≥ TRIAL_MIN_OUTCOMES outcomes recorded
+ *   - pass-rate ≥ TRIAL_PROMOTE_PASS_RATE
+ *
+ * trial → archived requires:
+ *   - ≥ TRIAL_MIN_OUTCOMES_FOR_ARCHIVE outcomes recorded
+ *   - pass-rate ≤ TRIAL_ARCHIVE_PASS_RATE
+ */
+export const TRIAL_MIN_DURATION_MS = 14 * 24 * 60 * 60 * 1000;
+export const TRIAL_MIN_OUTCOMES = 10;
+export const TRIAL_PROMOTE_PASS_RATE = 0.8;
+export const TRIAL_MIN_OUTCOMES_FOR_ARCHIVE = 5;
+export const TRIAL_ARCHIVE_PASS_RATE = 0.2;
 
 interface AnthropicResponse {
   content?: Array<{ type: string; text?: string }>;
@@ -59,6 +80,7 @@ Output ONE JSON object — no prose, no markdown fences:
   "spawn": <true|false>,
   "agent_id": "<lowercase-kebab, e.g. k8s-manifest, graphql-schema, rust-borrow>",
   "display_name": "<3-5 words, Title Case>",
+  "domain": "<exactly one of: code | design — gates which review types recruit this agent in the runtime council>",
   "domain_hint": "<one sentence: what does this agent specialize in?>",
   "base_agent_id": "<closest existing agent: claude | openai | gemini | design | null>",
   "emergence_signal": "<one sentence: WHY this cluster looks coherent + actionable>",
@@ -68,6 +90,11 @@ Output ONE JSON object — no prose, no markdown fences:
 Spawn criteria:
 - spawn: true only when the cluster is COHERENT (rows share a real domain, not just random "other" misses) AND the domain isn't already covered (claude/openai/gemini handle code; design handles UI).
 - spawn: false when rows are noise, miscategorizations, or already covered.
+
+domain field:
+- "code" — backend, infra, schemas, language-specific reviews (k8s, GraphQL, Rust, etc.)
+- "design" — UI, accessibility, layout, visual.
+- When uncertain, default "code".
 
 If spawn=false, omit the other fields or leave them empty strings; the caller will skip insertion.`;
 
@@ -101,7 +128,7 @@ async function callHaiku(env: Env, system: string, user: string): Promise<string
   }
 }
 
-function parseSpawnSpec(text: string): SpawnedAgentSpec | { spawn: false } | null {
+export function parseSpawnSpec(text: string): SpawnedAgentSpec | { spawn: false } | null {
   try {
     const stripped = text
       .trim()
@@ -122,9 +149,16 @@ function parseSpawnSpec(text: string): SpawnedAgentSpec | { spawn: false } | nul
       typeof baseRaw === "string" && ["claude", "openai", "gemini", "design"].includes(baseRaw)
         ? baseRaw
         : null;
+    // Default to 'code' when Haiku omits or returns an unrecognized value.
+    // The migration's NOT NULL DEFAULT 'code' covers backfill of existing
+    // rows; this default covers new inserts where the model didn't comply
+    // with the prompt.
+    const domain: "code" | "design" =
+      obj.domain === "design" ? "design" : "code";
     return {
       agent_id: String(obj.agent_id).slice(0, 64),
       display_name: String(obj.display_name).slice(0, 100),
+      domain,
       domain_hint: String(obj.domain_hint).slice(0, 280),
       system_prompt: String(obj.system_prompt).slice(0, 8_000),
       base_agent_id,
@@ -230,14 +264,15 @@ export async function runAgentSpawner(env: Env): Promise<SpawnerRunResult> {
   const now = new Date().toISOString();
   await env.DB.prepare(
     `INSERT INTO spawned_agents
-       (id, agent_id, display_name, domain_hint, emergence_signal,
+       (id, agent_id, display_name, domain, domain_hint, emergence_signal,
         trigger_feedback_ids, system_prompt, base_agent_id, status, spawned_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'shadow', ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'shadow', ?)`,
   )
     .bind(
       id,
       spec.agent_id,
       spec.display_name,
+      spec.domain,
       spec.domain_hint,
       spec.emergence_signal,
       JSON.stringify(rows.map((r) => r.id)),
@@ -257,65 +292,235 @@ export async function runAgentSpawner(env: Env): Promise<SpawnerRunResult> {
 
 // --- Reader / mutator helpers used by routes ---------------------------
 
+export type SpawnedAgentStatus = "shadow" | "trial" | "promoted" | "archived";
+
 export interface SpawnedAgentRow {
   id: string;
   agent_id: string;
   display_name: string;
+  domain: "code" | "design";
   domain_hint: string;
   emergence_signal: string | null;
   base_agent_id: string | null;
-  status: "shadow" | "promoted" | "archived";
+  /** 8000-char Haiku-synthesized system prompt the runtime council slots in. */
+  system_prompt: string;
+  status: SpawnedAgentStatus;
   spawned_at: string;
+  trial_promoted_at: string | null;
   promoted_at: string | null;
   archived_at: string | null;
 }
 
 export async function listSpawnedAgents(
   env: Env,
-  status: "shadow" | "promoted" | "archived" | null,
+  status: SpawnedAgentStatus | null,
+  domain?: "code" | "design",
 ): Promise<SpawnedAgentRow[]> {
-  const where = status
-    ? `WHERE removed_at IS NULL AND status = ?`
-    : `WHERE removed_at IS NULL`;
+  const wheres = ["removed_at IS NULL"];
+  const binds: unknown[] = [];
+  if (status) {
+    wheres.push("status = ?");
+    binds.push(status);
+  }
+  if (domain) {
+    wheres.push("domain = ?");
+    binds.push(domain);
+  }
   const stmt = env.DB.prepare(
-    `SELECT id, agent_id, display_name, domain_hint, emergence_signal,
-            base_agent_id, status, spawned_at, promoted_at, archived_at
+    `SELECT id, agent_id, display_name, domain, domain_hint, emergence_signal,
+            base_agent_id, system_prompt, status, spawned_at,
+            trial_promoted_at, promoted_at, archived_at
        FROM spawned_agents
-       ${where}
+       WHERE ${wheres.join(" AND ")}
        ORDER BY spawned_at DESC LIMIT 100`,
   );
-  const r = await (status ? stmt.bind(status).all() : stmt.all());
+  const r = binds.length === 0 ? await stmt.all() : await stmt.bind(...binds).all();
   const rows = (r.results ?? []) as Array<Record<string, unknown>>;
   return rows.map((row) => ({
     id: String(row.id),
     agent_id: String(row.agent_id),
     display_name: String(row.display_name),
+    domain: (row.domain === "design" ? "design" : "code") as "code" | "design",
     domain_hint: String(row.domain_hint),
-    emergence_signal: row.emergence_signal === null || row.emergence_signal === undefined ? null : String(row.emergence_signal),
-    base_agent_id: row.base_agent_id === null || row.base_agent_id === undefined ? null : String(row.base_agent_id),
-    status: row.status as SpawnedAgentRow["status"],
+    emergence_signal: row.emergence_signal == null ? null : String(row.emergence_signal),
+    base_agent_id: row.base_agent_id == null ? null : String(row.base_agent_id),
+    system_prompt: String(row.system_prompt),
+    status: row.status as SpawnedAgentStatus,
     spawned_at: String(row.spawned_at),
-    promoted_at: row.promoted_at === null || row.promoted_at === undefined ? null : String(row.promoted_at),
-    archived_at: row.archived_at === null || row.archived_at === undefined ? null : String(row.archived_at),
+    trial_promoted_at: row.trial_promoted_at == null ? null : String(row.trial_promoted_at),
+    promoted_at: row.promoted_at == null ? null : String(row.promoted_at),
+    archived_at: row.archived_at == null ? null : String(row.archived_at),
   }));
 }
 
 export async function setSpawnedAgentStatus(
   env: Env,
   id: string,
-  newStatus: "shadow" | "promoted" | "archived",
+  newStatus: SpawnedAgentStatus,
 ): Promise<boolean> {
   const now = new Date().toISOString();
   let sql = `UPDATE spawned_agents SET status = ? WHERE id = ? AND removed_at IS NULL`;
-  if (newStatus === "promoted") {
+  let binds: unknown[] = [newStatus, id];
+  if (newStatus === "trial") {
+    sql = `UPDATE spawned_agents SET status = ?, trial_promoted_at = ? WHERE id = ? AND removed_at IS NULL`;
+    binds = [newStatus, now, id];
+  } else if (newStatus === "promoted") {
     sql = `UPDATE spawned_agents SET status = ?, promoted_at = ? WHERE id = ? AND removed_at IS NULL`;
+    binds = [newStatus, now, id];
   } else if (newStatus === "archived") {
     sql = `UPDATE spawned_agents SET status = ?, archived_at = ? WHERE id = ? AND removed_at IS NULL`;
+    binds = [newStatus, now, id];
   }
-  const stmt = env.DB.prepare(sql);
-  const r =
-    newStatus === "promoted" || newStatus === "archived"
-      ? await stmt.bind(newStatus, now, id).run()
-      : await stmt.bind(newStatus, id).run();
+  const r = await env.DB.prepare(sql).bind(...binds).run();
   return (r.meta?.changes ?? 0) > 0;
+}
+
+// --- Outcome ingest ----------------------------------------------------
+
+export interface SpawnedAgentOutcomeInput {
+  agent_id: string; // the kebab agent_id, e.g. "k8s-manifest"
+  review_id: string;
+  verdict: "approve" | "rework" | "reject";
+  blocker_count: number;
+  cost_usd: number;
+  latency_ms: number;
+  /** True/false when the review's smoke run reported a result; null when no smoke was run. */
+  smoke_passed: boolean | null;
+}
+
+/**
+ * Record a single review outcome for a spawned agent. The CLI calls
+ * this after every review the spawned agent participated in (trial or
+ * promoted). Idempotent on (spawned_agent_pk, review_id) — pre-existing
+ * rows are left alone.
+ */
+export async function recordSpawnedAgentOutcome(
+  env: Env,
+  input: SpawnedAgentOutcomeInput,
+): Promise<{ ok: true } | { ok: false; reason: "agent_not_found" | "duplicate" }> {
+  const agentRow = await env.DB.prepare(
+    `SELECT id FROM spawned_agents WHERE agent_id = ? AND removed_at IS NULL`,
+  )
+    .bind(input.agent_id)
+    .first<{ id: string }>();
+  if (!agentRow) return { ok: false, reason: "agent_not_found" };
+
+  const dup = await env.DB.prepare(
+    `SELECT 1 FROM spawned_agent_outcomes WHERE spawned_agent_pk = ? AND review_id = ? LIMIT 1`,
+  )
+    .bind(agentRow.id, input.review_id)
+    .first<{ "1": number }>();
+  if (dup) return { ok: false, reason: "duplicate" };
+
+  const id = `sao_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    `INSERT INTO spawned_agent_outcomes
+       (id, spawned_agent_pk, review_id, verdict, blocker_count, cost_usd, latency_ms, smoke_passed, recorded_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      id,
+      agentRow.id,
+      input.review_id,
+      input.verdict,
+      input.blocker_count,
+      input.cost_usd,
+      input.latency_ms,
+      input.smoke_passed === null ? null : input.smoke_passed ? 1 : 0,
+      now,
+    )
+    .run();
+  return { ok: true };
+}
+
+// --- Auto-graduation ---------------------------------------------------
+
+export interface AutoGradResult {
+  evaluated: number;
+  promoted: string[];
+  archived: string[];
+}
+
+interface OutcomeAggRow {
+  spawned_agent_pk: string;
+  agent_id: string;
+  trial_promoted_at: string | null;
+  total: number;
+  passes: number;
+}
+
+/**
+ * Define a "trial pass" as a review where the spawned agent didn't
+ * reject AND smoke didn't fail. Reject + non-null smoke_passed=0 are
+ * the only ways an outcome counts as a fail. Smoke=null (no smoke
+ * configured) is neutral — it neither helps nor hurts the trial.
+ */
+export function isTrialPass(verdict: string, smokePassed: number | null): boolean {
+  if (verdict === "reject") return false;
+  if (smokePassed === 0) return false;
+  return true;
+}
+
+/**
+ * Pure decision logic — exposed for tests. Given the trial entry +
+ * outcome counts + a `now` timestamp, returns "promote" / "archive" /
+ * "wait".
+ */
+export function decideAutoGrad(args: {
+  trialPromotedAt: string | null;
+  total: number;
+  passes: number;
+  now: number;
+}): "promote" | "archive" | "wait" {
+  const { trialPromotedAt, total, passes, now } = args;
+  if (!trialPromotedAt) return "wait";
+  // Archive first — fail-fast on clearly bad agents even before the
+  // duration window has elapsed (saves wasted reviews).
+  if (total >= TRIAL_MIN_OUTCOMES_FOR_ARCHIVE) {
+    const passRate = passes / total;
+    if (passRate <= TRIAL_ARCHIVE_PASS_RATE) return "archive";
+  }
+  const promotedAt = Date.parse(trialPromotedAt);
+  if (!Number.isFinite(promotedAt)) return "wait";
+  if (now - promotedAt < TRIAL_MIN_DURATION_MS) return "wait";
+  if (total < TRIAL_MIN_OUTCOMES) return "wait";
+  const passRate = passes / total;
+  if (passRate >= TRIAL_PROMOTE_PASS_RATE) return "promote";
+  return "wait";
+}
+
+export async function runAutoGraduation(env: Env, nowMs: number = Date.now()): Promise<AutoGradResult> {
+  // Aggregate outcomes per trial agent.
+  const agg = await env.DB.prepare(
+    `SELECT sa.id AS spawned_agent_pk, sa.agent_id, sa.trial_promoted_at,
+            COUNT(o.id) AS total,
+            SUM(CASE
+                  WHEN o.verdict = 'reject' THEN 0
+                  WHEN o.smoke_passed = 0 THEN 0
+                  ELSE 1
+                END) AS passes
+       FROM spawned_agents sa
+       LEFT JOIN spawned_agent_outcomes o ON o.spawned_agent_pk = sa.id
+      WHERE sa.status = 'trial' AND sa.removed_at IS NULL
+      GROUP BY sa.id`,
+  ).all<OutcomeAggRow>();
+  const rows = agg.results ?? [];
+  const result: AutoGradResult = { evaluated: rows.length, promoted: [], archived: [] };
+  for (const row of rows) {
+    const decision = decideAutoGrad({
+      trialPromotedAt: row.trial_promoted_at,
+      total: Number(row.total ?? 0),
+      passes: Number(row.passes ?? 0),
+      now: nowMs,
+    });
+    if (decision === "promote") {
+      const flipped = await setSpawnedAgentStatus(env, row.spawned_agent_pk, "promoted");
+      if (flipped) result.promoted.push(row.agent_id);
+    } else if (decision === "archive") {
+      const flipped = await setSpawnedAgentStatus(env, row.spawned_agent_pk, "archived");
+      if (flipped) result.archived.push(row.agent_id);
+    }
+  }
+  return result;
 }
