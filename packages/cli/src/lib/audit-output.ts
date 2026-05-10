@@ -66,9 +66,11 @@ export interface AuditReport {
     answerKeysLocal: number;
     answerKeysPromoted: number;
     answerKeysExternal: number;
+    answerKeysOssPatterns?: number;
     failureCatalogLocal: number;
     failureCatalogPromoted: number;
     failureCatalogExternal: number;
+    failureCatalogOssPatterns?: number;
   };
 }
 

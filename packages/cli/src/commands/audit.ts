@@ -38,6 +38,7 @@ import { GeminiAgent } from "@conclave-ai/agent-gemini";
 import { loadConfig, resolveMemoryRoot } from "../lib/config.js";
 import { fetchExternalReferences } from "../lib/external-references.js";
 import { fetchPromotedSeeds } from "../lib/promoted-seeds.js";
+import { fetchOssPatterns } from "../lib/oss-patterns.js";
 import {
   FileSystemMemoryStore,
   formatAnswerKeyForPrompt,
@@ -489,19 +490,26 @@ export async function audit(argv: string[]): Promise<void> {
     answerKeys: [] as string[],
     failureCatalog: [] as string[],
   }));
+  // v0.16.13 — Sprint E2 OSS PR patterns.
+  const ossPatterns = await fetchOssPatterns(ctxDomain).catch(() => ({
+    answerKeys: [] as string[],
+    failureCatalog: [] as string[],
+  }));
   const auditAnswerKeys = [
     ...localAnswerKeys,
     ...promotedSeeds.answerKeys,
+    ...ossPatterns.answerKeys,
     ...externalRefs.answerKeys,
   ];
   const auditFailures = [
     ...localFailures,
     ...promotedSeeds.failureCatalog,
+    ...ossPatterns.failureCatalog,
     ...externalRefs.failureCatalog,
   ];
   if (auditAnswerKeys.length > 0 || auditFailures.length > 0) {
     process.stderr.write(
-      `conclave audit: RAG context — ${auditAnswerKeys.length} answer-key(s) (${promotedSeeds.answerKeys.length} promoted, ${externalRefs.answerKeys.length} external) + ${auditFailures.length} failure(s) (${promotedSeeds.failureCatalog.length} promoted, ${externalRefs.failureCatalog.length} external) from ${ctxDomain} domain\n`,
+      `conclave audit: RAG context — ${auditAnswerKeys.length} answer-key(s) (${promotedSeeds.answerKeys.length} promoted, ${ossPatterns.answerKeys.length} oss, ${externalRefs.answerKeys.length} external) + ${auditFailures.length} failure(s) (${promotedSeeds.failureCatalog.length} promoted, ${ossPatterns.failureCatalog.length} oss, ${externalRefs.failureCatalog.length} external) from ${ctxDomain} domain\n`,
     );
   }
 
@@ -652,9 +660,11 @@ export async function audit(argv: string[]): Promise<void> {
       answerKeysLocal: localAnswerKeys.length,
       answerKeysPromoted: promotedSeeds.answerKeys.length,
       answerKeysExternal: externalRefs.answerKeys.length,
+      answerKeysOssPatterns: ossPatterns.answerKeys.length,
       failureCatalogLocal: localFailures.length,
       failureCatalogPromoted: promotedSeeds.failureCatalog.length,
       failureCatalogExternal: externalRefs.failureCatalog.length,
+      failureCatalogOssPatterns: ossPatterns.failureCatalog.length,
     },
   };
 

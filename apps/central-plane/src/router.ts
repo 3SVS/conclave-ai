@@ -22,6 +22,7 @@ import { createFeedbackRoutes } from "./routes/feedback.js";
 import { createPromotedSeedsRoutes } from "./routes/promoted-seeds.js";
 import { createLearningStatsRoutes } from "./routes/learning-stats.js";
 import { createSourceCandidatesRoutes } from "./routes/source-candidates.js";
+import { createOssPatternsRoutes } from "./routes/oss-patterns.js";
 import type { FetchLike } from "./github.js";
 
 /**
@@ -84,6 +85,10 @@ export function createApp(opts: { fetch?: FetchLike } = {}): Hono<{ Bindings: En
   // GET /admin/source-candidates, POST /admin/source-candidates/:id/decide,
   // POST /admin/run-source-discovery. Weekly cron also runs discovery.
   app.route("/", createSourceCandidatesRoutes());
+  // v0.16.13 — Sprint E2: OSS PR pattern miner. GET /seeds/oss-patterns/:domain
+  // (public, CLI consumes) + POST /admin/run-oss-pr-miner. Daily cron runs
+  // runOssPrMiner() directly.
+  app.route("/", createOssPatternsRoutes());
   app.onError((err, c) => {
     console.error("central-plane error:", err);
     return c.json({ error: err.message || "internal error" }, 500);

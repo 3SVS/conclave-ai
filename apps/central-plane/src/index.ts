@@ -7,6 +7,7 @@ import { refreshAllSources } from "./external-references.js";
 import { retryPendingFeedback } from "./routes/feedback.js";
 import { promoteSeedsPass } from "./seed-promoter.js";
 import { runSourceDiscovery } from "./source-discovery.js";
+import { runOssPrMiner } from "./oss-pr-miner.js";
 
 const app = createApp();
 
@@ -110,6 +111,29 @@ export default {
         );
       } catch (err) {
         console.error("[source-discovery] crashed:", err);
+      }
+      return;
+    }
+    if (event.cron === "0 6 * * *") {
+      try {
+        const result = await runOssPrMiner(env);
+        console.log(
+          JSON.stringify({
+            cron: "oss-pr-miner",
+            cronExpression: event.cron,
+            total_saved: result.total_saved,
+            total_failed: result.total_failed,
+            per_repo: result.per_repo.map((r) => ({
+              repo: r.repo,
+              scanned: r.scanned,
+              saved: r.saved,
+              skipped_existing: r.skipped_existing,
+              failed: r.failed,
+            })),
+          }),
+        );
+      } catch (err) {
+        console.error("[oss-pr-miner] crashed:", err);
       }
       return;
     }

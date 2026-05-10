@@ -122,6 +122,47 @@ Tier-1 verdict tally
 
 The full architecture is in [`ARCHITECTURE.md`](ARCHITECTURE.md). The 34 design decisions locked on 2026-04-19 are in [`docs/decisions.md`](docs/decisions.md).
 
+## Self-evolve loop
+
+Conclave doesn't just review PRs — **the rule set itself gets smarter over time**. Three pipelines feed the council's prompt:
+
+```text
+Reactive (from your feedback)
+  conclave feedback → POST /feedback
+        ↓ Haiku classify (sync, cron retry on failure)
+    user_feedback table
+        ↓ daily 0400 UTC promoter cron
+    promoted_seeds  ← synthesized via Haiku from ≥3 same-category rows
+        ↓
+    CLI review/audit fetch + inject
+
+Proactive (from the world)
+  daily 0300 UTC      Vercel Design / shadcn-ui / Refactoring UI / Design
+                      Systems Checklist                         → external_references
+  weekly 0500 UTC Sun GitHub Trending sweep (design-system / a11y / patterns)
+                      → source_candidates (operator approves)
+  daily 0600 UTC      OSS bugfix PR scan (Next.js / React / shadcn-ui /
+                      Tailwind / Storybook / Vercel style-guide)
+                      → oss_pr_patterns (Haiku extracts anti-pattern)
+
+All three streams flow into ctx.answerKeys / ctx.failureCatalog at every council review.
+```
+
+Operator surface (`INTERNAL_CALLBACK_TOKEN`-auth):
+
+- `GET  /admin/learning-stats` — substrate snapshot (feedback by status / category, promoted-seed counts, external-ref counts)
+- `GET  /admin/source-candidates[?status=…]` — newly-discovered candidate repos
+- `POST /admin/source-candidates/:id/decide` — approve / reject a candidate
+- `POST /admin/promote-seeds` / `/admin/run-source-discovery` / `/admin/run-oss-pr-miner` — manual triggers (cron handles the same calls)
+
+User surface:
+
+- `POST /feedback` (Bearer) — submit feedback on a prior review
+- `GET /me/feedback` (Bearer) — list your own
+- `conclave feedback [--list] [--json]` — CLI wrapper
+
+Every `conclave review --json` emits `metrics.rag` with per-source injection counts so you can see which streams contributed to a given review.
+
 ## Pricing
 
 | Plan | Price | Reviews | Autofixes | Notes |
@@ -137,12 +178,21 @@ Hard cutoffs (no surprise overage bills). $5 booster top-ups for one-off bursts.
 
 | Component | Status |
 |---|---|
-| CLI (`@conclave-ai/cli`) — `conclave login / review / autofix / whoami` | ✅ shipped, npm latest |
+| CLI (`@conclave-ai/cli`) — `conclave login / review / audit / autofix / whoami / feedback` | ✅ shipped, npm latest |
 | Multi-agent council (Claude + OpenAI + Gemini) | ✅ shipped |
+| Design agent + visual review (a11y / tokens / hierarchy) | ✅ shipped |
 | PRD-aware spec-mismatch flagging | ✅ shipped (v0.15) |
 | Mechanical handlers (AF-1..AF-11 — deterministic fixers) | ✅ shipped |
 | GitHub App + webhook | ✅ live (`conclave-ai-code-council`) |
 | Device Flow auth (`conclave login`) | ✅ live |
+| Curated external-reference cache (5 sources, daily refresh) | ✅ shipped (v0.16.8 / Phase 4) |
+| User feedback intake + Haiku classifier | ✅ shipped (v0.16.9 / Sprint A) |
+| `conclave feedback` CLI subcommand | ✅ shipped (v0.16.10 / Sprint B) |
+| Promoted-seed loop (`feedback → bundled rules`, daily promoter cron) | ✅ shipped (v0.16.10 / Sprint C) |
+| Failure-gate + catch-regression focus filter | ✅ shipped (v0.16.10) |
+| `/admin/learning-stats` + `metrics.rag` per review | ✅ shipped (v0.16.11 / Sprint D) |
+| GitHub Trending source-discovery crawler | ✅ shipped (v0.16.12 / Sprint E1) |
+| OSS bugfix-PR pattern miner | ✅ shipped (v0.16.13 / Sprint E2) |
 | `/saas/review` + `/saas/autofix` endpoints | 🟡 stub (container wiring next) |
 | Cloudflare Containers worker | 🟡 in progress |
 | Stripe metering + paid tiers | ⏳ deferred until moat data accumulates from real usage |
@@ -204,12 +254,6 @@ In plain English:
 - ❌ Run it as a competing managed-service offering before 2028-05-07 — no
 
 Same approach used by Sentry, Strapi, Convex, Buoyant.
-
-## Star history
-
-If Conclave AI has saved you a single bad PR, consider giving it a star — it helps other indie devs find it.
-
-[![Star History Chart](https://api.star-history.com/svg?repos=seunghunbae-3svs/conclave-ai&type=Date)](https://star-history.com/#seunghunbae-3svs/conclave-ai&Date)
 
 ---
 

@@ -49,6 +49,7 @@ import { fetchDeployStatus } from "@conclave-ai/scm-github";
 import { loadConfig, resolveMemoryRoot } from "../lib/config.js";
 import { fetchExternalReferences } from "../lib/external-references.js";
 import { fetchPromotedSeeds } from "../lib/promoted-seeds.js";
+import { fetchOssPatterns } from "../lib/oss-patterns.js";
 import { loadProjectContext, loadDesignContext, loadPrd } from "../lib/project-context.js";
 import { loadPrDiff, loadGitDiff, loadFileDiff, type LoadedDiff } from "../lib/diff-source.js";
 import { renderPlainSummarySection, renderReview, verdictToExitCode } from "../lib/output.js";
@@ -423,6 +424,14 @@ export async function review(argv: string[]): Promise<void> {
     answerKeys: [] as string[],
     failureCatalog: [] as string[],
   }));
+  // v0.16.13 — Sprint E2: pull OSS PR patterns (extracted from real
+  // bugfix/perf/a11y/security merges in Next.js / React / shadcn-ui /
+  // Tailwind / Storybook / Vercel style-guide). Treated as failures
+  // mostly; complementary to external curated references.
+  const ossPatterns = await fetchOssPatterns(ctxDomain).catch(() => ({
+    answerKeys: [] as string[],
+    failureCatalog: [] as string[],
+  }));
 
   // For tier-build we may need the "code" domain config (mixed pulls
   // from BOTH). For non-mixed, fall through to the standard path.
@@ -644,16 +653,19 @@ export async function review(argv: string[]): Promise<void> {
     // Local memory first (user .conclave/ + bundled seeds), then
     // external curated references appended. Order matters when
     // prompts cap at 8 — local wins over external.
-    // Order: local > promoted (community user feedback) > external
-    // (public curated). Prompt cap drops from the tail when needed.
+    // Order: local > promoted (community user feedback) > OSS PR
+    // patterns (real bugfixes from popular OSS) > external curated
+    // (public docs). Prompt cap drops from the tail when needed.
     answerKeys: [
       ...retrieval.answerKeys.map(formatAnswerKeyForPrompt),
       ...promotedSeeds.answerKeys,
+      ...ossPatterns.answerKeys,
       ...externalRefs.answerKeys,
     ],
     failureCatalog: [
       ...retrieval.failures.map(formatFailureForPrompt),
       ...promotedSeeds.failureCatalog,
+      ...ossPatterns.failureCatalog,
       ...externalRefs.failureCatalog,
     ],
     domain: ctxDomain,
@@ -1300,9 +1312,11 @@ export async function review(argv: string[]): Promise<void> {
         answerKeysLocal: retrieval.answerKeys.length,
         answerKeysPromoted: promotedSeeds.answerKeys.length,
         answerKeysExternal: externalRefs.answerKeys.length,
+        answerKeysOssPatterns: ossPatterns.answerKeys.length,
         failureCatalogLocal: retrieval.failures.length,
         failureCatalogPromoted: promotedSeeds.failureCatalog.length,
         failureCatalogExternal: externalRefs.failureCatalog.length,
+        failureCatalogOssPatterns: ossPatterns.failureCatalog.length,
       },
     };
     if (loaded.pullNumber) jsonInput.pullNumber = loaded.pullNumber;

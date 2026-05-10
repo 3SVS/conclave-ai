@@ -64,12 +64,16 @@ export interface RagInjectionTelemetry {
   answerKeysPromoted: number;
   /** External curated references fetched from /references/:domain (Phase 4). */
   answerKeysExternal: number;
+  /** OSS PR patterns fetched from /seeds/oss-patterns/:domain (Sprint E2). */
+  answerKeysOssPatterns?: number;
   /** Local-memory failure-catalog entries. */
   failureCatalogLocal: number;
   /** Promoted seeds (failure kind). */
   failureCatalogPromoted: number;
   /** External curated references (failure kind). */
   failureCatalogExternal: number;
+  /** OSS PR patterns (failure kind). */
+  failureCatalogOssPatterns?: number;
 }
 
 export interface ReviewJsonOutputAgent {
