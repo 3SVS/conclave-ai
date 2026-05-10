@@ -91,7 +91,10 @@ function Hero() {
       {/* Wax seal in the upper-right margin — decorative, slow rotate
           on its own keyframe so it reads as imprinted, not a clickable
           element. */}
-      <div className="hidden lg:block absolute top-20 right-12 lg:right-20 w-28 h-28 wax-seal animate-sealPulse pointer-events-none">
+      <div
+        className="hidden lg:block absolute top-20 right-12 lg:right-20 w-28 h-28 wax-seal animate-sealPulse pointer-events-none"
+        aria-hidden="true"
+      >
         <div className="absolute inset-0 flex items-center justify-center text-parchment-light font-display text-2xl italic font-medium tracking-wider">
           C·AI
         </div>

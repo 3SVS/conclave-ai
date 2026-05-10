@@ -1,7 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
-  <!-- Conclave AI mark: outer ring + 3 dots in triangle -->
-  <circle cx="12" cy="12" r="10" stroke="#0a3a5e" stroke-width="1.6" fill="#ffffff"/>
-  <circle cx="12" cy="7.5" r="1.6" fill="#0a3a5e"/>
-  <circle cx="15.897" cy="14.25" r="1.6" fill="#0a3a5e"/>
-  <circle cx="8.103" cy="14.25" r="1.6" fill="#0a3a5e"/>
+  <!-- Conclave AI mark: outer ring + 3 dots in triangle.
+       Brand colors: oxblood (#5C111C) on parchment cream (#F4ECDC).
+       Geometry matches apps/landing/src/components/Logo.tsx so the
+       favicon, on-page logo, and OAuth callback page logos are identical. -->
+  <circle cx="12" cy="12" r="10" stroke="#5C111C" stroke-width="1.6" fill="#F4ECDC"/>
+  <circle cx="12" cy="7.5" r="1.6" fill="#5C111C"/>
+  <circle cx="15.897" cy="14.25" r="1.6" fill="#5C111C"/>
+  <circle cx="8.103" cy="14.25" r="1.6" fill="#5C111C"/>
 </svg>
