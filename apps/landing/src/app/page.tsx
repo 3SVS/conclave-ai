@@ -27,6 +27,7 @@
  */
 import { Logo } from "../components/Logo";
 import { DemoForm } from "../components/DemoForm";
+import { PrCommentMockup } from "../components/PrCommentMockup";
 
 const SITE_URL = "https://conclave-ai.dev";
 
@@ -264,6 +265,16 @@ function CouncilEvidence() {
             unit="/PR"
             sub="(Claude alone, with PRD attached) — blocker categories that no plain code review surfaces"
           />
+        </div>
+        <div className="mt-20 max-w-[920px]">
+          <p className="font-mono text-[11px] uppercase tracking-widetracked text-ink-mute mb-5">
+            How it lands on the PR
+          </p>
+          <PrCommentMockup />
+          <p className="mt-4 text-[13px] text-ink-mute font-italic italic max-w-prose">
+            Verbatim format the council posts after a verdict. Real categories,
+            real chips, real autofix command — no marketing reshoot.
+          </p>
         </div>
         <div className="mt-20 max-w-prose">
           <p className="font-italic italic text-2xl text-ink-subtle leading-snug">
