@@ -37,7 +37,11 @@ import { OpenAIAgent } from "@conclave-ai/agent-openai";
 import { GeminiAgent } from "@conclave-ai/agent-gemini";
 import { loadConfig, resolveMemoryRoot } from "../lib/config.js";
 import { FileSystemMemoryStore } from "@conclave-ai/core";
-import { loadAuditRagContext, formatAuditRagTelemetry } from "../lib/audit-rag.js";
+import {
+  loadAuditRagContext,
+  formatAuditRagTelemetry,
+  type AuditRagContext,
+} from "../lib/audit-rag.js";
 import { loadProjectContext, loadDesignContext } from "../lib/project-context.js";
 import {
   discoverAuditFiles,
@@ -46,6 +50,7 @@ import {
   type AuditScope,
   type AuditCategory,
   type DiscoveredFile,
+  type DiscoveryResult,
 } from "../lib/audit-discovery.js";
 import {
   aggregateFindings,
@@ -570,62 +575,21 @@ export async function audit(argv: string[]): Promise<void> {
   }
 
   // 7. Aggregate + attribute.
-  const fileToCategory = new Map<string, AuditCategory>();
-  for (const f of discovery.files) fileToCategory.set(f.path, f.category);
-  const findings = aggregateFindings(perBatch, fileToCategory);
-
-  const perAgentAcc = new Map<
-    string,
-    { approvedBatches: number; reworkBatches: number; rejectBatches: number }
-  >();
-  for (const b of perBatch) {
-    for (const r of b.results) {
-      const acc =
-        perAgentAcc.get(r.agent) ?? { approvedBatches: 0, reworkBatches: 0, rejectBatches: 0 };
-      if (r.verdict === "approve") acc.approvedBatches += 1;
-      else if (r.verdict === "rework") acc.reworkBatches += 1;
-      else acc.rejectBatches += 1;
-      perAgentAcc.set(r.agent, acc);
-    }
-  }
-  const perAgentVerdict = Array.from(perAgentAcc.entries()).map(([agent, v]) => ({
-    agent,
-    ...v,
-  }));
-
-  const report: AuditReport = {
+  const report = buildAuditReport({
+    discovery,
+    perBatch,
     repo,
     sha,
     scope,
-    domain: resolvedDomain,
-    filesAudited: discovery.files.length,
-    filesInScope: discovery.totalMatched,
-    sampled: discovery.sampled,
-    discoveryReason: discovery.reason,
-    findings,
-    perAgentVerdict,
+    resolvedDomain,
     budgetUsd,
-    spentUsd: metrics.summary().totalCostUsd,
     budgetExhausted,
     batchesRun,
     batchesTotal: batches.length,
-    metrics: metrics.summary(),
-    // v0.16.11 — Sprint D RAG-injection telemetry. Mirrors the values
-    // we logged to stderr earlier so machine-readable + human-readable
-    // outputs agree.
-    ragInjection: {
-      answerKeysLocal: ragContext.sources.local.answerKeys,
-      answerKeysPromoted: ragContext.sources.promoted.answerKeys,
-      answerKeysExternal: ragContext.sources.external.answerKeys,
-      answerKeysOssPatterns: ragContext.sources.ossPatterns.answerKeys,
-      answerKeysSpecUpdates: ragContext.sources.specUpdates.answerKeys,
-      failureCatalogLocal: ragContext.sources.local.failures,
-      failureCatalogPromoted: ragContext.sources.promoted.failureCatalog,
-      failureCatalogExternal: ragContext.sources.external.failureCatalog,
-      failureCatalogOssPatterns: ragContext.sources.ossPatterns.failureCatalog,
-      failureCatalogSpecUpdates: ragContext.sources.specUpdates.failureCatalog,
-    },
-  };
+    metrics,
+    ragContext,
+  });
+  const findings = report.findings;
 
   // 7a. v0.6.1 — plain-language summary for non-dev stakeholders. Same
   //     cheap-LLM path as `conclave review`. Failures fall back to the
@@ -659,6 +623,99 @@ export async function audit(argv: string[]): Promise<void> {
   const hasMajor = findings.some((f) => f.severity === "major");
   if (hasBlocker) process.exit(2);
   if (hasMajor) process.exit(1);
+}
+
+/**
+ * Aggregates per-batch council results into the final AuditReport.
+ * Pure-function modulo the metrics summary snapshot — no IO, no
+ * stderr. Caller passes the MetricsRecorder so the spent-USD figure
+ * comes from the same source the budget guard used.
+ */
+function buildAuditReport(opts: {
+  discovery: DiscoveryResult;
+  perBatch: PerBatchResult[];
+  repo: string;
+  sha: string;
+  scope: AuditScope;
+  resolvedDomain: AuditDomain;
+  budgetUsd: number;
+  budgetExhausted: boolean;
+  batchesRun: number;
+  batchesTotal: number;
+  metrics: MetricsRecorder;
+  ragContext: AuditRagContext;
+}): AuditReport {
+  const {
+    discovery,
+    perBatch,
+    repo,
+    sha,
+    scope,
+    resolvedDomain,
+    budgetUsd,
+    budgetExhausted,
+    batchesRun,
+    batchesTotal,
+    metrics,
+    ragContext,
+  } = opts;
+
+  const fileToCategory = new Map<string, AuditCategory>();
+  for (const f of discovery.files) fileToCategory.set(f.path, f.category);
+  const findings = aggregateFindings(perBatch, fileToCategory);
+
+  const perAgentAcc = new Map<
+    string,
+    { approvedBatches: number; reworkBatches: number; rejectBatches: number }
+  >();
+  for (const b of perBatch) {
+    for (const r of b.results) {
+      const acc =
+        perAgentAcc.get(r.agent) ?? { approvedBatches: 0, reworkBatches: 0, rejectBatches: 0 };
+      if (r.verdict === "approve") acc.approvedBatches += 1;
+      else if (r.verdict === "rework") acc.reworkBatches += 1;
+      else acc.rejectBatches += 1;
+      perAgentAcc.set(r.agent, acc);
+    }
+  }
+  const perAgentVerdict = Array.from(perAgentAcc.entries()).map(([agent, v]) => ({
+    agent,
+    ...v,
+  }));
+
+  return {
+    repo,
+    sha,
+    scope,
+    domain: resolvedDomain,
+    filesAudited: discovery.files.length,
+    filesInScope: discovery.totalMatched,
+    sampled: discovery.sampled,
+    discoveryReason: discovery.reason,
+    findings,
+    perAgentVerdict,
+    budgetUsd,
+    spentUsd: metrics.summary().totalCostUsd,
+    budgetExhausted,
+    batchesRun,
+    batchesTotal,
+    metrics: metrics.summary(),
+    // v0.16.11 — Sprint D RAG-injection telemetry. Mirrors the values
+    // logged to stderr earlier so machine-readable + human-readable
+    // outputs agree.
+    ragInjection: {
+      answerKeysLocal: ragContext.sources.local.answerKeys,
+      answerKeysPromoted: ragContext.sources.promoted.answerKeys,
+      answerKeysExternal: ragContext.sources.external.answerKeys,
+      answerKeysOssPatterns: ragContext.sources.ossPatterns.answerKeys,
+      answerKeysSpecUpdates: ragContext.sources.specUpdates.answerKeys,
+      failureCatalogLocal: ragContext.sources.local.failures,
+      failureCatalogPromoted: ragContext.sources.promoted.failureCatalog,
+      failureCatalogExternal: ragContext.sources.external.failureCatalog,
+      failureCatalogOssPatterns: ragContext.sources.ossPatterns.failureCatalog,
+      failureCatalogSpecUpdates: ragContext.sources.specUpdates.failureCatalog,
+    },
+  };
 }
 
 /**
