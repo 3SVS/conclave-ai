@@ -378,29 +378,7 @@ export async function audit(argv: string[]): Promise<void> {
   }
 
   const { config } = await loadConfig(cwd);
-
-  // Apply config defaults when CLI flag omitted (CLI wins over config).
-  const auditCfg = config.audit;
-  let budgetUsd = args.budgetUsd;
-  if (!argv.includes("--budget") && auditCfg?.defaultBudgetUsd) {
-    budgetUsd = auditCfg.defaultBudgetUsd;
-  }
-  let maxFiles = args.maxFiles;
-  if (!argv.includes("--max-files") && auditCfg?.defaultMaxFiles) {
-    maxFiles = auditCfg.defaultMaxFiles;
-  }
-  let scope: AuditScope = args.scope;
-  if (!argv.includes("--scope") && auditCfg?.defaultScope) {
-    scope = auditCfg.defaultScope;
-  }
-
-  // Hard ceiling enforcement. Clamp + warn.
-  if (budgetUsd > HARD_BUDGET_CEILING_USD) {
-    process.stderr.write(
-      `conclave audit: --budget $${budgetUsd} exceeds hard ceiling — clamping to $${HARD_BUDGET_CEILING_USD}\n`,
-    );
-    budgetUsd = HARD_BUDGET_CEILING_USD;
-  }
+  const { budgetUsd, maxFiles, scope } = resolveAuditOptions(args, argv, config);
 
   // 1. Resolve repo / sha.
   const repo = await resolveRepoSlug(cwd);
@@ -569,6 +547,47 @@ export async function audit(argv: string[]): Promise<void> {
   const hasMajor = findings.some((f) => f.severity === "major");
   if (hasBlocker) process.exit(2);
   if (hasMajor) process.exit(1);
+}
+
+/**
+ * Resolves the three CLI options that can be overridden by repo config
+ * (`audit.defaultBudgetUsd`, `audit.defaultMaxFiles`, `audit.defaultScope`)
+ * and then clamps the budget at the hard ceiling. CLI flags always win
+ * over config; the precedence check examines the raw argv so passing
+ * the flag's default value explicitly still counts as "user-supplied"
+ * and skips the config fallback.
+ *
+ * Stderr warning fires only on a real clamp — passing budget at or
+ * below the ceiling stays silent.
+ */
+function resolveAuditOptions(
+  args: ParsedArgs,
+  argv: string[],
+  config: Awaited<ReturnType<typeof loadConfig>>["config"],
+): { budgetUsd: number; maxFiles: number; scope: AuditScope } {
+  const auditCfg = config.audit;
+
+  let budgetUsd = args.budgetUsd;
+  if (!argv.includes("--budget") && auditCfg?.defaultBudgetUsd) {
+    budgetUsd = auditCfg.defaultBudgetUsd;
+  }
+  let maxFiles = args.maxFiles;
+  if (!argv.includes("--max-files") && auditCfg?.defaultMaxFiles) {
+    maxFiles = auditCfg.defaultMaxFiles;
+  }
+  let scope: AuditScope = args.scope;
+  if (!argv.includes("--scope") && auditCfg?.defaultScope) {
+    scope = auditCfg.defaultScope;
+  }
+
+  if (budgetUsd > HARD_BUDGET_CEILING_USD) {
+    process.stderr.write(
+      `conclave audit: --budget $${budgetUsd} exceeds hard ceiling — clamping to $${HARD_BUDGET_CEILING_USD}\n`,
+    );
+    budgetUsd = HARD_BUDGET_CEILING_USD;
+  }
+
+  return { budgetUsd, maxFiles, scope };
 }
 
 /**
