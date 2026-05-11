@@ -24,6 +24,7 @@ import { createLearningStatsRoutes } from "./routes/learning-stats.js";
 import { createSourceCandidatesRoutes } from "./routes/source-candidates.js";
 import { createOssPatternsRoutes } from "./routes/oss-patterns.js";
 import { createSpecUpdatesRoutes } from "./routes/spec-updates.js";
+import { createExternalIntelRoutes } from "./routes/external-intel.js";
 import { createPromptVariantsRoutes } from "./routes/prompt-variants.js";
 import { createSpawnedAgentsRoutes } from "./routes/spawned-agents.js";
 import { createBillingRoutes } from "./routes/billing.js";
@@ -98,6 +99,11 @@ export function createApp(opts: { fetch?: FetchLike } = {}): Hono<{ Bindings: En
   // + POST /admin/run-changelog-monitor. Weekly cron tracks new versions of
   // React/Next.js/Tailwind/TS/shadcn-ui/Storybook for new patterns + deprecations.
   app.route("/", createSpecUpdatesRoutes());
+  // v0.17 — Sprint E7: external-intel framework. CVE advisory feed,
+  // MCP server registry, shadcn community blocks, awesome-list entries.
+  // GET /seeds/external-intel/:domain + POST /admin/run-{cve,mcp-registry,
+  // shadcn-block,awesome-list}-miner. Daily/weekly crons in index.ts.
+  app.route("/", createExternalIntelRoutes());
   // v0.16.15 — Sprint E4 (scaffold): prompt-variant CRUD admin surface.
   // POST /admin/prompt-variants, GET /admin/prompt-variants,
   // POST /admin/prompt-variants/:id/status. A/B routing wiring with

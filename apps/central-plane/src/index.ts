@@ -10,6 +10,10 @@ import { runSourceDiscovery } from "./source-discovery.js";
 import { runOssPrMiner } from "./oss-pr-miner.js";
 import { runChangelogMonitor } from "./changelog-monitor.js";
 import { runAgentSpawner, runAutoGraduation } from "./agent-spawner.js";
+import { runCveAdvisoryMiner } from "./cve-advisory-miner.js";
+import { runMcpRegistryMiner } from "./mcp-registry-miner.js";
+import { runShadcnBlockMiner } from "./shadcn-block-miner.js";
+import { runAwesomeListMiner } from "./awesome-list-miner.js";
 
 const app = createApp();
 
@@ -177,6 +181,43 @@ export default {
         );
       } catch (err) {
         console.error("[agent-spawner] crashed:", err);
+      }
+      return;
+    }
+    // v0.17 — Sprint E7: external-intel miners.
+    if (event.cron === "0 10 * * *") {
+      try {
+        const result = await runCveAdvisoryMiner(env);
+        console.log(JSON.stringify({ cron: "cve-advisory-miner", cronExpression: event.cron, ...result }));
+      } catch (err) {
+        console.error("[cve-advisory-miner] crashed:", err);
+      }
+      return;
+    }
+    if (event.cron === "0 8 * * 3") {
+      try {
+        const result = await runMcpRegistryMiner(env);
+        console.log(JSON.stringify({ cron: "mcp-registry-miner", cronExpression: event.cron, ...result }));
+      } catch (err) {
+        console.error("[mcp-registry-miner] crashed:", err);
+      }
+      return;
+    }
+    if (event.cron === "0 8 * * 4") {
+      try {
+        const result = await runShadcnBlockMiner(env);
+        console.log(JSON.stringify({ cron: "shadcn-block-miner", cronExpression: event.cron, ...result }));
+      } catch (err) {
+        console.error("[shadcn-block-miner] crashed:", err);
+      }
+      return;
+    }
+    if (event.cron === "0 8 * * 5") {
+      try {
+        const result = await runAwesomeListMiner(env);
+        console.log(JSON.stringify({ cron: "awesome-list-miner", cronExpression: event.cron, ...result }));
+      } catch (err) {
+        console.error("[awesome-list-miner] crashed:", err);
       }
       return;
     }
