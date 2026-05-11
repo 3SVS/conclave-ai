@@ -333,10 +333,14 @@ function Pricing() {
       <div className="mx-auto max-w-page px-4 sm:px-6 py-20 sm:py-28 md:py-32">
         <SectionHeader numeral="V" mark="indulgences" title="Indulgences" />
         <p className="mt-5 max-w-prose text-ink-muted text-lg leading-relaxed">
-          Hard cutoffs, no surprise invoices. Booster top-ups instead of overage bills. Bring
-          your own Anthropic key for free unlimited usage.
+          Hard cutoffs, no surprise invoices. Bring your own Anthropic key for free unlimited
+          usage, or pay $3 once for a single council pass on one PR.
         </p>
-        <div className="mt-16 grid gap-7 md:grid-cols-3">
+        {/* v0.14.5 — 4-card pricing grid. Free + $3 First-PR pass are live;
+            Solo/Pro are honestly marked "coming soon" until Lemon Squeezy
+            subscriptions ship in a follow-up sprint. Free and First-PR
+            actually convert; Solo/Pro are waitlist via DM. */}
+        <div className="mt-16 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
           <PriceCard
             tier="Free"
             sub="bring your own Anthropic key"
@@ -347,43 +351,59 @@ function Pricing() {
               "Anonymous failure-pattern sharing",
               "All council features",
             ]}
-            cta="Convene the council"
+            cta="Install + bring your key"
             ctaHref={LOGIN_URL}
           />
           <PriceCard
-            tier="Solo"
-            sub="per month"
-            price="$19"
+            tier="First-PR pass"
+            sub="once · no subscription"
+            price="$3"
             highlight
+            features={[
+              "One full council review on YOUR PR",
+              "Includes tier-2 escalation if needed",
+              "PRD-aware spec mismatch flagged",
+              "No card on file · pay once",
+            ]}
+            cta="Buy first-PR pass →"
+            ctaHref="/billing"
+          />
+          <PriceCard
+            tier="Solo"
+            sub="coming soon"
+            price="$19"
+            comingSoon
             features={[
               "30 reviews / month",
               "10 autofix cycles / month",
               "Council + PRD layer",
-              "Telegram dispatches (premium)",
+              "Telegram dispatches",
               "$5 booster: +5 reviews",
             ]}
-            cta="Choose Solo"
-            ctaHref={LOGIN_URL}
+            cta="Join Solo waitlist"
+            ctaHref="https://threads.com/@baessi1"
           />
           <PriceCard
             tier="Pro"
-            sub="per month"
+            sub="coming soon"
             price="$49"
+            comingSoon
             features={[
               "80 reviews / month",
               "30 autofix cycles / month",
-              "Telegram dispatches + priority sandbox",
+              "Priority sandbox queue",
               "Private mode (no data sharing)",
               "$5 booster",
             ]}
-            cta="Choose Pro"
-            ctaHref={LOGIN_URL}
+            cta="Join Pro waitlist"
+            ctaHref="https://threads.com/@baessi1"
           />
         </div>
         <p className="mt-12 max-w-prose text-sm text-ink-mute leading-relaxed">
-          One free hearing the moment you install the GitHub App — no card. Thereafter, bring
-          your own key for unlimited free, or choose Solo / Pro for premium dispatches and
-          priority. Stripe metering ships once moat data accumulates from real usage.
+          Free + First-PR pass are live today. Solo and Pro subscriptions land once we have
+          paying users — DM <a href="https://threads.com/@baessi1" className="link-anim text-ink-muted hover:text-ink" target="_blank" rel="noreferrer">@baessi1</a> on
+          Threads to join the waitlist. Lemon Squeezy (Merchant of Record) handles VAT across
+          KR / US / EU so we don't have to.
         </p>
       </div>
     </section>
@@ -398,6 +418,7 @@ function PriceCard({
   cta,
   ctaHref,
   highlight = false,
+  comingSoon = false,
 }: {
   tier: string;
   price: string;
@@ -406,40 +427,52 @@ function PriceCard({
   cta: string;
   ctaHref: string;
   highlight?: boolean;
+  /** v0.14.5 — Solo/Pro are honestly marked while Stripe-equivalent subscriptions ship. */
+  comingSoon?: boolean;
 }) {
   return (
     <article
-      className={`relative card-lift rounded-sm p-8 flex flex-col ${
+      className={`relative card-lift rounded-sm p-7 lg:p-8 flex flex-col ${
         highlight
           ? "bg-parchment-light shadow-seal"
-          : "bg-parchment border border-parchment-line shadow-plate"
+          : comingSoon
+            ? "bg-parchment/70 border border-parchment-line"
+            : "bg-parchment border border-parchment-line shadow-plate"
       }`}
     >
       {highlight ? (
-        <span className="absolute -top-3 left-8 font-mono text-[10px] uppercase tracking-widetracked bg-oxblood-600 text-parchment-light px-3 py-1 rounded-sm">
-          recommended
+        <span className="absolute -top-3 left-6 font-mono text-[10px] uppercase tracking-widetracked bg-oxblood-600 text-parchment-light px-3 py-1 rounded-sm">
+          live now
+        </span>
+      ) : comingSoon ? (
+        <span className="absolute -top-3 left-6 font-mono text-[10px] uppercase tracking-widetracked bg-ink-mute text-parchment-light px-3 py-1 rounded-sm">
+          coming soon
         </span>
       ) : null}
       <p
         className={`font-display text-xl font-medium tracking-tight ${
-          highlight ? "text-oxblood-600" : "text-ink-subtle"
+          highlight ? "text-oxblood-600" : comingSoon ? "text-ink-mute" : "text-ink-subtle"
         }`}
       >
         {tier}
       </p>
       <p className="mt-5 flex items-baseline gap-2.5">
-        <span className="font-display font-medium text-[3.25rem] leading-none tracking-tightxx text-ink lining-nums">
+        <span
+          className={`font-display font-medium text-[2.75rem] lg:text-[3.25rem] leading-none tracking-tightxx lining-nums ${
+            comingSoon ? "text-ink-mute" : "text-ink"
+          }`}
+        >
           {price}
         </span>
         <span className="text-sm text-ink-mute italic">{sub}</span>
       </p>
-      <div className={`mt-7 mb-7 ${highlight ? "gold-rule" : "rule-thin"}`} />
-      <ul className="space-y-3 text-[15px] text-ink-subtle flex-1 leading-relaxed">
+      <div className={`mt-6 mb-6 ${highlight ? "gold-rule" : "rule-thin"}`} />
+      <ul className="space-y-3 text-[14px] lg:text-[15px] text-ink-subtle flex-1 leading-relaxed">
         {features.map((f) => (
           <li key={f} className="flex gap-3">
             <span
               className={`mt-2 h-1 w-3 flex-none ${
-                highlight ? "bg-oxblood-600" : "bg-ink-ghost"
+                highlight ? "bg-oxblood-600" : comingSoon ? "bg-ink-mute/40" : "bg-ink-ghost"
               }`}
               aria-hidden="true"
             />
@@ -449,10 +482,14 @@ function PriceCard({
       </ul>
       <a
         href={ctaHref}
-        className={`mt-9 block text-center rounded-sm px-4 py-3 text-[15px] font-display font-medium tracking-tight transition-colors ${
+        target={ctaHref.startsWith("http") ? "_blank" : undefined}
+        rel={ctaHref.startsWith("http") ? "noreferrer" : undefined}
+        className={`mt-8 block text-center rounded-sm px-4 py-3 text-[14px] lg:text-[15px] font-display font-medium tracking-tight transition-colors ${
           highlight
             ? "bg-oxblood-600 text-parchment-light hover:bg-oxblood-500"
-            : "border border-ink/30 text-ink hover:bg-parchment-dim"
+            : comingSoon
+              ? "border border-ink/20 text-ink-muted hover:bg-parchment-dim"
+              : "border border-ink/30 text-ink hover:bg-parchment-dim"
         }`}
       >
         {cta}

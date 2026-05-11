@@ -95,6 +95,15 @@ export async function upsertUser(
     )
       .bind(input.githubLogin, input.email ?? null, now, existing.id)
       .run();
+    // v0.14.5 — if email is now known and matches a pending billing
+    // order, claim it. Catch is best-effort; never block sign-in.
+    if (input.email) {
+      try {
+        await claimPendingBillingForUser(env, input.email, existing.id);
+      } catch (e) {
+        console.error("upsertUser: claim pending billing failed (existing):", e);
+      }
+    }
     return { ...existing, githubLogin: input.githubLogin, email: input.email ?? null, lastActiveAt: now };
   }
   const id = newId("usr");
@@ -104,6 +113,17 @@ export async function upsertUser(
   )
     .bind(id, input.githubUserId, input.githubLogin, input.email ?? null, now, now)
     .run();
+  let initialPaidCredits = 0;
+  // v0.14.5 — if the new user's email matches a pending paid order,
+  // claim it now so they see credits the first time they sign in.
+  if (input.email) {
+    try {
+      const claim = await claimPendingBillingForUser(env, input.email, id);
+      initialPaidCredits = claim.creditsGranted;
+    } catch (e) {
+      console.error("upsertUser: claim pending billing failed (new):", e);
+    }
+  }
   return {
     id,
     githubUserId: input.githubUserId,
@@ -113,7 +133,7 @@ export async function upsertUser(
     byoAnthropic: false,
     dataShareOptIn: true,
     trialUsed: false,
-    paidCredits: 0,
+    paidCredits: initialPaidCredits,
     createdAt: now,
     lastActiveAt: now,
   };
@@ -718,4 +738,134 @@ function randomUserCode(): string {
     s += alphabet[buf[i]! % alphabet.length];
   }
   return `${s.slice(0, 4)}-${s.slice(4)}`;
+}
+
+// --- billing_orders (v0.14.5 / migration 0023) --------------------------
+
+export interface BillingOrderInput {
+  id: string;
+  userId: string | null;
+  provider: "lemonsqueezy" | "stripe" | "toss";
+  providerOrderId: string;
+  productVariantId: string | null;
+  productLabel: string;
+  amountCents: number;
+  currency: string;
+  status: "paid" | "paid_unlinked" | "refunded" | "pending";
+  creditsGranted: number;
+  customerEmail: string | null;
+  pendingEmail: string | null;
+  createdAt: string;
+  paidAt: string | null;
+  rawPayload: string | null;
+}
+
+export async function findUserByEmail(env: Env, email: string): Promise<SaasUser | null> {
+  if (!email) return null;
+  const r = await env.DB.prepare(
+    `SELECT id, github_user_id, github_login, email, tier,
+            byo_anthropic, data_share_opt_in, trial_used, paid_credits,
+            created_at, last_active_at
+       FROM saas_users WHERE LOWER(email) = LOWER(?) LIMIT 1`,
+  )
+    .bind(email)
+    .first();
+  return r ? rowToUser(r) : null;
+}
+
+export async function grantPaidCredits(env: Env, userId: string, n: number): Promise<void> {
+  if (n <= 0) return;
+  await env.DB.prepare(
+    `UPDATE saas_users SET paid_credits = paid_credits + ?, last_active_at = ? WHERE id = ?`,
+  )
+    .bind(n, new Date().toISOString(), userId)
+    .run();
+}
+
+export async function findBillingOrderByProvider(
+  env: Env,
+  provider: string,
+  providerOrderId: string,
+): Promise<{ id: string; status: string; user_id: string | null } | null> {
+  const r = await env.DB.prepare(
+    `SELECT id, status, user_id FROM billing_orders
+      WHERE provider = ? AND provider_order_id = ? LIMIT 1`,
+  )
+    .bind(provider, providerOrderId)
+    .first<{ id: string; status: string; user_id: string | null }>();
+  return r ?? null;
+}
+
+export async function createBillingOrderPaid(
+  env: Env,
+  input: BillingOrderInput,
+): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO billing_orders
+       (id, user_id, provider, provider_order_id, product_variant_id, product_label,
+        amount_cents, currency, status, credits_granted, pending_email,
+        customer_email, created_at, paid_at, raw_payload)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      input.id,
+      input.userId,
+      input.provider,
+      input.providerOrderId,
+      input.productVariantId,
+      input.productLabel,
+      input.amountCents,
+      input.currency,
+      input.status,
+      input.creditsGranted,
+      input.pendingEmail,
+      input.customerEmail,
+      input.createdAt,
+      input.paidAt,
+      input.rawPayload,
+    )
+    .run();
+}
+
+/**
+ * Claim pending billing_orders for an email that just signed up. Called
+ * from upsertUser. Returns counts so the caller can log/audit.
+ *
+ * Behavior:
+ *   - Selects billing_orders WHERE pending_email = ? AND status =
+ *     'paid_unlinked' AND user_id IS NULL.
+ *   - For each: UPDATE user_id, set linked_at, flip status to 'paid'.
+ *   - Sums credits_granted and increments saas_users.paid_credits.
+ *   - Pure-additive; failures don't roll back saas_user creation.
+ */
+export async function claimPendingBillingForUser(
+  env: Env,
+  email: string,
+  userId: string,
+): Promise<{ claimed: number; creditsGranted: number }> {
+  if (!email) return { claimed: 0, creditsGranted: 0 };
+  const pending = await env.DB.prepare(
+    `SELECT id, credits_granted FROM billing_orders
+      WHERE LOWER(pending_email) = LOWER(?) AND status = 'paid_unlinked' AND user_id IS NULL`,
+  )
+    .bind(email)
+    .all<{ id: string; credits_granted: number }>();
+  const rows = pending.results ?? [];
+  if (rows.length === 0) return { claimed: 0, creditsGranted: 0 };
+
+  let totalCredits = 0;
+  const now = new Date().toISOString();
+  for (const row of rows) {
+    await env.DB.prepare(
+      `UPDATE billing_orders SET user_id = ?, status = 'paid', linked_at = ?
+        WHERE id = ?`,
+    )
+      .bind(userId, now, row.id)
+      .run();
+    totalCredits += Number(row.credits_granted ?? 0);
+  }
+  if (totalCredits > 0) {
+    await grantPaidCredits(env, userId, totalCredits);
+  }
+  return { claimed: rows.length, creditsGranted: totalCredits };
 }

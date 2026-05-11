@@ -26,6 +26,8 @@ import { createOssPatternsRoutes } from "./routes/oss-patterns.js";
 import { createSpecUpdatesRoutes } from "./routes/spec-updates.js";
 import { createPromptVariantsRoutes } from "./routes/prompt-variants.js";
 import { createSpawnedAgentsRoutes } from "./routes/spawned-agents.js";
+import { createBillingRoutes } from "./routes/billing.js";
+import { createLemonsqueezyWebhookRoutes } from "./routes/lemonsqueezy-webhook.js";
 import type { FetchLike } from "./github.js";
 
 /**
@@ -106,6 +108,14 @@ export function createApp(opts: { fetch?: FetchLike } = {}): Hono<{ Bindings: En
   // POST /admin/run-agent-spawner. Weekly cron also runs the spawner.
   // Spawned agents start in 'shadow' (no user-visible verdict impact).
   app.route("/", createSpawnedAgentsRoutes());
+  // v0.14.5 — Billing (Lemon Squeezy MoR). GET /billing renders the
+  // buy page; POST /billing/checkout returns a hosted Checkout URL;
+  // GET /billing/success + /billing/cancel land post-checkout. All
+  // 503 billing_not_configured when LS secrets are absent.
+  app.route("/", createBillingRoutes());
+  // v0.14.5 — Lemon Squeezy webhook receiver. POST /webhook/lemonsqueezy
+  // verifies X-Signature HMAC + grants paid_credits on order_created.
+  app.route("/", createLemonsqueezyWebhookRoutes());
   app.onError((err, c) => {
     console.error("central-plane error:", err);
     return c.json({ error: err.message || "internal error" }, 500);

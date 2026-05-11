@@ -96,4 +96,20 @@ export interface Env {
    * unset (still hashed, just predictable).
    */
   DEMO_RATE_SALT?: string;
+  /**
+   * v0.14.5 — Lemon Squeezy MoR for paid tiers (Stripe Korea is
+   * personal-only; LS handles VAT across KR/US/EU). All four secrets
+   * required for billing routes to function; otherwise /billing
+   * returns 503 billing_not_configured.
+   *
+   * Set via:
+   *   wrangler secret put LEMONSQUEEZY_API_KEY      (from LS dashboard → API)
+   *   wrangler secret put LEMONSQUEEZY_WEBHOOK_SECRET (chosen when creating webhook)
+   *   wrangler secret put LEMONSQUEEZY_STORE_ID     (numeric store id)
+   *   wrangler secret put LEMONSQUEEZY_VARIANT_ID_FIRST_PR (variant id of the $3 product)
+   */
+  LEMONSQUEEZY_API_KEY?: string;
+  LEMONSQUEEZY_WEBHOOK_SECRET?: string;
+  LEMONSQUEEZY_STORE_ID?: string;
+  LEMONSQUEEZY_VARIANT_ID_FIRST_PR?: string;
 }

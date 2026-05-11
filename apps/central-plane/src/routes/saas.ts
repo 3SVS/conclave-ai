@@ -168,12 +168,14 @@ export function createSaasRoutes(): Hono<{ Bindings: Env }> {
     // 402 means the user must top up before retrying.
     const billed = await consumeReviewCredit(c.env, user.id);
     if (billed === null) {
+      const publicBaseUrl = c.env.PUBLIC_BASE_URL ?? new URL(c.req.url).origin;
       return c.json(
         {
           error: "credits_exhausted",
           error_description:
-            "Your free trial has been used and you have no paid credits left. Top up to continue.",
-          buy_credits_url: `${c.env.PUBLIC_BASE_URL ?? new URL(c.req.url).origin}/billing`,
+            "Your free trial has been used. Buy a $3 first-PR pass, add your own Anthropic key for unlimited free, or DM @baessi1 on Threads.",
+          buy_credits_url: `${publicBaseUrl}/billing`,
+          byo_setup_url: "https://github.com/seunghunbae-3svs/conclave-ai#byo",
         },
         402,
       );
