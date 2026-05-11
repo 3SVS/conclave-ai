@@ -263,7 +263,15 @@ Rules:
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-opus-4-7",
+        // v0.14.5 — was claude-opus-4-7, returning fast-fail 502 in
+        // production (most likely tier-access mismatch on the API key,
+        // possibly model-name resolution). For a public demo, Haiku
+        // is the right choice anyway: ~3-5s vs ~30-60s latency,
+        // ~30× cheaper, still surfaces the blocker categories that
+        // make the moat visible (security / spec-mismatch / a11y).
+        // The paid council (cli + GitHub App path) keeps using
+        // Sonnet/Opus per agent config.
+        model: "claude-haiku-4-5",
         max_tokens: 2048,
         messages: [{ role: "user", content: userMsg }],
       }),
