@@ -68,11 +68,13 @@ export interface AuditReport {
     answerKeysExternal: number;
     answerKeysOssPatterns?: number;
     answerKeysSpecUpdates?: number;
+    answerKeysExternalIntel?: number;
     failureCatalogLocal: number;
     failureCatalogPromoted: number;
     failureCatalogExternal: number;
     failureCatalogOssPatterns?: number;
     failureCatalogSpecUpdates?: number;
+    failureCatalogExternalIntel?: number;
   };
 }
 

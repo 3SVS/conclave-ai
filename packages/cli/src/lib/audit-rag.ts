@@ -35,6 +35,7 @@ import { fetchExternalReferences } from "./external-references.js";
 import { fetchPromotedSeeds } from "./promoted-seeds.js";
 import { fetchOssPatterns } from "./oss-patterns.js";
 import { fetchSpecUpdates } from "./spec-updates.js";
+import { fetchExternalIntel } from "./external-intel.js";
 
 export interface AuditRagSourceCounts {
   local: { answerKeys: number; failures: number };
@@ -42,6 +43,7 @@ export interface AuditRagSourceCounts {
   external: { answerKeys: number; failureCatalog: number };
   ossPatterns: { answerKeys: number; failureCatalog: number };
   specUpdates: { answerKeys: number; failureCatalog: number };
+  externalIntel: { answerKeys: number; failureCatalog: number };
 }
 
 export interface AuditRagContext {
@@ -68,15 +70,17 @@ export async function loadAuditRagContext(opts: {
     rules: [] as Awaited<ReturnType<FileSystemMemoryStore["retrieve"]>>["rules"],
   };
 
-  const [retrieval, externalRefs, promotedSeeds, ossPatterns, specUpdates] = await Promise.all([
-    memoryStore
-      .retrieve({ query: `audit domain=${domain} repo=${repo}`, repo, domain, k: 8 })
-      .catch(() => emptyLocal),
-    fetchExternalReferences(domain).catch(() => emptyExternal),
-    fetchPromotedSeeds(domain).catch(() => emptyExternal),
-    fetchOssPatterns(domain).catch(() => emptyExternal),
-    fetchSpecUpdates(domain).catch(() => emptyExternal),
-  ]);
+  const [retrieval, externalRefs, promotedSeeds, ossPatterns, specUpdates, externalIntel] =
+    await Promise.all([
+      memoryStore
+        .retrieve({ query: `audit domain=${domain} repo=${repo}`, repo, domain, k: 8 })
+        .catch(() => emptyLocal),
+      fetchExternalReferences(domain).catch(() => emptyExternal),
+      fetchPromotedSeeds(domain).catch(() => emptyExternal),
+      fetchOssPatterns(domain).catch(() => emptyExternal),
+      fetchSpecUpdates(domain).catch(() => emptyExternal),
+      fetchExternalIntel(domain).catch(() => emptyExternal),
+    ]);
 
   const localAnswerKeys = retrieval.answerKeys.map(formatAnswerKeyForPrompt);
   const localFailures = retrieval.failures.map(formatFailureForPrompt);
@@ -87,6 +91,7 @@ export async function loadAuditRagContext(opts: {
     ...specUpdates.answerKeys,
     ...ossPatterns.answerKeys,
     ...externalRefs.answerKeys,
+    ...externalIntel.answerKeys,
   ];
   const failureCatalog = [
     ...localFailures,
@@ -94,6 +99,7 @@ export async function loadAuditRagContext(opts: {
     ...specUpdates.failureCatalog,
     ...ossPatterns.failureCatalog,
     ...externalRefs.failureCatalog,
+    ...externalIntel.failureCatalog,
   ];
 
   return {
@@ -120,6 +126,10 @@ export async function loadAuditRagContext(opts: {
         answerKeys: specUpdates.answerKeys.length,
         failureCatalog: specUpdates.failureCatalog.length,
       },
+      externalIntel: {
+        answerKeys: externalIntel.answerKeys.length,
+        failureCatalog: externalIntel.failureCatalog.length,
+      },
     },
   };
 }
@@ -138,10 +148,12 @@ export function formatAuditRagTelemetry(
   return (
     `conclave audit: RAG context — ${answerKeys.length} answer-key(s) ` +
     `(${sources.promoted.answerKeys} promoted, ${sources.specUpdates.answerKeys} spec, ` +
-    `${sources.ossPatterns.answerKeys} oss, ${sources.external.answerKeys} external) + ` +
+    `${sources.ossPatterns.answerKeys} oss, ${sources.external.answerKeys} external, ` +
+    `${sources.externalIntel.answerKeys} intel) + ` +
     `${failureCatalog.length} failure(s) ` +
     `(${sources.promoted.failureCatalog} promoted, ${sources.specUpdates.failureCatalog} spec, ` +
-    `${sources.ossPatterns.failureCatalog} oss, ${sources.external.failureCatalog} external) ` +
+    `${sources.ossPatterns.failureCatalog} oss, ${sources.external.failureCatalog} external, ` +
+    `${sources.externalIntel.failureCatalog} intel) ` +
     `from ${domain} domain\n`
   );
 }

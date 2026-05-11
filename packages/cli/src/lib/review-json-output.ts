@@ -68,6 +68,9 @@ export interface RagInjectionTelemetry {
   answerKeysOssPatterns?: number;
   /** Spec-update entries from /seeds/spec-updates/:domain (Sprint E3). */
   answerKeysSpecUpdates?: number;
+  /** External-intel entries from /seeds/external-intel/:domain (Sprint E7 —
+   *  CVE advisory + MCP registry + shadcn blocks + awesome-lists). */
+  answerKeysExternalIntel?: number;
   /** Local-memory failure-catalog entries. */
   failureCatalogLocal: number;
   /** Promoted seeds (failure kind). */
@@ -78,6 +81,8 @@ export interface RagInjectionTelemetry {
   failureCatalogOssPatterns?: number;
   /** Spec-update entries (failure kind). */
   failureCatalogSpecUpdates?: number;
+  /** External-intel (failure kind — CVE rows). */
+  failureCatalogExternalIntel?: number;
 }
 
 export interface ReviewJsonOutputAgent {

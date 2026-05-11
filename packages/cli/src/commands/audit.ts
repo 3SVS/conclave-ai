@@ -793,11 +793,13 @@ function buildAuditReport(opts: {
       answerKeysExternal: ragContext.sources.external.answerKeys,
       answerKeysOssPatterns: ragContext.sources.ossPatterns.answerKeys,
       answerKeysSpecUpdates: ragContext.sources.specUpdates.answerKeys,
+      answerKeysExternalIntel: ragContext.sources.externalIntel.answerKeys,
       failureCatalogLocal: ragContext.sources.local.failures,
       failureCatalogPromoted: ragContext.sources.promoted.failureCatalog,
       failureCatalogExternal: ragContext.sources.external.failureCatalog,
       failureCatalogOssPatterns: ragContext.sources.ossPatterns.failureCatalog,
       failureCatalogSpecUpdates: ragContext.sources.specUpdates.failureCatalog,
+      failureCatalogExternalIntel: ragContext.sources.externalIntel.failureCatalog,
     },
   };
 }
