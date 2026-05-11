@@ -46,8 +46,23 @@ except `version`.
 
 ### `version` (required)
 
-Always `1`. Bump the schema when making a breaking change; the CLI
-rejects unknown versions.
+Always `1` today. The CLI rejects unknown versions on load.
+
+**1.0 commitment:** when the schema needs a breaking change, the
+parser bumps to `version: 2`. The `version: 1` parser stays around for
+**one minor cycle past v2's introduction** — long enough that anyone
+on a stable 1.x can read release notes and update at their own pace
+without their existing `.conclaverc.json` breaking on a CLI upgrade.
+Removing the v1 parser without that grace window would violate the
+1.0 stability contract.
+
+Migration path when v2 arrives:
+1. Upgrade the CLI. The v1 file still parses, with a one-line
+   stderr deprecation note pointing at the v2 migration guide.
+2. Run `conclave init --reconfigure --version 2` (planned) to rewrite
+   your config in the v2 shape.
+3. After one minor cycle, the v1 parser is removed; configs not yet
+   migrated start failing on load with a clear pointer.
 
 ### `agents`
 
@@ -211,3 +226,31 @@ module.exports = {
   }
 }
 ```
+
+---
+
+## Internal-only flags — the `--dev` gate convention
+
+Some commands ship with flags that are useful for the operator team or
+the dev-loop but are not part of the public 1.0 contract — internal
+diagnostics, scaffolds in flight, and migration helpers that have a
+finite lifetime. Rather than scattering them across hidden flags or
+removing them from `--help` without a trace, conclave uses a single
+convention:
+
+- **The flag exists.** It is wired in `parseArgv` and behaves.
+- **It is omitted from the user-facing `--help` block.** A user reading
+  `conclave <cmd> --help` sees only the public surface.
+- **It is documented inside the relevant `docs/` page** under an
+  "Internal flags" subsection so the operator team can grep for it.
+- **It is gated by an explicit `--dev` prefix** (or a `_dev_` flag
+  name) whenever the command might otherwise be invoked by a user.
+
+The intent is that 1.0 stability commitments apply to the published
+HELP surface. Anything behind `--dev` is free to evolve, rename, or
+disappear in a minor bump — and the convention makes that promise
+visible without a separate "experimental" classifier system.
+
+Today no command is using `--dev`-gated flags. This section is the
+forward commitment so the first one that needs it ships in one
+canonical shape.

@@ -222,6 +222,108 @@ OFF by default. See [federated-sync.md](federated-sync.md) before
 enabling. Privacy model is strict: only hash + category + severity +
 normalized tag vector leaves.
 
+## 10. The `conclave review --json` output contract
+
+Adding `--json` to `conclave review` switches stdout to a single JSON
+object terminated by a newline. All diagnostic output goes to stderr,
+so this is safe to pipe into `jq` or feed to a downstream consumer
+(`conclave autofix` itself uses this contract internally).
+
+Stability commitment: the field names + types below are **stable at
+1.0**. Additive changes (new optional fields) are non-breaking; renames
+or removals require a major bump.
+
+```jsonc
+{
+  // identity ─────────────────────────────────────────────────────────
+  "repo": "owner/name",
+  "sha": "abc1234...",            // 40-char hex
+  "pullNumber": 42,                // omitted for non-PR runs
+  "episodicId": "ep_…",            // pass to `conclave record-outcome --id`
+  "domain": "code" | "design",
+
+  // verdict ──────────────────────────────────────────────────────────
+  "councilVerdict": "approve" | "rework" | "reject",
+
+  // per-agent results ────────────────────────────────────────────────
+  "results": [
+    {
+      "agent": "claude" | "openai" | "gemini" | "grok" | "ollama" | "design",
+      "verdict": "approve" | "rework" | "reject",
+      "blockers": [
+        {
+          "severity": "blocker" | "major" | "minor" | "nit",
+          "category": "spec-mismatch" | "security" | "a11y" | "testing" | "regression"
+                    | "correctness" | "deploy-safety" | "design-tokens" | "...",
+          "file": "path/to/file.ts",
+          "line": 84,
+          "message": "Short, actionable description.",
+          "suggestion": "optional fix snippet"
+        }
+      ],
+      "summary": "one-paragraph review",
+      "costUsd": 0.012,            // per-agent
+      "latencyMs": 4523,
+      "tokens": { "input": 12453, "output": 891, "cached": 8200 }
+    }
+  ],
+
+  // efficiency-gate metrics (Sprint D) ───────────────────────────────
+  "metrics": {
+    "totalCostUsd": 0.038,
+    "cacheHitRate": 0.41,          // 0–1; 0 if no cache hits
+    "totalTokens": { "input": 37000, "output": 2700, "cached": 24600 }
+  },
+
+  // RAG injection telemetry (Sprint D) ───────────────────────────────
+  "ragInjection": {
+    "answerKeysLocal":      number,  // .conclave/answer-keys/ via FileSystemMemoryStore
+    "answerKeysPromoted":   number,  // Sprint C — feedback-promoted seeds
+    "answerKeysSpecUpdates":number,  // Sprint E3 — changelog-monitor
+    "answerKeysOssPatterns":number,  // Sprint E2 — oss-pr-miner
+    "answerKeysExternal":   number,  // Phase 4 — external curated references
+    "failureCatalogLocal":  number,
+    "failureCatalogPromoted":   number,
+    "failureCatalogSpecUpdates":number,
+    "failureCatalogOssPatterns":number,
+    "failureCatalogExternal":   number
+  },
+
+  // 2-tier council telemetry (only present when TieredCouncil ran) ───
+  "tier": {
+    "escalated": true | false,
+    "reason": "blockers >= MAJOR present"
+            | "always-escalate (design)"
+            | "tier-1 verdict shipped",
+    "tier1Rounds": 1,
+    "tier1Ids": ["claude", "openai", "gemini"],
+    "tier1Verdict": "approve" | "rework" | "reject",
+    "tier2Ids": ["claude", "openai"],     // present when escalated
+    "tier2Rounds": 2,                      // present when escalated
+    "tier2Verdict": "approve" | "rework" | "reject"  // present when escalated
+  },
+
+  // optional non-dev surface (Sprint A) ──────────────────────────────
+  "plainSummary": {
+    "locale": "en" | "ko",
+    "verdict": "approve" | "rework" | "reject",
+    "blockers": [
+      { "severity": "major" | "minor", "category": "...", "oneLine": "...", "file": "..." }
+    ],
+    "headline": "Short human sentence",
+    "body": "1–3 paragraph plain summary"
+  }
+}
+```
+
+Exit code (independent of `--json`): `0` = approve, `1` = rework, `2`
+= reject, `3` = budget exhausted before any verdict could form.
+
+Pinning the contract: consumers should read by field name + tolerate
+unknown fields (forward-compat). New telemetry will be additive. If a
+field above ever needs to break, it gets a new name first and the old
+name stays around for one minor cycle.
+
 ## Troubleshooting
 
 - **"no agents available"** — no agent API key is set. Export at least
