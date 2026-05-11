@@ -644,6 +644,43 @@ export async function audit(argv: string[]): Promise<void> {
     : undefined;
 
   // 8. Emit per --output.
+  await emitAuditOutput({
+    args,
+    plainCfg,
+    plainSummary,
+    plainEnabled,
+    report,
+    repo,
+  });
+
+  // Exit code: 0 if no blockers / majors, 1 if rework-worthy, 2 if any
+  // blocker. Matches review's contract.
+  const hasBlocker = findings.some((f) => f.severity === "blocker");
+  const hasMajor = findings.some((f) => f.severity === "major");
+  if (hasBlocker) process.exit(2);
+  if (hasMajor) process.exit(1);
+}
+
+/**
+ * Routes the AuditReport (and optional plain-language summary) into
+ * whichever output target the user asked for. Stdout, JSON, GitHub
+ * issue, both — plus the "plain summary only" toggle and the
+ * pr-comment delivery rule that appends the plain section to the
+ * issue body.
+ *
+ * The issue-creation path falls back to stdout when `gh issue create`
+ * fails, but only if the user didn't already opt into stdout via
+ * --output=both — that would double-write (RC audit-2).
+ */
+async function emitAuditOutput(opts: {
+  args: ParsedArgs;
+  plainCfg: NonNullable<Awaited<ReturnType<typeof loadConfig>>["config"]["output"]>["plainSummary"];
+  plainSummary: PlainSummary | undefined;
+  plainEnabled: boolean;
+  report: AuditReport;
+  repo: string;
+}): Promise<void> {
+  const { args, plainCfg, plainSummary, plainEnabled, report, repo } = opts;
   const output = args.output;
   const deliveries = plainCfg?.deliveries ?? ["telegram", "pr-comment"];
   const appendPlainToIssue =
@@ -697,13 +734,6 @@ export async function audit(argv: string[]): Promise<void> {
       }
     }
   }
-
-  // Exit code: 0 if no blockers / majors, 1 if rework-worthy, 2 if any
-  // blocker. Matches review's contract.
-  const hasBlocker = findings.some((f) => f.severity === "blocker");
-  const hasMajor = findings.some((f) => f.severity === "major");
-  if (hasBlocker) process.exit(2);
-  if (hasMajor) process.exit(1);
 }
 
 /**
