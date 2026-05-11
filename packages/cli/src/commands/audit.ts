@@ -51,6 +51,7 @@ import {
   type AuditCategory,
   type DiscoveredFile,
   type DiscoveryResult,
+  type AuditBatch,
 } from "../lib/audit-discovery.js";
 import {
   aggregateFindings,
@@ -504,75 +505,20 @@ export async function audit(argv: string[]): Promise<void> {
   // 6. Council per batch. We don't escalate to tier-2 for audit by
   //    default; a single round across all agents is cheaper and usually
   //    enough. `--tier-1-only` further enforces single-round.
-  const council = new Council({
+  const { perBatch, budgetExhausted, batchesRun } = await runAuditBatches({
     agents,
-    maxRounds: args.tier1Only ? 1 : 2,
-    enableDebate: !args.tier1Only,
+    tier1Only: args.tier1Only,
+    batches,
+    budget,
+    repo,
+    sha,
+    resolvedDomain,
+    auditAnswerKeys,
+    auditFailures,
+    projectCtx: projectCtxLoaded,
+    designCtx: designCtxLoaded,
+    includeDesignReferences: ctxCfg?.includeDesignReferences ?? true,
   });
-
-  const perBatch: PerBatchResult[] = [];
-  let budgetExhausted = false;
-  let batchesRun = 0;
-  for (let i = 0; i < batches.length; i++) {
-    const b = batches[i]!;
-    // Budget pre-check: bail if we can't afford another batch.
-    if (budget.remainingUsd < ESTIMATED_COST_PER_BATCH_USD) {
-      process.stderr.write(
-        `conclave audit: budget exhausted after ${batchesRun}/${batches.length} batches — returning partial result\n`,
-      );
-      budgetExhausted = true;
-      break;
-    }
-    const startedBatch = Date.now();
-    const ctx: ReviewContext = {
-      diff: b.payload,
-      repo,
-      pullNumber: 0,
-      newSha: sha,
-      mode: "audit",
-      auditFiles: b.files.map((f) => f.path),
-      domain: resolvedDomain === "design" ? "design" : "code",
-      answerKeys: auditAnswerKeys,
-      failureCatalog: auditFailures,
-    };
-    if (projectCtxLoaded.projectContext) {
-      ctx.projectContext = projectCtxLoaded.projectContext;
-    }
-    if (designCtxLoaded.designContext) {
-      ctx.designContext = designCtxLoaded.designContext;
-    }
-    if (
-      designCtxLoaded.designReferences &&
-      designCtxLoaded.designReferences.length > 0 &&
-      (ctxCfg?.includeDesignReferences ?? true)
-    ) {
-      ctx.designReferences = designCtxLoaded.designReferences;
-    }
-    let outcome;
-    try {
-      outcome = await council.deliberate(ctx);
-    } catch (err) {
-      const msg = (err as Error).message;
-      if (/budget/i.test(msg)) {
-        process.stderr.write(
-          `conclave audit: budget exceeded mid-batch (${msg}) — returning partial result\n`,
-        );
-        budgetExhausted = true;
-        break;
-      }
-      process.stderr.write(`conclave audit: batch ${i + 1} failed — ${msg}\n`);
-      continue;
-    }
-    const batchCost = outcome.results.reduce((s, r) => s + (r.costUsd ?? 0), 0);
-    perBatch.push({
-      batchIndex: i,
-      files: b.files,
-      results: outcome.results,
-      costUsd: batchCost,
-      latencyMs: Date.now() - startedBatch,
-    });
-    batchesRun += 1;
-  }
 
   // 7. Aggregate + attribute.
   const report = buildAuditReport({
@@ -623,6 +569,125 @@ export async function audit(argv: string[]): Promise<void> {
   const hasMajor = findings.some((f) => f.severity === "major");
   if (hasBlocker) process.exit(2);
   if (hasMajor) process.exit(1);
+}
+
+/**
+ * Runs the council on every audit batch sequentially, respecting the
+ * per-batch budget reservation. Two ways the loop can exit early:
+ *   - budget remaining drops below ESTIMATED_COST_PER_BATCH_USD before
+ *     a batch starts (pre-check)
+ *   - the council itself throws a budget error mid-deliberation
+ *     (post-check; the gate raises with /budget/i in the message)
+ * Either path sets `budgetExhausted = true` and returns the partial
+ * perBatch so the report still emits.
+ *
+ * Non-budget batch failures (e.g. a single agent crashed, network blip)
+ * skip the failing batch with a stderr line and continue — losing one
+ * batch is acceptable; aborting the whole audit on a transient is not.
+ */
+async function runAuditBatches(opts: {
+  agents: Agent[];
+  tier1Only: boolean;
+  batches: AuditBatch[];
+  budget: BudgetTracker;
+  repo: string;
+  sha: string;
+  resolvedDomain: AuditDomain;
+  auditAnswerKeys: string[];
+  auditFailures: string[];
+  projectCtx: Awaited<ReturnType<typeof loadProjectContext>>;
+  designCtx: Awaited<ReturnType<typeof loadDesignContext>>;
+  includeDesignReferences: boolean;
+}): Promise<{
+  perBatch: PerBatchResult[];
+  budgetExhausted: boolean;
+  batchesRun: number;
+}> {
+  const {
+    agents,
+    tier1Only,
+    batches,
+    budget,
+    repo,
+    sha,
+    resolvedDomain,
+    auditAnswerKeys,
+    auditFailures,
+    projectCtx,
+    designCtx,
+    includeDesignReferences,
+  } = opts;
+
+  const council = new Council({
+    agents,
+    maxRounds: tier1Only ? 1 : 2,
+    enableDebate: !tier1Only,
+  });
+
+  const perBatch: PerBatchResult[] = [];
+  let budgetExhausted = false;
+  let batchesRun = 0;
+  for (let i = 0; i < batches.length; i++) {
+    const b = batches[i]!;
+    if (budget.remainingUsd < ESTIMATED_COST_PER_BATCH_USD) {
+      process.stderr.write(
+        `conclave audit: budget exhausted after ${batchesRun}/${batches.length} batches — returning partial result\n`,
+      );
+      budgetExhausted = true;
+      break;
+    }
+    const startedBatch = Date.now();
+    const ctx: ReviewContext = {
+      diff: b.payload,
+      repo,
+      pullNumber: 0,
+      newSha: sha,
+      mode: "audit",
+      auditFiles: b.files.map((f) => f.path),
+      domain: resolvedDomain === "design" ? "design" : "code",
+      answerKeys: auditAnswerKeys,
+      failureCatalog: auditFailures,
+    };
+    if (projectCtx.projectContext) {
+      ctx.projectContext = projectCtx.projectContext;
+    }
+    if (designCtx.designContext) {
+      ctx.designContext = designCtx.designContext;
+    }
+    if (
+      designCtx.designReferences &&
+      designCtx.designReferences.length > 0 &&
+      includeDesignReferences
+    ) {
+      ctx.designReferences = designCtx.designReferences;
+    }
+    let outcome;
+    try {
+      outcome = await council.deliberate(ctx);
+    } catch (err) {
+      const msg = (err as Error).message;
+      if (/budget/i.test(msg)) {
+        process.stderr.write(
+          `conclave audit: budget exceeded mid-batch (${msg}) — returning partial result\n`,
+        );
+        budgetExhausted = true;
+        break;
+      }
+      process.stderr.write(`conclave audit: batch ${i + 1} failed — ${msg}\n`);
+      continue;
+    }
+    const batchCost = outcome.results.reduce((s, r) => s + (r.costUsd ?? 0), 0);
+    perBatch.push({
+      batchIndex: i,
+      files: b.files,
+      results: outcome.results,
+      costUsd: batchCost,
+      latencyMs: Date.now() - startedBatch,
+    });
+    batchesRun += 1;
+  }
+
+  return { perBatch, budgetExhausted, batchesRun };
 }
 
 /**
