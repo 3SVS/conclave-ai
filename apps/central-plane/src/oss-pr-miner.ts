@@ -23,20 +23,23 @@ const MINER_TIMEOUT_MS = 8_000;
 const PER_REPO_LIMIT = 5;        // PRs per repo per pass (cap Haiku spend)
 const DIFF_BYTES_CAP = 12_000;   // diff snippet sent to Haiku
 
+import { WATCHED_SOURCES } from "./watched-sources.js";
+
 interface MinerTarget {
   repo: string; // "vercel/next.js"
   /** Which conclave domain this repo's lessons map to. */
   domain: "code" | "design";
 }
 
-const MINER_TARGETS: ReadonlyArray<MinerTarget> = [
-  { repo: "vercel/next.js", domain: "code" },
-  { repo: "facebook/react", domain: "code" },
-  { repo: "shadcn-ui/ui", domain: "design" },
-  { repo: "tailwindlabs/tailwindcss", domain: "design" },
-  { repo: "vercel/style-guide", domain: "code" },
-  { repo: "storybookjs/storybook", domain: "design" },
-];
+/**
+ * Derived from the shared WATCHED_SOURCES list. To add a target,
+ * edit `watched-sources.ts` once — both the changelog monitor and
+ * this OSS PR miner pick it up.
+ */
+const MINER_TARGETS: ReadonlyArray<MinerTarget> = WATCHED_SOURCES.map((s) => ({
+  repo: s.source_repo,
+  domain: s.domain,
+}));
 
 // PR is mineable when its title or any of its labels match these.
 const RELEVANT_TITLE_RE =

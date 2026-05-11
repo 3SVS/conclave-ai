@@ -7,32 +7,28 @@
  * body into answer-key (new recommended patterns) + failure
  * (deprecated, "don't do this anymore") entries.
  *
- * Cost: ~6 sources × ~1-3 new releases/wk × 1 Haiku call each ≈
- * <$0.001/wk. Effectively free.
+ * Cost (with 250-source corpus from `watched-sources.ts`):
+ *   ~250 sources × ~1-3 new releases/wk × 1 Haiku call each ≈
+ *   $0.025-0.075/wk. Still effectively free at production traffic.
  *
- * GitHub API: unauthenticated 60 req/h is plenty (1 list call per
- * source per pass).
+ * GitHub API: unauthenticated 60 req/h is the bottleneck. The list
+ * call is one per source; with 250 sources we'd burn the entire
+ * hourly window on the first pass. Mitigated by:
+ *   (a) the worker carries an installation-style token for elevated
+ *       rate-limit (handled by callers if `GH_APP_*` secrets exist);
+ *   (b) the per-source state row in `spec_updates_state` short-circuits
+ *       unchanged repos to a single HTTP HEAD.
  */
 import type { Env } from "./env.js";
+import { WATCHED_SOURCES, type WatchedSource } from "./watched-sources.js";
 
 const MONITOR_MODEL = "claude-haiku-4-5";
 const MONITOR_TIMEOUT_MS = 8_000;
 const PER_SOURCE_RELEASE_LIMIT = 3;   // process up to N new releases per source per pass
 
-interface SpecTarget {
-  source_id: string;
-  source_repo: string;     // for the GitHub releases API
-  domain: "code" | "design";
-}
+type SpecTarget = WatchedSource;
 
-const SPEC_TARGETS: ReadonlyArray<SpecTarget> = [
-  { source_id: "react", source_repo: "facebook/react", domain: "code" },
-  { source_id: "nextjs", source_repo: "vercel/next.js", domain: "code" },
-  { source_id: "tailwind", source_repo: "tailwindlabs/tailwindcss", domain: "design" },
-  { source_id: "typescript", source_repo: "microsoft/TypeScript", domain: "code" },
-  { source_id: "shadcn-ui", source_repo: "shadcn-ui/ui", domain: "design" },
-  { source_id: "storybook", source_repo: "storybookjs/storybook", domain: "design" },
-];
+const SPEC_TARGETS: ReadonlyArray<SpecTarget> = WATCHED_SOURCES;
 
 interface GithubReleaseItem {
   tag_name: string;
