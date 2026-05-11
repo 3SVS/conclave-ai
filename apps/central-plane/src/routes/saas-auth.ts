@@ -49,6 +49,7 @@ import {
   postPrComment,
   verifyWebhookSignature,
 } from "../gh-app.js";
+import { notifyFounderOnNewInstall } from "../notify-founder.js";
 import { spawnSandbox } from "./saas.js";
 
 export function createSaasAuthRoutes(): Hono<{ Bindings: Env }> {
@@ -114,6 +115,13 @@ export function createSaasAuthRoutes(): Hono<{ Bindings: Env }> {
           });
           await linkInstallationUser(env, installationId, user.id);
           console.log(`[webhook] install ${installationId} → user ${user.id} (${accountLogin})`);
+          // Fire-and-forget founder alert. Skipped when secrets unset
+          // or when the installer IS the founder (own dogfood = noise).
+          await notifyFounderOnNewInstall(env, {
+            installationId,
+            accountLogin,
+            targetType,
+          }).catch(() => undefined);
         } else {
           console.log(`[webhook] install ${installationId} created (no account info)`);
         }

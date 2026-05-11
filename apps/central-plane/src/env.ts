@@ -112,4 +112,18 @@ export interface Env {
   LEMONSQUEEZY_WEBHOOK_SECRET?: string;
   LEMONSQUEEZY_STORE_ID?: string;
   LEMONSQUEEZY_VARIANT_ID_FIRST_PR?: string;
+  /**
+   * Founder-alert hook for the very first external installs.
+   * When a `gh_app_installations` row is created in the install/created
+   * webhook and `account_login !== FOUNDER_GITHUB_LOGIN`, the Worker
+   * fires a one-shot Telegram message to `FOUNDER_TG_CHAT_ID` (uses
+   * the same `TELEGRAM_BOT_TOKEN` already in use).
+   *
+   * Both are optional — alert is skipped silently when either is unset
+   * or when the install is the founder's own. Set via:
+   *   wrangler secret put FOUNDER_GITHUB_LOGIN     (e.g. seunghunbae-3svs)
+   *   wrangler secret put FOUNDER_TG_CHAT_ID       (numeric Telegram chat id)
+   */
+  FOUNDER_GITHUB_LOGIN?: string;
+  FOUNDER_TG_CHAT_ID?: string;
 }
