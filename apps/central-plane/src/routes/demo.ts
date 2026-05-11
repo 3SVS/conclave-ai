@@ -141,13 +141,7 @@ export function createDemoRoutes(): Hono<{ Bindings: Env }> {
       });
     } catch (err) {
       console.error("demo: Claude call failed:", err);
-      // v0.14.5 TEMPORARY DIAGNOSTIC — surface the underlying Anthropic
-      // error so we can debug the production 502. Revert this block
-      // immediately after diagnosis. Do NOT leave detail field in prod.
-      return c.json({
-        error: "service_unavailable",
-        detail: err instanceof Error ? err.message.slice(0, 400) : String(err).slice(0, 400),
-      }, 502);
+      return c.json({ error: "service_unavailable" }, 502);
     }
 
     const now = new Date().toISOString();
