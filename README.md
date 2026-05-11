@@ -36,6 +36,8 @@ We dogfooded 15 synthetic-bug PRs across 5 vibe-coder Next.js templates (Vercel 
 
 Same catch rate **but 3× the depth** — and the depth matters: the extra blockers are usually missing tests, edge-case handling, and security gaps that a single agent considered "minor enough to skip."
 
+<sub>Numbers are from an internal dogfooding run (n=15 PRs, 5 Next.js templates). Raw scoring data is not yet open-sourced; reproduction protocol planned alongside a separate `conclave-benchmarks` repo. Treat as an indicative ratio, not a peer-reviewed benchmark.</sub>
+
 ### The PRD layer is the moat
 
 When we re-ran the same 3 PRs with a structured `.conclave/prd.md` attached:
@@ -263,7 +265,7 @@ See [`CLAUDE.md`](CLAUDE.md) for the canonical convention list.
 
 PRs welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for:
 
-- How to run the test suite (`pnpm test` — 47 packages, 1480+ tests)
+- How to run the test suite (`pnpm test` — 26 packages, 1700+ tests across 168 files)
 - How to add a new agent adapter (mirror `packages/agent-claude`)
 - How to add a platform deploy-status adapter (mirror `packages/platform-railway`)
 - Commit + PR conventions
