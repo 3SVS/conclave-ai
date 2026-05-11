@@ -632,67 +632,16 @@ export async function audit(argv: string[]): Promise<void> {
   //     original audit body.
   const plainCfg = config.output?.plainSummary;
   const plainEnabled =
-    !args.noPlainSummary &&
-    (plainCfg === undefined ? true : plainCfg.enabled);
-  let plainSummary: PlainSummary | undefined;
-  if (plainEnabled && findings.length >= 0) {
-    try {
-      const locale: PlainSummaryLocale = args.plainSummaryLocale ?? plainCfg?.locale ?? "en";
-      // Audit has no single outcome verdict — derive from findings.
-      const hasBlockerOrMajor = findings.some(
-        (f) => f.severity === "blocker" || f.severity === "major",
-      );
-      const hasAny = findings.length > 0;
-      const derivedVerdict: "approve" | "rework" | "reject" = hasBlockerOrMajor
-        ? "rework"
-        : hasAny
-          ? "rework"
-          : "approve";
-
-      const blockers: PlainSummaryBlocker[] = [];
-      const seen = new Set<string>();
-      for (const f of findings) {
-        if (f.severity === "nit") continue;
-        const sev: "major" | "minor" =
-          f.severity === "blocker" || f.severity === "major" ? "major" : "minor";
-        const file = f.file;
-        const msg = f.message.replace(/\n+/g, " ").slice(0, 220);
-        const key = `${sev}|${f.category}|${file ?? ""}|${msg.slice(0, 60)}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const pb: PlainSummaryBlocker = { severity: sev, category: f.category, oneLine: msg };
-        if (file) pb.file = file;
-        blockers.push(pb);
-      }
-      const categories = Array.from(new Set(discovery.files.map((f) => f.category)));
-      plainSummary = await generatePlainSummary(
-        {
-          mode: "audit",
-          verdict: derivedVerdict,
-          subject: { repo, sha },
-          scope: {
-            filesAudited: discovery.files.length,
-            filesInScope: discovery.totalMatched,
-            categories,
-          },
-          blockers,
-          locale,
-        },
-        {
-          llm: new ClaudeHaikuPlainSummaryLlm(),
-          cache: new InMemoryPlainSummaryCache(),
-        },
-      );
-      process.stderr.write(
-        `conclave audit: plain summary ready (${locale})\n`,
-      );
-    } catch (err) {
-      process.stderr.write(
-        `conclave audit: plain summary generation failed — ${(err as Error).message}\n`,
-      );
-      plainSummary = undefined;
-    }
-  }
+    !args.noPlainSummary && (plainCfg === undefined ? true : plainCfg.enabled);
+  const plainSummary = plainEnabled
+    ? await generateAuditPlainSummarySafe({
+        locale: args.plainSummaryLocale ?? plainCfg?.locale ?? "en",
+        findings,
+        discovery,
+        repo,
+        sha,
+      })
+    : undefined;
 
   // 8. Emit per --output.
   const output = args.output;
@@ -755,4 +704,70 @@ export async function audit(argv: string[]): Promise<void> {
   const hasMajor = findings.some((f) => f.severity === "major");
   if (hasBlocker) process.exit(2);
   if (hasMajor) process.exit(1);
+}
+
+/**
+ * Wraps the cheap-LLM `generatePlainSummary` call with audit-specific
+ * derivation: synthesize a verdict from findings (audit has no single
+ * outcome), dedupe blockers into a plain-language friendly shape,
+ * collect the discovery category list. Catches any LLM/cache failure
+ * and degrades to `undefined` so the audit body still emits.
+ */
+async function generateAuditPlainSummarySafe(opts: {
+  locale: PlainSummaryLocale;
+  findings: ReturnType<typeof aggregateFindings>;
+  discovery: { files: DiscoveredFile[]; totalMatched: number };
+  repo: string;
+  sha: string;
+}): Promise<PlainSummary | undefined> {
+  const { locale, findings, discovery, repo, sha } = opts;
+  try {
+    const hasBlockerOrMajor = findings.some(
+      (f) => f.severity === "blocker" || f.severity === "major",
+    );
+    const derivedVerdict: "approve" | "rework" | "reject" =
+      hasBlockerOrMajor || findings.length > 0 ? "rework" : "approve";
+
+    const blockers: PlainSummaryBlocker[] = [];
+    const seen = new Set<string>();
+    for (const f of findings) {
+      if (f.severity === "nit") continue;
+      const sev: "major" | "minor" =
+        f.severity === "blocker" || f.severity === "major" ? "major" : "minor";
+      const file = f.file;
+      const msg = f.message.replace(/\n+/g, " ").slice(0, 220);
+      const key = `${sev}|${f.category}|${file ?? ""}|${msg.slice(0, 60)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const pb: PlainSummaryBlocker = { severity: sev, category: f.category, oneLine: msg };
+      if (file) pb.file = file;
+      blockers.push(pb);
+    }
+    const categories = Array.from(new Set(discovery.files.map((f) => f.category)));
+    const summary = await generatePlainSummary(
+      {
+        mode: "audit",
+        verdict: derivedVerdict,
+        subject: { repo, sha },
+        scope: {
+          filesAudited: discovery.files.length,
+          filesInScope: discovery.totalMatched,
+          categories,
+        },
+        blockers,
+        locale,
+      },
+      {
+        llm: new ClaudeHaikuPlainSummaryLlm(),
+        cache: new InMemoryPlainSummaryCache(),
+      },
+    );
+    process.stderr.write(`conclave audit: plain summary ready (${locale})\n`);
+    return summary;
+  } catch (err) {
+    process.stderr.write(
+      `conclave audit: plain summary generation failed — ${(err as Error).message}\n`,
+    );
+    return undefined;
+  }
 }
