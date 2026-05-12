@@ -4,6 +4,23 @@ import type { Env } from "../env.js";
 export const healthRoutes = new Hono<{ Bindings: Env }>();
 
 /**
+ * Root path landing — anyone who lands on the bare worker URL
+ * (including users whose GH App Setup URL was misconfigured to
+ * `https://conclave-ai.seunghunbae.workers.dev/` host-only) used to
+ * see a raw 404. That footgun bit us 2026-05-12 when the first
+ * external install came through. Returning a small JSON envelope
+ * with the relevant follow-up links is a low-effort safety net.
+ */
+healthRoutes.get("/", (c) => {
+  return c.json({
+    service: "conclave-ai-central-plane",
+    docs: "https://github.com/seunghunbae-3svs/conclave-ai",
+    install_app: "https://github.com/apps/conclave-ai-code-council",
+    health: "/healthz",
+  });
+});
+
+/**
  * v0.4 legacy — `/health` returns the same envelope. Kept for any
  * monitoring already wired to that path. New monitoring should use
  * `/healthz` (v0.11) which is the convention adopted across the rest of
