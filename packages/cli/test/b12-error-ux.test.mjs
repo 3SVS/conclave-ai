@@ -149,7 +149,10 @@ test("B.12: bin --help text includes every top-level command (no orphan commands
     "doctor",
     "config",
     "scores",
-    "sync",
+    // `sync` was removed from the prominent HELP list as part of the
+    // pre-1.0 surface audit (action item #2). With federated.autoPull
+    // default true, manual `sync` is power-user-only — still accepted,
+    // just no longer advertised.
     "record-outcome",
   ]) {
     assert.match(out, new RegExp(`\\b${cmd}\\b`), `--help missing reference to \`${cmd}\``);

@@ -19,6 +19,7 @@ import {
   setSpawnedAgentStatus,
   TRIAL_MIN_DURATION_MS,
   TRIAL_MIN_OUTCOMES,
+  updateSpawnedAgentSmokeOutcome,
 } from "../dist/agent-spawner.js";
 
 function makeMockDb({ feedback = [], spawned = [], outcomes = [] } = {}) {
@@ -106,6 +107,15 @@ function makeMockDb({ feedback = [], spawned = [], outcomes = [] } = {}) {
             const row = state.spawned.get(id);
             if (!row || row.removed_at !== null) return { success: true, meta: { changes: 0 } };
             row.status = status;
+            return { success: true, meta: { changes: 1 } };
+          }
+          if (/UPDATE spawned_agent_outcomes\s+SET smoke_passed/.test(sql)) {
+            const [smokeCol, pk, rid] = bound;
+            const row = state.outcomes.find(
+              (o) => o.spawned_agent_pk === pk && o.review_id === rid,
+            );
+            if (!row) return { success: true, meta: { changes: 0 } };
+            row.smoke_passed = smokeCol;
             return { success: true, meta: { changes: 1 } };
           }
           return { success: true, meta: { changes: 0 } };
@@ -760,6 +770,169 @@ test("POST /admin/spawned-agent-outcomes: unknown agent → 404", async () => {
     env,
   );
   assert.equal(res.status, 404);
+});
+
+// --- updateSpawnedAgentSmokeOutcome ---
+
+test("updateSpawnedAgentSmokeOutcome: agent not found → ok:false agent_not_found", async () => {
+  const env = makeEnv({ DB: makeMockDb() });
+  const r = await updateSpawnedAgentSmokeOutcome(env, {
+    agent_id: "ghost",
+    review_id: "r1",
+    smoke_passed: true,
+  });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, "agent_not_found");
+});
+
+test("updateSpawnedAgentSmokeOutcome: no existing outcome → ok:false outcome_not_found", async () => {
+  const env = makeEnv({
+    DB: makeMockDb({ spawned: [makeSpawned({ id: "sa_1", agent_id: "k8s" })] }),
+  });
+  const r = await updateSpawnedAgentSmokeOutcome(env, {
+    agent_id: "k8s",
+    review_id: "r-none",
+    smoke_passed: false,
+  });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, "outcome_not_found");
+});
+
+test("updateSpawnedAgentSmokeOutcome: happy path flips null → false", async () => {
+  const env = makeEnv({
+    DB: makeMockDb({ spawned: [makeSpawned({ id: "sa_1", agent_id: "k8s" })] }),
+  });
+  await recordSpawnedAgentOutcome(env, {
+    agent_id: "k8s",
+    review_id: "r1",
+    verdict: "rework",
+    blocker_count: 1,
+    cost_usd: 0.01,
+    latency_ms: 1000,
+    smoke_passed: null,
+  });
+  assert.equal(env.DB.state.outcomes[0].smoke_passed, null);
+
+  const r = await updateSpawnedAgentSmokeOutcome(env, {
+    agent_id: "k8s",
+    review_id: "r1",
+    smoke_passed: false,
+  });
+  assert.equal(r.ok, true);
+  assert.equal(env.DB.state.outcomes[0].smoke_passed, 0);
+});
+
+test("updateSpawnedAgentSmokeOutcome: idempotent re-apply is no-op", async () => {
+  const env = makeEnv({
+    DB: makeMockDb({ spawned: [makeSpawned({ id: "sa_1", agent_id: "k8s" })] }),
+  });
+  await recordSpawnedAgentOutcome(env, {
+    agent_id: "k8s", review_id: "r1", verdict: "approve",
+    blocker_count: 0, cost_usd: 0.01, latency_ms: 1000, smoke_passed: null,
+  });
+  const r1 = await updateSpawnedAgentSmokeOutcome(env, {
+    agent_id: "k8s", review_id: "r1", smoke_passed: true,
+  });
+  const r2 = await updateSpawnedAgentSmokeOutcome(env, {
+    agent_id: "k8s", review_id: "r1", smoke_passed: true,
+  });
+  assert.equal(r1.ok, true);
+  assert.equal(r2.ok, true);
+  assert.equal(env.DB.state.outcomes[0].smoke_passed, 1);
+});
+
+test("PATCH /admin/spawned-agent-outcomes: happy path → 200 row updated", async () => {
+  const app = createApp();
+  const env = makeEnv({
+    DB: makeMockDb({ spawned: [makeSpawned({ id: "sa_1", agent_id: "k8s" })] }),
+  });
+  await recordSpawnedAgentOutcome(env, {
+    agent_id: "k8s", review_id: "r1", verdict: "approve",
+    blocker_count: 0, cost_usd: 0.01, latency_ms: 1000, smoke_passed: null,
+  });
+  const res = await app.fetch(
+    new Request("http://localhost/admin/spawned-agent-outcomes", {
+      method: "PATCH",
+      headers: { authorization: "Bearer e5-token", "content-type": "application/json" },
+      body: JSON.stringify({ agent_id: "k8s", review_id: "r1", smoke_passed: false }),
+    }),
+    env,
+  );
+  assert.equal(res.status, 200);
+  assert.equal(env.DB.state.outcomes[0].smoke_passed, 0);
+});
+
+test("PATCH /admin/spawned-agent-outcomes: missing review_id → 400", async () => {
+  const app = createApp();
+  const env = makeEnv();
+  const res = await app.fetch(
+    new Request("http://localhost/admin/spawned-agent-outcomes", {
+      method: "PATCH",
+      headers: { authorization: "Bearer e5-token", "content-type": "application/json" },
+      body: JSON.stringify({ agent_id: "k8s", smoke_passed: false }),
+    }),
+    env,
+  );
+  assert.equal(res.status, 400);
+});
+
+test("PATCH /admin/spawned-agent-outcomes: unknown agent → 404", async () => {
+  const app = createApp();
+  const env = makeEnv();
+  const res = await app.fetch(
+    new Request("http://localhost/admin/spawned-agent-outcomes", {
+      method: "PATCH",
+      headers: { authorization: "Bearer e5-token", "content-type": "application/json" },
+      body: JSON.stringify({ agent_id: "ghost", review_id: "r1", smoke_passed: true }),
+    }),
+    env,
+  );
+  assert.equal(res.status, 404);
+});
+
+test("PATCH /admin/spawned-agent-outcomes: outcome not yet posted → 409", async () => {
+  const app = createApp();
+  const env = makeEnv({
+    DB: makeMockDb({ spawned: [makeSpawned({ id: "sa_1", agent_id: "k8s" })] }),
+  });
+  const res = await app.fetch(
+    new Request("http://localhost/admin/spawned-agent-outcomes", {
+      method: "PATCH",
+      headers: { authorization: "Bearer e5-token", "content-type": "application/json" },
+      body: JSON.stringify({ agent_id: "k8s", review_id: "r-none", smoke_passed: true }),
+    }),
+    env,
+  );
+  assert.equal(res.status, 409);
+  assert.equal((await res.json()).error, "outcome_not_found");
+});
+
+test("PATCH /admin/spawned-agent-outcomes: invalid smoke_passed value → 400", async () => {
+  const app = createApp();
+  const env = makeEnv();
+  const res = await app.fetch(
+    new Request("http://localhost/admin/spawned-agent-outcomes", {
+      method: "PATCH",
+      headers: { authorization: "Bearer e5-token", "content-type": "application/json" },
+      body: JSON.stringify({ agent_id: "k8s", review_id: "r1", smoke_passed: "maybe" }),
+    }),
+    env,
+  );
+  assert.equal(res.status, 400);
+});
+
+test("PATCH /admin/spawned-agent-outcomes: no token → 401", async () => {
+  const app = createApp();
+  const env = makeEnv();
+  const res = await app.fetch(
+    new Request("http://localhost/admin/spawned-agent-outcomes", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agent_id: "k8s", review_id: "r1", smoke_passed: true }),
+    }),
+    env,
+  );
+  assert.equal(res.status, 401);
 });
 
 test("POST /admin/run-agent-spawner: returns auto_graduation block", async () => {

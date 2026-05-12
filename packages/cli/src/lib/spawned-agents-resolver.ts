@@ -200,3 +200,61 @@ export async function reportSpawnedAgentOutcomes(
   }
   return { recorded, failed };
 }
+
+export interface SpawnedAgentSmokeReport {
+  agentId: string;
+  reviewId: string;
+  /** Null collapses to "no smoke run" — auto-graduation treats null as neutral. */
+  smokePassed: boolean | null;
+}
+
+/**
+ * v0.17 — autofix-pipeline patches smoke_passed onto an already-recorded
+ * outcome row. review.ts posts the initial outcome with smoke_passed=null
+ * (it doesn't run smoke); after autofix's smoke step the real value is
+ * threaded back so auto-graduation's pass-rate reflects build/test reality.
+ *
+ * Best-effort: any failure is swallowed. A 409 outcome_not_found (race
+ * where review.ts hasn't flushed yet) is benign — the next review still
+ * posts a fresh row and the trial window is many reviews wide.
+ */
+export async function reportSpawnedAgentSmokeOutcomes(
+  outcomes: readonly SpawnedAgentSmokeReport[],
+  opts: {
+    bearerToken: string;
+    apiBase?: string;
+    fetchImpl?: typeof fetch;
+  },
+): Promise<{ patched: number; failed: number }> {
+  const apiBase = (opts.apiBase ?? DEFAULT_API_BASE).replace(/\/+$/, "");
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  let patched = 0;
+  let failed = 0;
+  for (const o of outcomes) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+    try {
+      const r = await fetchImpl(`${apiBase}/admin/spawned-agent-outcomes`, {
+        method: "PATCH",
+        signal: ctrl.signal,
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${opts.bearerToken}`,
+          "user-agent": "conclave-cli/spawned-agents-resolver",
+        },
+        body: JSON.stringify({
+          agent_id: o.agentId,
+          review_id: o.reviewId,
+          smoke_passed: o.smokePassed,
+        }),
+      });
+      if (r.ok) patched++;
+      else failed++;
+    } catch {
+      failed++;
+    } finally {
+      clearTimeout(t);
+    }
+  }
+  return { patched, failed };
+}

@@ -29,6 +29,7 @@ import {
   runAgentSpawner,
   runAutoGraduation,
   setSpawnedAgentStatus,
+  updateSpawnedAgentSmokeOutcome,
   type SpawnedAgentStatus,
 } from "../agent-spawner.js";
 
@@ -130,6 +131,40 @@ export function createSpawnedAgentsRoutes(): Hono<{ Bindings: Env }> {
       blocker_count,
       cost_usd,
       latency_ms,
+      smoke_passed,
+    });
+    if (!r.ok) {
+      const status = r.reason === "agent_not_found" ? 404 : 409;
+      return c.json({ error: r.reason }, status);
+    }
+    return c.json({ ok: true });
+  });
+
+  // Update smoke_passed on an already-recorded outcome. autofix-pipeline
+  // calls this after the smoke step finishes — review.ts can't fill it
+  // in because it doesn't run smoke. Distinguishing review-passed-build-
+  // broke from review-passed-build-passed is the whole point of E5's
+  // auto-graduation gate.
+  app.patch("/admin/spawned-agent-outcomes", async (c) => {
+    const auth = requireAdmin(c);
+    if (!auth.ok) return c.json(auth.body, auth.status);
+    const raw = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!raw) return c.json({ error: "invalid_body" }, 400);
+    const agent_id = typeof raw.agent_id === "string" ? raw.agent_id : null;
+    const review_id = typeof raw.review_id === "string" ? raw.review_id : null;
+    const sp = raw.smoke_passed;
+    let smoke_passed: boolean | null;
+    if (sp === true || sp === false) smoke_passed = sp;
+    else if (sp === null || sp === undefined) smoke_passed = null;
+    else if (sp === 1) smoke_passed = true;
+    else if (sp === 0) smoke_passed = false;
+    else return c.json({ error: "invalid_body" }, 400);
+    if (!agent_id || !review_id) {
+      return c.json({ error: "invalid_body" }, 400);
+    }
+    const r = await updateSpawnedAgentSmokeOutcome(c.env, {
+      agent_id,
+      review_id,
       smoke_passed,
     });
     if (!r.ok) {

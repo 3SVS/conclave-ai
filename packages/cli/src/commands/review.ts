@@ -1440,6 +1440,12 @@ export async function review(argv: string[]): Promise<void> {
       jsonInput.tier = tierEntry;
     }
     if (plainSummary) jsonInput.plainSummary = plainSummary;
+    // v0.17 — Sprint E5: emit kebab agent_ids of all spawned-agent
+    // personas (trial + promoted) that joined this council so autofix-
+    // pipeline can PATCH /admin/spawned-agent-outcomes after smoke.
+    if (activeSpawnedAgents.length > 0) {
+      jsonInput.spawnedAgentParticipants = activeSpawnedAgents.map((a) => a.agentId);
+    }
     const payload = buildReviewJson(jsonInput);
     process.stdout.write(serializeReviewJson(payload));
   } else {

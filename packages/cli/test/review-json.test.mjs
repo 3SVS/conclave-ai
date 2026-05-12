@@ -236,3 +236,46 @@ test("buildReviewJson: reject verdict propagates to verdict + tier1Verdict", () 
   assert.equal(out.tiers.tier1Verdict, "reject");
   assert.equal(out.agents[0].verdict, "reject");
 });
+
+// 6. spawnedAgentParticipants — v0.17 Sprint E5 smoke-pass attribution ---
+
+test("buildReviewJson: spawnedAgentParticipants emitted when present", () => {
+  const out = buildReviewJson({
+    repo: "o/r",
+    sha: "s",
+    councilVerdict: "rework",
+    domain: "code",
+    results: [claudeReviewRework],
+    metrics: metricsA,
+    episodicId: "ep-e5",
+    spawnedAgentParticipants: ["k8s", "graphql"],
+  });
+  assert.deepEqual(out.spawnedAgentParticipants, ["k8s", "graphql"]);
+});
+
+test("buildReviewJson: spawnedAgentParticipants omitted when empty (backwards compat)", () => {
+  const out = buildReviewJson({
+    repo: "o/r",
+    sha: "s",
+    councilVerdict: "approve",
+    domain: "code",
+    results: [openaiReviewApprove],
+    metrics: metricsA,
+    episodicId: "ep-e5b",
+    spawnedAgentParticipants: [],
+  });
+  assert.equal(out.spawnedAgentParticipants, undefined);
+});
+
+test("buildReviewJson: spawnedAgentParticipants omitted when not provided", () => {
+  const out = buildReviewJson({
+    repo: "o/r",
+    sha: "s",
+    councilVerdict: "approve",
+    domain: "code",
+    results: [openaiReviewApprove],
+    metrics: metricsA,
+    episodicId: "ep-e5c",
+  });
+  assert.equal(out.spawnedAgentParticipants, undefined);
+});

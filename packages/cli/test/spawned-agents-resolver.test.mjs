@@ -12,6 +12,7 @@ import {
   buildTrialAgentWeights,
   fetchActiveSpawnedAgents,
   reportSpawnedAgentOutcomes,
+  reportSpawnedAgentSmokeOutcomes,
   TRIAL_AGENT_WEIGHT,
 } from "../dist/lib/spawned-agents-resolver.js";
 
@@ -251,5 +252,50 @@ test("reportSpawnedAgentOutcomes: empty list → no calls", async () => {
     bearerToken: "tok", apiBase: API_BASE, fetchImpl: stub.fn,
   });
   assert.deepEqual(r, { recorded: 0, failed: 0 });
+  assert.equal(stub.calls.length, 0);
+});
+
+// --- reportSpawnedAgentSmokeOutcomes ------------------------------------
+
+test("reportSpawnedAgentSmokeOutcomes: PATCH per outcome with right body", async () => {
+  const stub = makeFetchStub({
+    "PATCH /admin/spawned-agent-outcomes": jsonResponse({ ok: true }),
+  });
+  const r = await reportSpawnedAgentSmokeOutcomes(
+    [
+      { agentId: "k8s", reviewId: "r1", smokePassed: true },
+      { agentId: "graphql", reviewId: "r1", smokePassed: false },
+      { agentId: "design-token", reviewId: "r1", smokePassed: null },
+    ],
+    { bearerToken: "tok", apiBase: API_BASE, fetchImpl: stub.fn },
+  );
+  assert.deepEqual(r, { patched: 3, failed: 0 });
+  assert.equal(stub.calls.length, 3);
+  for (const c of stub.calls) {
+    assert.equal(c.init.method, "PATCH");
+  }
+  const body = JSON.parse(stub.calls[1].init.body);
+  assert.equal(body.agent_id, "graphql");
+  assert.equal(body.review_id, "r1");
+  assert.equal(body.smoke_passed, false);
+});
+
+test("reportSpawnedAgentSmokeOutcomes: 409 outcome_not_found counted as failed but not thrown", async () => {
+  const stub = makeFetchStub({
+    "PATCH /admin/spawned-agent-outcomes": jsonResponse({ error: "outcome_not_found" }, 409),
+  });
+  const r = await reportSpawnedAgentSmokeOutcomes(
+    [{ agentId: "k8s", reviewId: "r-stale", smokePassed: true }],
+    { bearerToken: "tok", apiBase: API_BASE, fetchImpl: stub.fn },
+  );
+  assert.deepEqual(r, { patched: 0, failed: 1 });
+});
+
+test("reportSpawnedAgentSmokeOutcomes: empty list → no calls", async () => {
+  const stub = makeFetchStub({});
+  const r = await reportSpawnedAgentSmokeOutcomes([], {
+    bearerToken: "tok", apiBase: API_BASE, fetchImpl: stub.fn,
+  });
+  assert.deepEqual(r, { patched: 0, failed: 0 });
   assert.equal(stub.calls.length, 0);
 });

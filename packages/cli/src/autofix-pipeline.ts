@@ -55,6 +55,7 @@ import {
   summarizeFailure,
   type BuildResult,
 } from "./lib/build-verifier.js";
+import { reportSpawnedAgentSmokeOutcomes } from "./lib/spawned-agents-resolver.js";
 
 const execFile = promisify(execFileCallback);
 
@@ -336,6 +337,11 @@ export function parseVerdictFile(raw: string): {
    * autofix progress emit happily renders without them. */
   repo?: string;
   pullNumber?: number;
+  /** v0.17 — Sprint E5 smoke-pass attribution: kebab agent_ids of
+   * spawned-agent personas that participated in the review. Autofix
+   * PATCHes /admin/spawned-agent-outcomes for each one after smoke
+   * so auto-graduation's pass-rate reflects build/test reality. */
+  spawnedAgentParticipants?: string[];
 } {
   let parsed: unknown;
   try {
@@ -356,6 +362,7 @@ export function parseVerdictFile(raw: string): {
     repo?: string;
     prNumber?: number;
     pullNumber?: number;
+    spawnedAgentParticipants?: unknown;
   };
   const verdict = (p.councilVerdict ?? p.verdict) as "approve" | "rework" | "reject" | undefined;
   if (!verdict || !["approve", "rework", "reject"].includes(verdict)) {
@@ -365,6 +372,9 @@ export function parseVerdictFile(raw: string): {
   const repo = typeof p.repo === "string" ? p.repo : undefined;
   const pullNumber =
     typeof p.prNumber === "number" ? p.prNumber : typeof p.pullNumber === "number" ? p.pullNumber : undefined;
+  const spawnedAgentParticipants = Array.isArray(p.spawnedAgentParticipants)
+    ? p.spawnedAgentParticipants.filter((s): s is string => typeof s === "string")
+    : undefined;
   // v0.7.1 --json shape uses `agents` instead of `reviews`. Normalize.
   if (!Array.isArray(p.reviews) && Array.isArray(p.agents)) {
     const reviews: ReviewResult[] = p.agents.map((a) => ({
@@ -379,6 +389,9 @@ export function parseVerdictFile(raw: string): {
       ...(episodicId ? { episodicId } : {}),
       ...(repo ? { repo } : {}),
       ...(pullNumber !== undefined ? { pullNumber } : {}),
+      ...(spawnedAgentParticipants && spawnedAgentParticipants.length > 0
+        ? { spawnedAgentParticipants }
+        : {}),
     };
   }
   if (!Array.isArray(p.reviews)) {
@@ -390,6 +403,9 @@ export function parseVerdictFile(raw: string): {
     ...(episodicId ? { episodicId } : {}),
     ...(repo ? { repo } : {}),
     ...(pullNumber !== undefined ? { pullNumber } : {}),
+    ...(spawnedAgentParticipants && spawnedAgentParticipants.length > 0
+      ? { spawnedAgentParticipants }
+      : {}),
   };
 }
 
@@ -602,6 +618,11 @@ export async function runAutofix(args: AutofixArgs, deps: AutofixDeps = {}): Pro
   // message that the upstream `conclave review` started. Undefined ==
   // pre-v0.11 verdict file or autofix run with no progress at all.
   let progressEpisodicId: string | undefined;
+  // v0.17 — Sprint E5 smoke-pass attribution: kebab agent_ids of
+  // spawned-agent personas the upstream review used. After smoke runs
+  // we PATCH /admin/spawned-agent-outcomes for each one so auto-
+  // graduation reflects build/test reality, not just verdict.
+  let spawnedAgentParticipants: readonly string[] | undefined;
   if (args.verdictFile) {
     // v0.7.1 — "-" means read from stdin (lets users pipe `gh api ... |
     // conclave autofix --pr N --verdict -`, sidestepping PowerShell's
@@ -617,6 +638,9 @@ export async function runAutofix(args: AutofixArgs, deps: AutofixDeps = {}): Pro
     initialReviews = parsed.reviews;
     initialVerdict = parsed.verdict;
     if (parsed.episodicId) progressEpisodicId = parsed.episodicId;
+    if (parsed.spawnedAgentParticipants && parsed.spawnedAgentParticipants.length > 0) {
+      spawnedAgentParticipants = parsed.spawnedAgentParticipants;
+    }
     // Episodic / --json shape also carries repo / pullNumber / sha.
     try {
       const ep = JSON.parse(raw) as Partial<EpisodicEntry> & { prNumber?: number };
@@ -741,6 +765,9 @@ export async function runAutofix(args: AutofixArgs, deps: AutofixDeps = {}): Pro
       initialReviews = parsed.reviews;
       initialVerdict = parsed.verdict;
       if (parsed.episodicId) progressEpisodicId = parsed.episodicId;
+      if (parsed.spawnedAgentParticipants && parsed.spawnedAgentParticipants.length > 0) {
+        spawnedAgentParticipants = parsed.spawnedAgentParticipants;
+      }
       // v0.7.1 --json also carries `sha` / `prNumber` — pick them up to
       // fill in missing loopKey pieces if the gh pr view fallback didn't.
       try {
@@ -848,6 +875,14 @@ export async function runAutofix(args: AutofixArgs, deps: AutofixDeps = {}): Pro
       `autofix: prior-bail hint retrieval failed (non-fatal) — ${(err as Error).message}\n`,
     );
   }
+
+  // v0.17 — Sprint E5 smoke-pass attribution. We track the LAST smoke
+  // outcome across all iterations and PATCH it onto the upstream
+  // review's spawned-agent outcomes after the loop completes. Null
+  // means smoke never ran (no .conclave/smoke.yaml or no preview URL
+  // resolved on any iteration). Auto-graduation treats null as
+  // neutral, so the worst case is the trial counts as "no signal".
+  let finalSmokeOutcome: boolean | null = null;
 
   for (let i = 0; i < args.maxIterations; i += 1) {
     // v0.7 — collect unique (agent, blocker) pairs across the council.
@@ -1612,6 +1647,14 @@ export async function runAutofix(args: AutofixArgs, deps: AutofixDeps = {}): Pro
                   smokeBrokenThisIter = true;
                   smokeFailureReason = smokeSummary.result.steps
                     .find((s) => s.status === "fail")?.reason ?? "unknown";
+                  finalSmokeOutcome = false;
+                } else {
+                  // ran-and-passed (or any non-broken outcome) — record
+                  // a positive smoke signal. Later iterations can flip
+                  // this back to false if a regression appears, which
+                  // is the desired behavior (last-write-wins on the
+                  // outcome row).
+                  finalSmokeOutcome = true;
                 }
                 if (smokeSummary.aiSlopHits && smokeSummary.aiSlopHits.length > 0) {
                   aiSlopHitsThisIter = smokeSummary.aiSlopHits;
@@ -1817,6 +1860,32 @@ export async function runAutofix(args: AutofixArgs, deps: AutofixDeps = {}): Pro
       `autofix: flipping exit code 0 → 1 to trigger AF-2 retry dispatch (UX-16: machine-fixable items remain)\n`,
     );
     code = 1;
+  }
+
+  // v0.17 — Sprint E5 smoke-pass attribution: PATCH the upstream
+  // review's spawned-agent outcomes with the final smoke result.
+  // Requires:
+  //   - admin token (operator-only surface)
+  //   - upstream review carried the participant list (only when at
+  //     least one trial/promoted spawned agent joined the council)
+  //   - upstream review's episodic id (the review_id in D1)
+  // All three together → one PATCH per spawned agent. Best-effort;
+  // failure swallowed in reportSpawnedAgentSmokeOutcomes.
+  const smokeAdminToken = process.env["INTERNAL_CALLBACK_TOKEN"];
+  if (
+    smokeAdminToken &&
+    spawnedAgentParticipants &&
+    spawnedAgentParticipants.length > 0 &&
+    progressEpisodicId
+  ) {
+    const reports = spawnedAgentParticipants.map((agentId) => ({
+      agentId,
+      reviewId: progressEpisodicId!,
+      smokePassed: finalSmokeOutcome,
+    }));
+    reportSpawnedAgentSmokeOutcomes(reports, { bearerToken: smokeAdminToken }).catch(
+      () => undefined,
+    );
   }
 
   return {

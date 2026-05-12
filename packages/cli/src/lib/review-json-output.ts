@@ -55,6 +55,15 @@ export interface ReviewJsonInput {
    * meaningful context, or were the prompts effectively unchanged?"
    */
   ragInjection?: RagInjectionTelemetry;
+  /**
+   * v0.17 — Sprint E5 smoke-pass attribution: kebab agent_ids of every
+   * spawned-agent persona that participated in this review. Empty when
+   * no trial/promoted agents matched the domain. Consumed by
+   * autofix-pipeline: after the smoke step, autofix PATCHes
+   * `/admin/spawned-agent-outcomes` for each id so auto-graduation's
+   * pass-rate reflects build/test reality, not just review verdict.
+   */
+  spawnedAgentParticipants?: readonly string[];
 }
 
 export interface RagInjectionTelemetry {
@@ -117,6 +126,8 @@ export interface ReviewJsonOutput {
   repo: string;
   prNumber?: number;
   plainSummary?: PlainSummary;
+  /** v0.17 — Sprint E5: kebab agent_ids of spawned-agent participants. Absent when none. */
+  spawnedAgentParticipants?: readonly string[];
 }
 
 /**
@@ -181,6 +192,9 @@ export function buildReviewJson(input: ReviewJsonInput): ReviewJsonOutput {
   }
   if (input.plainSummary) {
     out.plainSummary = input.plainSummary;
+  }
+  if (input.spawnedAgentParticipants && input.spawnedAgentParticipants.length > 0) {
+    out.spawnedAgentParticipants = input.spawnedAgentParticipants;
   }
   return out;
 }

@@ -227,6 +227,35 @@ test("parseVerdictFile: rejects missing verdict field", () => {
   assert.throws(() => parseVerdictFile(JSON.stringify({ reviews: [] })));
 });
 
+test("parseVerdictFile: extracts spawnedAgentParticipants from --json shape", () => {
+  const raw = JSON.stringify({
+    verdict: "rework",
+    agents: [{ id: "claude", verdict: "rework", summary: "", blockers: [] }],
+    spawnedAgentParticipants: ["k8s", "graphql"],
+  });
+  const p = parseVerdictFile(raw);
+  assert.deepEqual(p.spawnedAgentParticipants, ["k8s", "graphql"]);
+});
+
+test("parseVerdictFile: spawnedAgentParticipants absent when not present in input", () => {
+  const raw = JSON.stringify({
+    verdict: "rework",
+    agents: [{ id: "claude", verdict: "rework", summary: "", blockers: [] }],
+  });
+  const p = parseVerdictFile(raw);
+  assert.equal(p.spawnedAgentParticipants, undefined);
+});
+
+test("parseVerdictFile: spawnedAgentParticipants filters non-strings defensively", () => {
+  const raw = JSON.stringify({
+    verdict: "rework",
+    agents: [{ id: "claude", verdict: "rework", summary: "", blockers: [] }],
+    spawnedAgentParticipants: ["k8s", 42, null, "graphql"],
+  });
+  const p = parseVerdictFile(raw);
+  assert.deepEqual(p.spawnedAgentParticipants, ["k8s", "graphql"]);
+});
+
 // ---- detectCommand --------------------------------------------------------
 
 test("detectCommand: package.json with build script detects pnpm run build", async () => {

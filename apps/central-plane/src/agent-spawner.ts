@@ -434,6 +434,46 @@ export async function recordSpawnedAgentOutcome(
   return { ok: true };
 }
 
+/**
+ * Update only `smoke_passed` on an existing outcome row for
+ * (agent_id, review_id). Used by autofix-pipeline after smoke runs —
+ * review.ts posts the outcome with `smoke_passed: null` because review
+ * doesn't run smoke; autofix does, and this is how the result threads
+ * back so auto-graduation's pass-rate reflects build/test reality.
+ *
+ * Idempotent: re-applying the same value is a no-op. Returns
+ * `agent_not_found` when no spawned agent matches `agent_id`,
+ * `outcome_not_found` when no row exists for (agent_pk, review_id).
+ */
+export async function updateSpawnedAgentSmokeOutcome(
+  env: Env,
+  input: { agent_id: string; review_id: string; smoke_passed: boolean | null },
+): Promise<{ ok: true } | { ok: false; reason: "agent_not_found" | "outcome_not_found" }> {
+  const agentRow = await env.DB.prepare(
+    `SELECT id FROM spawned_agents WHERE agent_id = ? AND removed_at IS NULL`,
+  )
+    .bind(input.agent_id)
+    .first<{ id: string }>();
+  if (!agentRow) return { ok: false, reason: "agent_not_found" };
+
+  const smokeCol =
+    input.smoke_passed === null ? null : input.smoke_passed ? 1 : 0;
+  const result = await env.DB.prepare(
+    `UPDATE spawned_agent_outcomes
+        SET smoke_passed = ?
+      WHERE spawned_agent_pk = ? AND review_id = ?`,
+  )
+    .bind(smokeCol, agentRow.id, input.review_id)
+    .run();
+  // D1 reports affected row count under meta.changes. When 0, the
+  // matching outcome row doesn't exist yet — autofix shouldn't be
+  // updating something review.ts never inserted.
+  if ((result.meta?.changes ?? 0) === 0) {
+    return { ok: false, reason: "outcome_not_found" };
+  }
+  return { ok: true };
+}
+
 // --- Auto-graduation ---------------------------------------------------
 
 export interface AutoGradResult {
