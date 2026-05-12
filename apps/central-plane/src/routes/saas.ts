@@ -7,20 +7,27 @@
  * Both require Authorization: Bearer <token> issued via the Device Flow
  * (see /auth/device + /auth/token in saas-auth.ts).
  *
- * v0.16 ships these as accepted-then-deferred. The Worker:
- *   1. Validates the bearer token → resolves saas_users row.
- *   2. Validates the GH App is installed on the target repo + has access.
- *   3. Records a usage_meters precursor row (for Stripe later).
- *   4. Returns 202 with a job_id.
- *   5. **TODO** (Stage 2 follow-up): spawn Cloudflare Container with the
- *      payload; container runs runAutofix from cli/dist/autofix-pipeline.js;
- *      result is delivered back via /webhook/internal/job-done →
- *      Telegram + PR comment.
+ * End-to-end flow:
+ *   1. Validate the bearer token → resolve saas_users row.
+ *   2. Validate the GH App is installed on the target repo + has access.
+ *   3. Consume a review credit (byo → trial → paid_credits) — 402 if
+ *      none and the user must top up.
+ *   4. Record a usage_meters row + create a jobs row (jobId).
+ *   5. spawnSandbox(): mint an installation token, address the
+ *      ConclaveSandbox Container DO by `pr-<owner>-<repo>-<pr>`, and
+ *      POST the run payload. One DO instance per PR keeps concurrent
+ *      calls ordered + isolated.
+ *   6. Return 202 with { job_id, status: "accepted" }.
+ *   7. The container clones the repo, runs runAutofix from cli/dist,
+ *      and POSTs the result to /internal/job-done (auth'd with
+ *      INTERNAL_CALLBACK_TOKEN). The callback completes the job row
+ *      and posts the PR comment + Telegram card.
  *
- * Until Stage 2 lands, the 202 returns immediately but no actual work
- * fires. This unblocks Stage 7 (deploy workflow) + Stage 8 (CLI client)
- * + Stage 9 (Bae registers Worker secrets) so when Container goes live
- * everything else is already validated.
+ * Graceful degradation: when env.SANDBOX is unbound or
+ * INTERNAL_CALLBACK_TOKEN is missing, spawnSandbox returns
+ * { accepted: false, reason } and the 202 carries status:
+ * "queued_pending_infra" so the user gets a clear hint without
+ * dropping the job row.
  */
 import { Hono } from "hono";
 import type { Env } from "../env.js";
