@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="240" height="240" viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Conclave AI — Habemus consensum">
+  <!-- Marketplace logo v2 — wax seal.
+       Carries the judicial-conclave brand voice more aggressively.
+       Use this if the Marketplace card has enough room (>=128px). -->
+  <defs>
+    <radialGradient id="wax" cx="38%" cy="32%" r="78%">
+      <stop offset="0%"   stop-color="#8A2129"/>
+      <stop offset="55%"  stop-color="#5C111C"/>
+      <stop offset="100%" stop-color="#3A0A11"/>
+    </radialGradient>
+    <path id="bottom-arc" d="M 56 160 A 75 75 0 0 0 184 160" fill="none"/>
+  </defs>
+
+  <!-- Optional rounded parchment backdrop — Marketplace background is
+       usually white, but the rounded corners give the logo a card-style
+       container so it doesn't look like it's bleeding off the card. -->
+  <rect width="240" height="240" fill="#F4ECDC" rx="28"/>
+
+  <!-- Wax seal disc -->
+  <circle cx="120" cy="120" r="98" fill="url(#wax)"/>
+
+  <!-- Subtle inner ring -->
+  <circle cx="120" cy="120" r="84" fill="none" stroke="#F4ECDC" stroke-width="0.7" opacity="0.35"/>
+
+  <!-- 3-dot triangle DNA, gold this time (Marketplace mode = "official seal" feel) -->
+  <circle cx="120" cy="62"  r="4.5" fill="#D9A24E"/>
+  <circle cx="153" cy="80"  r="4.5" fill="#D9A24E" opacity="0.92"/>
+  <circle cx="87"  cy="80"  r="4.5" fill="#D9A24E" opacity="0.92"/>
+
+  <!-- Center monogram "C·AI" — Bodoni-style italic, parchment ink on the seal -->
+  <text x="120" y="142"
+        font-family="'Bodoni Moda', 'Bodoni 72', Georgia, serif"
+        font-size="58" font-style="italic" font-weight="500"
+        fill="#F4ECDC" text-anchor="middle" letter-spacing="2">C·AI</text>
+
+  <!-- Latin sign-off across the bottom arc -->
+  <text font-family="'Bodoni Moda', Georgia, serif"
+        font-size="11" fill="#F4ECDC" letter-spacing="3" font-style="italic" opacity="0.85">
+    <textPath href="#bottom-arc" startOffset="50%" text-anchor="middle">habemus consensum</textPath>
+  </text>
+</svg>

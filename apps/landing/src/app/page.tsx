@@ -603,6 +603,12 @@ function Footer() {
           <a href="mailto:hi@conclave-ai.dev" className="block link-anim hover:text-ink">
             hi@conclave-ai.dev
           </a>
+          <a href="/privacy" className="block link-anim hover:text-ink">
+            Privacy policy
+          </a>
+          <a href="/terms" className="block link-anim hover:text-ink">
+            Terms of service
+          </a>
         </nav>
       </div>
       <div className="border-t border-parchment-line">

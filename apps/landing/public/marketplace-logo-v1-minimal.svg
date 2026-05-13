@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="240" height="240" viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Conclave AI">
+  <!-- Marketplace logo v1 — minimal.
+       Brand: oxblood (#5C111C) on parchment cream (#F4ECDC).
+       3-dot triangle DNA from apps/landing/public/favicon.svg.
+       Optimized for small render (Marketplace cards down to 64×64). -->
+  <rect width="240" height="240" fill="#F4ECDC" rx="28"/>
+
+  <!-- Outer council ring -->
+  <circle cx="120" cy="100" r="62" fill="none" stroke="#5C111C" stroke-width="6"/>
+
+  <!-- 3 dots in equilateral triangle (council members) -->
+  <circle cx="120" cy="72"  r="10" fill="#5C111C"/>
+  <circle cx="144" cy="114" r="10" fill="#5C111C"/>
+  <circle cx="96"  cy="114" r="10" fill="#5C111C"/>
+
+  <!-- Wordmark -->
+  <text x="120" y="198"
+        font-family="'Bodoni Moda', Georgia, 'Times New Roman', serif"
+        font-size="26" font-weight="600"
+        fill="#5C111C" text-anchor="middle" letter-spacing="3">CONCLAVE</text>
+  <text x="120" y="220"
+        font-family="'Bodoni Moda', Georgia, 'Times New Roman', serif"
+        font-size="13" font-style="italic"
+        fill="#5C111C" text-anchor="middle" letter-spacing="5">·  AI  ·</text>
+</svg>
