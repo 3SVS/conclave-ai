@@ -25,6 +25,8 @@ import { Hono } from "hono";
 import type { Env } from "../env.js";
 import {
   approveDeviceCode,
+  cancelMarketplaceSubscription,
+  clearPendingMarketplaceChange,
   consumeReviewCredit,
   createDeviceCode,
   createJob,
@@ -34,12 +36,14 @@ import {
   findUserByToken,
   issueToken,
   linkInstallationUser,
+  notePendingMarketplaceChange,
   recordMeter,
   removeInstallation,
   revokeToken,
   suspendInstallation,
   unsuspendInstallation,
   upsertInstallation,
+  upsertMarketplaceSubscription,
   upsertUser,
 } from "../db/saas.js";
 import {
@@ -133,6 +137,87 @@ export function createSaasAuthRoutes(): Hono<{ Bindings: Env }> {
       } else if (action === "unsuspend") {
         await unsuspendInstallation(env, installationId);
       }
+      return c.json({ ok: true, event, action, delivery });
+    }
+
+    // Marketplace lifecycle events. Same signature scheme as App events
+    // (X-Hub-Signature-256 against GH_APP_WEBHOOK_SECRET), so the
+    // signature check above already covered us. We only persist state
+    // into gh_marketplace_subscriptions; tier reconciliation happens in
+    // /me + /saas/* gates that read this table.
+    if (event === "marketplace_purchase") {
+      const mp = (p["marketplace_purchase"] ?? {}) as Record<string, unknown>;
+      const account = (mp["account"] ?? {}) as Record<string, unknown>;
+      const plan = (mp["plan"] ?? {}) as Record<string, unknown>;
+      const accountId = Number(account["id"]);
+      const accountLogin = String(account["login"] ?? "");
+      const rawAccountType = String(account["type"] ?? "User");
+      const accountType: "User" | "Organization" =
+        rawAccountType === "Organization" ? "Organization" : "User";
+      const planId = Number(plan["id"]);
+      const planName = String(plan["name"] ?? "");
+      const planPriceCents = Number(plan["monthly_price_in_cents"] ?? 0);
+      const unitCount = Number(mp["unit_count"] ?? 1);
+      const billingCycle = mp["billing_cycle"]
+        ? String(mp["billing_cycle"])
+        : null;
+      const onFreeTrial = mp["on_free_trial"] === true;
+      const freeTrialEndsOn = mp["free_trial_ends_on"]
+        ? String(mp["free_trial_ends_on"])
+        : null;
+      const nextBillingDate = mp["next_billing_date"]
+        ? String(mp["next_billing_date"])
+        : null;
+      const effectiveDate = String(
+        p["effective_date"] ?? new Date().toISOString(),
+      );
+
+      if (!accountId || !planId) {
+        return c.json({
+          ok: true,
+          event,
+          action,
+          delivery,
+          skipped: "missing_fields",
+        });
+      }
+
+      if (action === "purchased" || action === "changed") {
+        const r = await upsertMarketplaceSubscription(env, {
+          githubAccountId: accountId,
+          githubAccountLogin: accountLogin,
+          githubAccountType: accountType,
+          planId,
+          planName,
+          planMonthlyPriceCents: planPriceCents,
+          unitCount,
+          billingCycle,
+          onFreeTrial,
+          freeTrialEndsOn,
+          nextBillingDate,
+          status: "active",
+          effectiveDate,
+        });
+        console.log(
+          `[marketplace] ${action} → ${accountLogin} plan ${planName} (${planId}) ${r.isNew ? "new" : "updated"}`,
+        );
+      } else if (action === "cancelled") {
+        await cancelMarketplaceSubscription(env, accountId, effectiveDate);
+        console.log(
+          `[marketplace] cancelled → ${accountLogin} (plan was ${planName})`,
+        );
+      } else if (action === "pending_change") {
+        await notePendingMarketplaceChange(env, accountId, planId, effectiveDate);
+        console.log(
+          `[marketplace] pending_change → ${accountLogin} → plan ${planName}`,
+        );
+      } else if (action === "pending_change_cancelled") {
+        await clearPendingMarketplaceChange(env, accountId);
+        console.log(`[marketplace] pending_change_cancelled → ${accountLogin}`);
+      } else {
+        console.log(`[marketplace] unhandled action: ${action}`);
+      }
+
       return c.json({ ok: true, event, action, delivery });
     }
 

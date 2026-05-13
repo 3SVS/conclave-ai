@@ -869,3 +869,173 @@ export async function claimPendingBillingForUser(
   }
   return { claimed: rows.length, creditsGranted: totalCredits };
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// GitHub Marketplace subscription tracking (migration 0025)
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface MarketplaceSubscriptionInput {
+  githubAccountId: number;
+  githubAccountLogin: string;
+  githubAccountType: "User" | "Organization";
+  planId: number;
+  planName: string;
+  planMonthlyPriceCents?: number;
+  unitCount: number;
+  billingCycle?: string | null;
+  onFreeTrial: boolean;
+  freeTrialEndsOn?: string | null;
+  nextBillingDate?: string | null;
+  status: "active" | "pending_cancellation" | "cancelled";
+  pendingChangePlanId?: number | null;
+  effectiveDate: string;
+}
+
+/**
+ * Upsert the latest known marketplace subscription state for a GH
+ * account. Matches `saas_users` by github_user_id when the GH account
+ * is a User; Org subscriptions are left unlinked until an admin
+ * manually associates them.
+ *
+ * Returns whether the row was newly inserted vs updated, so the
+ * webhook handler can decide whether to fire a "first install" alert.
+ */
+export async function upsertMarketplaceSubscription(
+  env: Env,
+  input: MarketplaceSubscriptionInput,
+): Promise<{ id: string; isNew: boolean }> {
+  const now = new Date().toISOString();
+  const existing = await env.DB.prepare(
+    `SELECT id FROM gh_marketplace_subscriptions WHERE github_account_id = ? LIMIT 1`,
+  )
+    .bind(input.githubAccountId)
+    .first<{ id: string }>();
+
+  // Match saas_users when subscription is owned by a User.
+  let saasUserId: string | null = null;
+  if (input.githubAccountType === "User") {
+    const user = await env.DB.prepare(
+      `SELECT id FROM saas_users WHERE github_user_id = ? LIMIT 1`,
+    )
+      .bind(input.githubAccountId)
+      .first<{ id: string }>();
+    saasUserId = user?.id ?? null;
+  }
+
+  const id = existing?.id ?? `mp_${Date.now().toString(36)}_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
+  await env.DB.prepare(
+    `INSERT INTO gh_marketplace_subscriptions (
+      id, github_account_id, github_account_login, github_account_type,
+      saas_user_id, plan_id, plan_name, plan_monthly_price_cents,
+      unit_count, billing_cycle, on_free_trial, free_trial_ends_on,
+      next_billing_date, status, pending_change_plan_id,
+      effective_date, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(github_account_id) DO UPDATE SET
+      github_account_login = excluded.github_account_login,
+      github_account_type  = excluded.github_account_type,
+      saas_user_id         = COALESCE(excluded.saas_user_id, gh_marketplace_subscriptions.saas_user_id),
+      plan_id              = excluded.plan_id,
+      plan_name            = excluded.plan_name,
+      plan_monthly_price_cents = excluded.plan_monthly_price_cents,
+      unit_count           = excluded.unit_count,
+      billing_cycle        = excluded.billing_cycle,
+      on_free_trial        = excluded.on_free_trial,
+      free_trial_ends_on   = excluded.free_trial_ends_on,
+      next_billing_date    = excluded.next_billing_date,
+      status               = excluded.status,
+      pending_change_plan_id = excluded.pending_change_plan_id,
+      effective_date       = excluded.effective_date,
+      updated_at           = excluded.updated_at`,
+  )
+    .bind(
+      id,
+      input.githubAccountId,
+      input.githubAccountLogin,
+      input.githubAccountType,
+      saasUserId,
+      input.planId,
+      input.planName,
+      input.planMonthlyPriceCents ?? 0,
+      input.unitCount,
+      input.billingCycle ?? null,
+      input.onFreeTrial ? 1 : 0,
+      input.freeTrialEndsOn ?? null,
+      input.nextBillingDate ?? null,
+      input.status,
+      input.pendingChangePlanId ?? null,
+      input.effectiveDate,
+      now,
+      now,
+    )
+    .run();
+  return { id, isNew: !existing };
+}
+
+/**
+ * Mark a subscription cancelled (`cancelled` action). Idempotent.
+ */
+export async function cancelMarketplaceSubscription(
+  env: Env,
+  githubAccountId: number,
+  effectiveDate: string,
+): Promise<{ ok: boolean }> {
+  const now = new Date().toISOString();
+  const r = await env.DB.prepare(
+    `UPDATE gh_marketplace_subscriptions
+        SET status = 'cancelled',
+            effective_date = ?,
+            updated_at = ?
+      WHERE github_account_id = ?`,
+  )
+    .bind(effectiveDate, now, githubAccountId)
+    .run();
+  return { ok: (r.meta?.changes ?? 0) > 0 };
+}
+
+/**
+ * Record a pending plan change (`pending_change` action). The actual
+ * status flip lands on the effective_date — a cron or a follow-up
+ * `changed` event reconciles. Idempotent.
+ */
+export async function notePendingMarketplaceChange(
+  env: Env,
+  githubAccountId: number,
+  pendingPlanId: number,
+  effectiveDate: string,
+): Promise<{ ok: boolean }> {
+  const now = new Date().toISOString();
+  const r = await env.DB.prepare(
+    `UPDATE gh_marketplace_subscriptions
+        SET pending_change_plan_id = ?,
+            status = 'pending_cancellation',
+            effective_date = ?,
+            updated_at = ?
+      WHERE github_account_id = ?`,
+  )
+    .bind(pendingPlanId, effectiveDate, now, githubAccountId)
+    .run();
+  return { ok: (r.meta?.changes ?? 0) > 0 };
+}
+
+/**
+ * Clear a pending change that the user reverted before its effective
+ * date (`pending_change_cancelled` action). Idempotent.
+ */
+export async function clearPendingMarketplaceChange(
+  env: Env,
+  githubAccountId: number,
+): Promise<{ ok: boolean }> {
+  const now = new Date().toISOString();
+  const r = await env.DB.prepare(
+    `UPDATE gh_marketplace_subscriptions
+        SET pending_change_plan_id = NULL,
+            status = 'active',
+            updated_at = ?
+      WHERE github_account_id = ?`,
+  )
+    .bind(now, githubAccountId)
+    .run();
+  return { ok: (r.meta?.changes ?? 0) > 0 };
+}
+
