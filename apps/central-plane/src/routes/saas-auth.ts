@@ -440,7 +440,17 @@ export function createSaasAuthRoutes(): Hono<{ Bindings: Env }> {
   // `/` at the end, and Hono's path matcher is strict so the request
   // hit the default 404 envelope. Cheap to alias both forms — the
   // handler body is identical.
+  // 2026-05-13: same pattern, but with a trailing space (`%20`). Hit
+  // during the My-first-product demo install when the App's callback
+  // URL field had an invisible trailing space. The browser hits
+  // `/auth/github/callback%20` which Hono decodes to a literal space
+  // and 404s.
   app.get("/auth/github/callback/", async (c) => {
+    const params = c.req.query();
+    const qs = new URLSearchParams(params).toString();
+    return c.redirect("/auth/github/callback" + (qs ? "?" + qs : ""), 301);
+  });
+  app.get("/auth/github/callback ", async (c) => {
     const params = c.req.query();
     const qs = new URLSearchParams(params).toString();
     return c.redirect("/auth/github/callback" + (qs ? "?" + qs : ""), 301);
