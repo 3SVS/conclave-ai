@@ -1,0 +1,61 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI code review that checks your spec — Conclave vs CodeRabbit vs Greptile</title>
+<meta name="description" content="Most AI code reviewers check the diff. Conclave also checks your PRD — catching scope drift and spec mismatches a single-LLM review waves through. Compared with CodeRabbit and Greptile.">
+<link rel="canonical" href="https://conclave-ai.dev/compare">
+<style>
+:root{--ink:#0a3a5e;--bg:#0b1622;--bg2:#0f2233;--tx:#e7eef5;--mut:#9bb0c2;--ac:#3ea0d8}
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,system-ui,"Segoe UI",sans-serif;background:linear-gradient(180deg,#0d2336,#0b1622);color:var(--tx);line-height:1.5}
+.wrap{max-width:880px;margin:0 auto;padding:40px 20px 80px}
+.ey{color:var(--ac);font-size:13px;letter-spacing:2px;text-transform:uppercase;font-weight:700}
+h1{font-size:34px;line-height:1.15;margin:10px 0 14px}
+h2{font-size:22px;margin:38px 0 12px}
+.sub{color:var(--mut);font-size:17px;max-width:680px}
+.cta{display:inline-block;margin:22px 10px 0 0;padding:12px 20px;border-radius:10px;background:var(--ac);color:#06212f;font-weight:700;text-decoration:none}
+.cta.alt{background:transparent;border:1px solid #2c4a63;color:var(--tx)}
+table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px}
+th,td{padding:10px 12px;border-bottom:1px solid #1d3346;text-align:left;vertical-align:top}
+th{color:var(--mut);font-weight:600}
+td.y{color:#54d6a5;font-weight:700}td.n{color:#7e93a6}
+.col-us{background:#11324a}
+.card{background:var(--bg2);border:1px solid #1d3346;border-radius:12px;padding:16px 18px;margin:10px 0}
+.mut{color:var(--mut)}small{color:var(--mut)}
+.foot{margin-top:40px;color:var(--mut);font-size:13px;border-top:1px solid #1d3346;padding-top:18px}
+a{color:var(--ac)}
+</style></head><body><div class="wrap">
+
+<div class="eye ey">PRD-aware PR review</div>
+<h1>Your AI shipped code that runs.<br>Did it ship the code you asked for?</h1>
+<p class="sub">Most AI code reviewers read your <strong>diff</strong>. Conclave also reads your <strong>PRD</strong> — so it catches the scope drift, missing edge cases, and silent security gaps that a single-LLM review (and a tired human) wave through. Three frontier models review every PR; you get one verdict.</p>
+<a class="cta" href="https://github.com/apps/conclave-ai-code-council">Install the GitHub App</a>
+<a class="cta alt" href="https://conclave-ai.dev">See a real catch →</a>
+
+<h2>Why this matters now</h2>
+<p class="mut">AI coding agents (Cursor, Claude Code, Copilot) generate more PRs than any team can review carefully. The failure mode isn't "the code is broken" — it usually runs. It's <strong>scope drift</strong>: the AI built something adjacent to what you specified, dropped an edge case, or quietly widened access. Diff-only review doesn't see that. Spec-aware review does.</p>
+
+<h2>Conclave vs the field</h2>
+<table>
+<tr><th>Capability</th><th class="col-us">Conclave</th><th>CodeRabbit</th><th>Greptile</th><th>Single-LLM</th></tr>
+<tr><td>Reviews the diff</td><td class="col-us y">Yes</td><td class="y">Yes</td><td class="y">Yes</td><td class="y">Yes</td></tr>
+<tr><td><strong>Reviews against your PRD / spec</strong> (scope drift)</td><td class="col-us y">Yes</td><td class="n">—</td><td class="n">—</td><td class="n">—</td></tr>
+<tr><td>Multiple independent models (diversity)</td><td class="col-us y">3 (Claude · GPT-5 · Gemini)</td><td class="n">Single</td><td class="n">Single</td><td class="n">Single</td></tr>
+<tr><td>Whole-codebase context</td><td class="col-us y">Yes</td><td class="n">Diff-focused</td><td class="y">Yes (indexes repo)</td><td class="n">Limited</td></tr>
+<tr><td>Auto-fix worker + learns from merge/reject</td><td class="col-us y">Yes</td><td class="y">Partial</td><td class="n">—</td><td class="n">—</td></tr>
+<tr><td>Self-hostable</td><td class="col-us y">Yes (FSL)</td><td class="n">SaaS</td><td class="n">SaaS</td><td class="n">—</td></tr>
+</table>
+<small>CodeRabbit and Greptile are strong, mature tools — CodeRabbit optimizes for low-noise breadth, Greptile for codebase-aware bug depth. Conclave's distinct axis is <strong>spec conformance + model diversity</strong>, not "more lint." Pick the one that matches your bottleneck.</small>
+
+<h2>What the council catches that one model skips</h2>
+<div class="card"><strong>Depth, measured.</strong> In an internal dogfooding run (15 synthetic-bug PRs across 5 popular Next.js templates), the 3-model council surfaced <strong>10.93 blockers/PR vs 3.80</strong> for a single agent — same catch rate, ~3× the depth. The extra blockers were mostly missing tests, edge cases, and security gaps one model rated "minor enough to skip."
+<br><small>Indicative internal numbers, not a peer-reviewed benchmark. Protocol &amp; rubric: <a href="https://github.com/3SVS/conclave-ai/tree/main/benchmarks">/benchmarks</a>.</small></div>
+
+<h2>FAQ</h2>
+<div class="card"><strong>Is this a Cursor/Copilot replacement?</strong><br><span class="mut">No. Those are IDE assistants that help you write. Conclave runs at the PR layer — one review per push, as a merge gate. They're complementary: write with your agent, gate with Conclave.</span></div>
+<div class="card"><strong>Do I have to write a PRD?</strong><br><span class="mut">No — Conclave reviews diffs out of the box. Attach a PRD (or a short spec) and you additionally get scope-drift / spec-mismatch flags, which is where it pulls away from diff-only tools.</span></div>
+<div class="card"><strong>Pricing?</strong><br><span class="mut">Free on public repos. See <a href="https://conclave-ai.dev#pricing">pricing</a>.</span></div>
+
+<a class="cta" href="https://github.com/apps/conclave-ai-code-council">Install the GitHub App</a>
+<a class="cta alt" href="https://conclave-ai.dev">Try the demo</a>
+
+<div class="foot">Conclave AI — AI drafted. Council refined. · <a href="https://conclave-ai.dev">conclave-ai.dev</a> · <a href="https://github.com/3SVS/conclave-ai">GitHub</a></div>
+</div></body></html>
