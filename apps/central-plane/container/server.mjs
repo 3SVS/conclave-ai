@@ -324,7 +324,7 @@ async function runJob(payload) {
       headSha,
       durationMs: Date.now() - start,
     });
-    console.log(`[job ${jobId}] callback delivered (verdict=${verdict} status=${rawStatus})`);
+    console.log(`[job ${jobId}] callback delivered (verdict=${verdict} status=${verdict === undefined ? "errored" : "done"})`);
   } catch (err) {
     console.error(`[job ${jobId}] failed:`, err);
     await postCallback(callbackUrl, callbackToken, {

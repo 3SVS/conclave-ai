@@ -591,7 +591,7 @@ export async function completeJob(
         SET status = ?, verdict = ?, blockers = ?, cycles = ?, duration_ms = ?,
             smoke_outcome = ?, deploy_url = ?, error_message = ?,
             head_sha = COALESCE(?, head_sha), completed_at = ?
-      WHERE id = ?`,
+      WHERE id = ? AND status NOT IN ('done', 'failed', 'timeout')`,
   )
     .bind(
       input.status,
