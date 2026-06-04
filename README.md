@@ -2,9 +2,9 @@
 
 # Conclave AI
 
-**A council of AI agents reviews your PRs against your PRD.**
+**Drop a PRD. Every PR auto-reviews against your spec.**
 <br/>
-<sub>Three frontier models. One verdict. Catches what single-LLM review misses.</sub>
+<sub>Scope drift, missing requirements, unauthorized changes — caught automatically. Three models, one verdict, autofix included.</sub>
 
 [![npm](https://img.shields.io/npm/v/@conclave-ai/cli?label=%40conclave-ai%2Fcli&color=%230a3a5e)](https://www.npmjs.com/package/@conclave-ai/cli)
 [![license](https://img.shields.io/badge/license-FSL--1.1--Apache--2.0-%230a3a5e)](LICENSE)
@@ -19,9 +19,30 @@
 
 ## What is this?
 
-Conclave AI is a **multi-agent code-review SaaS** for indie devs and AI-built apps. It runs three independent reviewers (Claude, GPT-5, Gemini) on every pull request, surfaces real blockers instead of style nits, and — when you attach a PRD — flags **scope deviations and spec mismatches** that no single-LLM reviewer catches.
+Conclave AI is a **spec-first PR review gate** for AI-built apps. Drop a `.conclave/prd.md` and every pull request is automatically reviewed against your spec — catching scope drift, missing requirements, and unauthorized changes that no diff-only reviewer can see. Three frontier models (Claude, GPT-5, Gemini) deliberate in parallel, then one verdict lands with autofix.
 
 > **Not** a Claude Code / Cursor / Copilot replacement. Those are IDE assistants. Conclave runs at the **PR layer** — one review per push, automatic autofix, native GitHub App.
+
+## The PRD layer: why it matters
+
+The hardest bugs to catch aren't wrong code — they're correct code that does the wrong thing. A diff looks clean. Tests pass. But the PR added telemetry you didn't authorize, dropped an acceptance criterion, or routed to the wrong endpoint. Diff-only review can't see this. Spec-aware review can.
+
+Drop a `.conclave/prd.md` once. From then on, every PR is automatically checked against it and any divergence surfaces as a first-class blocker:
+
+| Category | What it catches |
+|---|---|
+| `spec-missing` | PRD requires it; the diff doesn't implement it |
+| `spec-wrong` | Implemented, but wrong shape/route/behavior vs PRD |
+| `spec-scope` | PR adds behavior the PRD doesn't authorize |
+| `spec-ambiguous` | PRD is unclear — states interpretation, asks for clarification |
+
+When we ran the same 3 PRs with and without a PRD attached:
+
+| PR | No PRD | With PRD |
+|---|---|---|
+| build-bug | 3 blockers, **rework** | **9 blockers (5 spec-mismatch)**, **reject** |
+| a11y-bug | 5 blockers, **rework** | **11 blockers (4 spec-mismatch)**, **reject** |
+| regression-bug | 4 blockers, **rework** | **7 blockers (6 spec-mismatch)**, **reject** |
 
 ## Why three agents instead of one
 

@@ -1,89 +1,89 @@
-# X (Twitter) — 빌드인퍼블릭 스레드 & 반복 포맷
+# X (Twitter) — build-in-public thread & recurring format
 
-> 톤: 파운더 1인칭, 과장 없음, 구체 수치/예시. 해시태그 남발 X. 매 트윗 1메시지.
-> 게시: 원하시면 Claude in Chrome으로 제가 대신 올림(로그인+승인 필요). 아니면 복사해 직접.
+> POSTS ARE IN ENGLISH (global dev audience). 메모만 한국어. 톤: 파운더 1인칭, 과장 없음, 구체 수치/예시, 해시태그 남발 X.
+> 게시: 원하면 Claude in Chrome으로 내가 대신(로그인+승인), 아니면 복사해 직접.
 
 ---
 
-## A. 런치 스레드 (핀 고정용, 7트윗)
+## A. Launch thread (pin it) — 7 tweets
 
 **1/**
-AI가 코드를 써주는 시대에, 리뷰어는 아직 모델 하나(혹은 지친 사람)가 diff를 훑는 수준입니다.
+AI writes most of my code now. My reviewer was still one model skimming a diff.
 
-그래서 만들었어요: PR마다 **3개 프런티어 모델이 council로 리뷰**하는 Conclave.
-같은 catch rate에 깊이는 ~3배. 🧵
+So I built Conclave: every PR gets reviewed by a **council of 3 frontier models** (Claude · GPT-5 · Gemini).
+Same catch rate as one. ~3× the depth. 🧵
 
 **2/**
-핵심은 "더 센 모델"이 아니라 **다양성**입니다.
+The trick isn't a "smarter" model. It's **diversity**.
 
-모델 하나는 사각지대가 하나예요. 다른 모델(다른 학습·다른 priors)은 그걸 공유 안 해요.
-council = 구조화된 의견 충돌. 놓친 블로커는 그 충돌 지점에 숨어 있습니다.
+One model has one blind spot. A different model (different training, different priors) usually doesn't share it.
+A council is just structured disagreement — and the missed blockers hide in the disagreement.
 
 **3/**
-숫자(자체 dogfood, n=15 PR, 인기 Next.js 템플릿 5종 — 지표성):
+Numbers (internal dogfood, n=15 PRs, 5 popular Next.js templates — indicative, not peer-reviewed):
 
-· catch rate: 3-agent 100% / 단일 100%
-· **PR당 블로커: 10.93 vs 3.80**
+· catch rate: 3-agent 100% / single 100%
+· **blockers surfaced/PR: 10.93 vs 3.80**
 
-둘 다 심은 버그는 잡아요. council은 그 주변 7개를 더 잡습니다.
+Both find the planted bug. The council finds the 7 things around it.
 
 **4/**
-그 "+7"이 뭐였냐면 — 단일 모델이 "사소하니 패스"한 것들:
-· 방금 바꾼 경로의 빠진 테스트
-· 엣지케이스(빈값/0/음수, 동시 클릭, 미인증 요청)
-· 조용한 보안 갭(문자열 합친 쿼리, UI에만 있고 서버엔 없는 검사)
+That "+7" was the stuff one model rated "minor enough to skip":
+· missing tests for the path just changed
+· edge cases (empty/zero/negative, the 2nd concurrent click, the unauth'd request)
+· silent security gaps (a string-concat query, a check that lived in the UI but not the server)
 
 **5/**
-근데 제일 놀란 건 버그가 아니었어요.
+But the biggest surprise wasn't bugs.
 
-PRD를 붙이자 가장 큰 카테고리는 **스코프 이탈**이었습니다.
-코드는 돌아가요. 테스트도 통과해요. diff에 틀린 게 없어요.
-그냥 **시킨 게 아닐** 뿐.
+Attach a PRD and the #1 category becomes **scope drift**.
+The code runs. Tests pass. Nothing in the diff is wrong.
+It's just… not what you asked for.
 
 **6/**
-이게 AI 코딩 시대의 진짜 실패 모드예요.
-에이전트는 "그럴듯한" 코드를 빠르게 잘 만듭니다.
-"그럴듯함" ≠ "스펙대로". 스펙을 읽는 리뷰어만 그 둘을 구분해요.
+That's the real failure mode of the AI-coding era.
+Agents are great at *plausible* code, fast.
+"Plausible" ≠ "what you specified" — and only a reviewer that reads the spec can tell them apart.
 
-diff만 보는 리뷰는 여길 못 봅니다.
+Diff-only review can't see this.
 
 **7/**
-Conclave는 PR 레이어 GitHub App입니다. 3모델 리뷰 → 디베이트 → autofix → merge/reject로 학습.
-공개 레포 무료, 셀프호스트(FSL).
+Conclave is a GitHub App at the PR layer. 3-model review → debate → autofix → learns from merge/reject.
+Free on public repos, self-hostable (FSL).
 
-Cursor/Copilot 대체가 아니라, AI가 짠 PR의 **머지 게이트**예요.
+Not a Cursor/Copilot replacement — it's the **merge gate** for AI-written PRs.
 
-설치 👉 [github.com/apps/conclave-ai-code-council]
-데모 👉 conclave-ai.dev
-
----
-
-## B. 반복 포맷 — "오늘의 스코프 이탈" (주 2~3회, 스케줄러로 드래프트 큐잉 가능)
-
-템플릿:
-> 오늘 AI PR이 머지될 뻔한 것:
-> 📄 스펙: "{요청}"
-> 🤖 PR: {실제로 한 것 — 돌아가지만 다름}
-> 🧠 council이 잡음: {어느 모델이 왜}
-> diff만 봤으면 통과였음.
-
-예시:
-> 오늘 AI PR이 머지될 뻔한 것:
-> 📄 스펙: "비밀번호 재설정은 본인만"
-> 🤖 PR: 토큰 유효하면 누구나 재설정(소유자 체크 누락)
-> 🧠 Gemini가 잡음, Claude·GPT는 "정상"이라 통과시킴
-> 테스트 초록불, diff 멀쩡. 스펙 대비로만 보임.
-
-> 오늘 AI PR이 머지될 뻔한 것:
-> 📄 스펙: "주문 목록 최신순 20개"
-> 🤖 PR: 전체 로드 후 클라에서 정렬(테넌트 필터 없음 → 남의 주문도 보임)
-> 🧠 council 2/3이 격리 누락 플래그
-> 작은 데이터셋에선 "잘 됨"으로 보임.
+Install 👉 github.com/apps/conclave-ai-code-council
+Demo 👉 conclave-ai.dev
 
 ---
 
-## C. 인용/리플라이 앵글 (자율코딩 트렌드에 올라타기)
-LazyCodex·Cursor·Claude Code 류 "에이전트가 알아서 다 짠다" 글에:
-> 자율 코딩이 좋아질수록 사람 리뷰는 줄고 AI PR은 폭증해요. 그럼 "스펙대로 짰나"를 누가 봅니까?
-> 그게 정확히 우리가 PR 게이트를 만든 이유예요. 생성은 에이전트, 게이트는 council. (링크)
-— 비방 금지, 보완 포지션으로.
+## B. Recurring format — "Today's scope drift" (2–3×/week; 스케줄러로 드래프트 큐잉 가능)
+
+Template:
+> An AI PR that almost merged today:
+> 📄 Spec: "{what was asked}"
+> 🤖 PR: {what it actually did — runs, but different}
+> 🧠 Council caught it: {which model, why}
+> Diff-only review would've passed it.
+
+Example:
+> An AI PR that almost merged today:
+> 📄 Spec: "password reset is owner-only"
+> 🤖 PR: anyone with a valid token can reset (owner check missing)
+> 🧠 Gemini flagged it; Claude & GPT passed it as "fine"
+> Tests green, diff clean. Only visible against the spec.
+
+> An AI PR that almost merged today:
+> 📄 Spec: "list latest 20 orders"
+> 🤖 PR: loads all, sorts client-side, no tenant filter → you see other tenants' orders
+> 🧠 2/3 of the council flagged the isolation gap
+> Looks "fine" on a small dataset.
+
+---
+
+## C. Reply/quote angle (ride the autonomous-coding trend)
+On "the agent just builds it all" posts (LazyCodex/Cursor/Claude Code):
+> As autonomous coding gets better, human review shrinks and AI PRs explode. So who checks it built what you actually specified?
+> That's exactly why we built a PR gate. Generation = your agent. Gate = the council. (link)
+— No trashing competitors; complement-positioning only.

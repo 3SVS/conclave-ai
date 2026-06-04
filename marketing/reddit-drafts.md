@@ -1,43 +1,49 @@
-# Reddit 초안 (본인 게시용)
+# Reddit drafts (post yourself)
 
-> 서브마다 문화가 다릅니다. 자기홍보는 "가치/스토리 먼저, 링크는 끝에 한 번"이 원칙. 신규/저카르마 계정은 묻히거나 밴 위험 — 평소 댓글로 카르마 쌓고, 서브 룰(self-promo 허용 여부) 먼저 확인. 올린 뒤 댓글 실시간 응대 필수. 같은 글을 여러 서브에 동시 복붙(크로스포스트 스팸) 금지 — 서브별로 다르게.
-
----
-
-## r/cursor (또는 r/ChatGPTCoding) — 경험담 각도
-
-**제목:** Cursor로 빠르게 짜다 보니, "돌아가는데 시킨 게 아닌" PR이 자꾸 머지됨 — 그래서 spec 대비 리뷰를 붙였다
-
-**본문:**
-요즘 거의 다 에이전트로 짜는데, 자꾸 같은 게 새요. 코드는 돌아가요. 테스트도 통과해요. 근데 자세히 보면 스펙에서 살짝 벗어나 있어요 — 요청 안 한 필드, 빠진 요구사항, 서버 검사가 UI로 옮겨간 거.
-
-diff만 보는 리뷰(사람이든 봇이든)는 이걸 못 잡더라고요. diff에 틀린 게 없으니까요.
-
-그래서 PR마다 모델 3개(Claude/GPT-5/Gemini)가 council로 리뷰하고, PRD를 붙이면 **스코프 이탈**을 플래그하는 걸 만들었어요. 내부 테스트(n=15, 지표성)로는 단일 모델 대비 블로커를 ~3배 더 잡았는데, 추가분이 대부분 빠진 테스트·엣지케이스·보안 갭이었어요.
-
-같은 경험 있으신 분? 다들 AI PR 리뷰 어떻게 거르세요? (저는 만든 사람이라 편향 있을 수 있어요. 공개 레포 PR 주시면 돌려서 뭐 잡는지 결과 붙여드릴게요.)
-
-링크는 댓글에. (룰상 본문 링크 금지면 첫 댓글에 conclave-ai.dev)
+> POSTS ARE IN ENGLISH (r/cursor, r/SaaS etc. are English). 메모만 한국어.
+> 서브마다 문화 다름. 자기홍보는 "가치/스토리 먼저, 링크는 끝/댓글에 한 번". 신규·저카르마 계정은 묻히거나 밴 위험 — 평소 댓글로 카르마 쌓고, 서브 self-promo 룰 확인. 올린 뒤 실시간 응대 필수. 같은 글 여러 서브 복붙 금지 — 서브별로 다르게.
 
 ---
 
-## r/SaaS / r/indiehackers — 빌더 각도
+## r/cursor (or r/ChatGPTCoding) — experience angle
 
-**제목:** 코드리뷰 SaaS를 만들었는데 제품은 되는데 유통이 안 됨 — 자율코딩 시대에 "스펙 대비 리뷰" 포지션, 먹힐까요?
+**Title:** Shipping fast with Cursor, I kept merging PRs that *run* but aren't what I asked for. So I added spec-aware review.
 
-**본문:**
-멀티에이전트 PR 리뷰(3모델 council, PRD 대비 스코프 이탈 검출)를 만들었어요. 자체 dogfood론 단일 모델 대비 3배 깊이(블로커 10.93 vs 3.80/PR, n=15·지표성). 제품 완성도는 괜찮은데 — 솔직히 유통이 약합니다.
+**Body:**
+I build almost everything with agents now, and the same thing keeps slipping through: the code runs, tests pass, but it's subtly off-spec — an extra field I didn't ask for, a dropped requirement, a check that quietly moved from the server to the UI.
 
-CodeRabbit($60M 투자)·Greptile 같은 거인 + Anthropic의 Claude Code Review까지 있는 레드오션이라, "AI 코드리뷰"로는 못 이겨요. 그래서 **"AI가 스펙대로 짰는지 보는 PRD 컨포먼스 게이트"**로 좁히려 합니다.
+Diff-only review (human or bot) doesn't catch it, because nothing in the diff is *wrong* — it just isn't what I specified.
 
-질문: (1) 이 좁힌 포지션이 충분히 다른가요? (2) 인디 빌더들이 PRD를 최신으로 유지할 만큼 쓰나요, 아니면 이 각도가 공허한가요? 냉정한 의견 환영합니다.
+So I built a thing where every PR is reviewed by 3 models (Claude/GPT-5/Gemini) as a council, and if you attach a PRD it flags **scope drift**. In my internal tests (n=15, indicative) the council surfaced ~3× the blockers of a single model — mostly missing tests, edge cases, and security gaps.
 
-(만든 사람입니다. 링크는 댓글.)
+Anyone else hit this with agent-written PRs? How are you gating AI output today? (I'm the author, so I'm biased — happy to run it on a public PR you point me at and post what it finds.)
+
+Link in a comment (or first comment if the sub bars links in posts): conclave-ai.dev
 
 ---
 
-## 공통 운영 팁
-- 게시 시간: 평일 오전(타깃 지역 기준). 올리고 첫 2시간 응대 집중.
-- 첫 댓글에 링크 + "author임" 디스클로즈(투명성이 신뢰).
-- "도움이 됐으면 좋겠다/피드백 원한다" 톤. "써보세요" 영업 톤 X.
-- 본인 계정으로. 여러 계정·지인 업보트 금지.
+## r/SaaS / r/indiehackers — builder angle
+
+**Title:** Built a code-review SaaS that works but won't sell. Is "spec-conformance review" a real wedge in the AI-coding era?
+
+**Body:**
+I built multi-agent PR review — 3 models as a council, plus PRD-vs-PR scope-drift detection. Internal dogfood shows ~3× the depth of a single model (10.93 vs 3.80 blockers/PR, n=15, indicative). The product is solid; honestly, distribution is the weak point.
+
+It's a red ocean — CodeRabbit ($60M raised), Greptile, plus Anthropic's own Claude Code Review. I can't win "AI code review" head-on. So I'm narrowing to **"a gate that checks your AI built what you specified" (PRD conformance)**.
+
+Questions for this sub: (1) Is that narrowed position different enough to matter? (2) Do indie builders keep a spec current enough for spec-aware review to land, or is the angle hollow? Brutal takes welcome.
+
+(I'm the founder. Link in a comment.)
+
+---
+
+## 공통 운영 팁 (한국어 메모)
+- 게시 시간: 타깃 지역(미국) 평일 오전. 첫 2시간 응대 집중.
+- 첫 댓글에 링크 + "author임" 디스클로즈(투명성=신뢰).
+- 톤은 "피드백 원한다", 영업 톤("써보세요") 금지.
+- 본인 계정. 여러 계정·지인 업보트 금지.
+
+---
+
+## (선택) 한국 채널도 노릴 거면
+글로벌이 1순위지만, 한국 개발자도 같이 치고 싶으면 **GeekNews(news.hada.io)** · 한국 X 개발자 타임라인용 **한국어 버전**을 따로 만들어 줄 수 있음. 영어 글을 그대로 번역하지 말고 톤만 현지화. 필요하면 말해줘.

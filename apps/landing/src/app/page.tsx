@@ -127,10 +127,10 @@ function Hero() {
         </h1>
 
         <p className="mt-9 text-xl text-ink-subtle leading-[1.55]">
-          Three frontier models — Claude, GPT‑5, and Gemini — read your pull request
-          independently, then bring their findings to a sealed deliberation. Disagreement is
-          reconciled in a second tier. The verdict and dissents land on the PR with the
-          authority of all three.
+          Drop a <code className="font-mono text-base bg-parchment-line px-1.5 py-0.5 rounded">.conclave/prd.md</code> and every PR auto-reviews against your spec —
+          catching scope drift, missing requirements, and unauthorized changes that
+          diff-only review can&apos;t see. Three models deliberate, one verdict lands,
+          autofix ships the fix.
         </p>
 
         <p className="mt-5 font-italic italic text-lg text-ink-muted">
