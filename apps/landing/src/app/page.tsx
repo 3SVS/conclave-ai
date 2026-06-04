@@ -25,6 +25,7 @@
  *   VI.  FAQ
  *   Footer
  */
+import Link from "next/link";
 import { Logo } from "../components/Logo";
 import { DemoForm } from "../components/DemoForm";
 import { PrCommentMockup } from "../components/PrCommentMockup";
@@ -56,9 +57,9 @@ function TopBar() {
   return (
     <header className="sticky top-0 z-50 border-b border-parchment-line bg-parchment/85 backdrop-blur-sm">
       <div className="mx-auto max-w-page px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3">
-        <a href="/" className="flex items-center gap-2.5 group flex-shrink-0">
+        <Link href="/" className="flex items-center gap-2.5 group flex-shrink-0">
           <Logo size={22} className="group-hover:opacity-80 transition-opacity" />
-        </a>
+        </Link>
         {/* v0.14.5 — mobile cleanup. Below md (768px), the 4 anchor
             links + GitHub + Install were colliding / wrapping with
             the logo. Hide anchors on mobile (users scroll the page
@@ -414,7 +415,7 @@ function Pricing() {
           Free + First-PR pass are live today. Solo and Pro subscriptions land once we have
           paying users — DM <a href="https://threads.com/@baessi1" className="link-anim text-ink-muted hover:text-ink" target="_blank" rel="noreferrer">@baessi1</a> on
           Threads to join the waitlist. Lemon Squeezy (Merchant of Record) handles VAT across
-          KR / US / EU so we don't have to.
+          KR / US / EU so we don&apos;t have to.
         </p>
       </div>
     </section>
