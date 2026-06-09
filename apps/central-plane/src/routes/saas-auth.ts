@@ -50,6 +50,7 @@ import {
   createCouncilCheckRun,
   exchangeOAuthCode,
   getAuthedUser,
+  getInstallationToken,
   postPrComment,
   verifyWebhookSignature,
 } from "../gh-app.js";
@@ -126,6 +127,14 @@ export function createSaasAuthRoutes(): Hono<{ Bindings: Env }> {
             accountLogin,
             targetType,
           }).catch(() => undefined);
+          // Fire-and-forget: find the most recently updated open PR across
+          // the newly accessible repos and kick off a welcome review so
+          // the installer sees a result without having to open a new PR.
+          const webhookRepos = (p["repositories"] ?? []) as Array<{ id: number; full_name: string; updated_at?: string }>;
+          const publicBaseUrl = env.PUBLIC_BASE_URL ?? new URL(c.req.url).origin;
+          autoReviewOnInstall(env, installationId, user.id, webhookRepos, publicBaseUrl).catch(
+            (err) => console.error(`[webhook] autoReviewOnInstall failed: ${(err as Error).message}`),
+          );
         } else {
           console.log(`[webhook] install ${installationId} created (no account info)`);
         }
@@ -769,6 +778,112 @@ function randHexLocal(n: number): string {
   const buf = new Uint8Array(n);
   crypto.getRandomValues(buf);
   return [...buf].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Fire-and-forget: called after a new installation is linked to a user.
+ * Finds the most recently updated open PR across the newly accessible repos
+ * and kicks off a welcome review — so the installer sees a real result
+ * without having to open a new PR.
+ *
+ * Limits: checks top 5 repos by updated_at, reviews only 1 PR total.
+ * Uses trial / existing credits via the normal consumeReviewCredit path.
+ */
+async function autoReviewOnInstall(
+  env: Env,
+  installationId: number,
+  saasUserId: string,
+  webhookRepos: Array<{ id: number; full_name: string; updated_at?: string }>,
+  publicBaseUrl: string,
+): Promise<void> {
+  const { token } = await getInstallationToken(env, installationId);
+  const ghHeaders = {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": "conclave-ai-central-plane",
+  };
+
+  // Build repo list: use payload repos if provided (repo_selection: selected),
+  // otherwise fetch the top 5 by update time from the installation's repo list.
+  let repos: Array<{ full_name: string; updated_at: string }>;
+  if (webhookRepos.length > 0) {
+    repos = webhookRepos.map((r) => ({ full_name: r.full_name, updated_at: r.updated_at ?? "" }));
+  } else {
+    const r = await fetch(
+      "https://api.github.com/installation/repositories?per_page=5&sort=updated",
+      { headers: ghHeaders },
+    );
+    if (!r.ok) return;
+    const data = (await r.json()) as { repositories?: Array<{ full_name: string; updated_at: string }> };
+    repos = data.repositories ?? [];
+  }
+
+  // Sort by most recently updated, cap at 5.
+  repos.sort((a, b) => (b.updated_at ?? "").localeCompare(a.updated_at ?? ""));
+  const topRepos = repos.slice(0, 5);
+
+  // Find the single most recently updated open PR across all top repos.
+  let bestRepoSlug = "";
+  let bestPrNumber = 0;
+  let bestUpdatedAt = "";
+
+  for (const repo of topRepos) {
+    const r = await fetch(
+      `https://api.github.com/repos/${repo.full_name}/pulls?state=open&per_page=3&sort=updated&direction=desc`,
+      { headers: ghHeaders },
+    );
+    if (!r.ok) continue;
+    const prs = (await r.json()) as Array<{ number: number; updated_at: string }>;
+    const first = prs[0];
+    if (first && (first.updated_at ?? "") > bestUpdatedAt) {
+      bestUpdatedAt = first.updated_at ?? "";
+      bestRepoSlug = repo.full_name;
+      bestPrNumber = first.number;
+    }
+  }
+
+  if (!bestRepoSlug || !bestPrNumber) {
+    // No open PRs found — nothing to auto-review.
+    console.log(`[autoReviewOnInstall] install ${installationId}: no open PRs found`);
+    return;
+  }
+
+  const billed = await consumeReviewCredit(env, saasUserId);
+  if (billed === null) {
+    console.log(`[autoReviewOnInstall] install ${installationId}: credits exhausted`);
+    return;
+  }
+
+  const jobId = `job_${Math.floor(Date.now()).toString(36)}_${randHexLocal(8)}`;
+  await createJob(env, {
+    jobId,
+    userId: saasUserId,
+    repoSlug: bestRepoSlug,
+    prNumber: bestPrNumber,
+    kind: "review",
+    prdPresent: false,
+  }).catch(() => undefined);
+
+  const spawn = await spawnSandbox(env, {
+    jobId,
+    repo: bestRepoSlug,
+    prNumber: bestPrNumber,
+    autofix: false,
+    publicBaseUrl,
+  });
+
+  const welcomeBody = spawn.accepted
+    ? `🎉 **Welcome to Conclave AI!** Your first review is running now.\n\nThe council (Claude + GPT-5 + Gemini) will post the verdict here in ~2 minutes. Add \`[skip conclave]\` to the PR title or a commit message to opt out any time.`
+    : `👋 **Welcome to Conclave AI!** Your app is installed and ready.\n\nPush to any branch and open a PR — we'll review it automatically.`;
+
+  await postPrComment(env, installationId, bestRepoSlug, bestPrNumber, welcomeBody).catch(
+    () => undefined,
+  );
+
+  console.log(
+    `[autoReviewOnInstall] install ${installationId} → job ${jobId} on ${bestRepoSlug}#${bestPrNumber} (${billed})`,
+  );
 }
 
 function pickDeployPlatformName(checkName: string): string {
