@@ -285,7 +285,7 @@ export function createSaasAuthRoutes(): Hono<{ Bindings: Env }> {
         jobId,
         repo: repoSlug,
         prNumber,
-        autofix: false,
+        autofix: true,
         publicBaseUrl,
       });
       // Tell the user what's happening — silence is the worst UX.
@@ -869,7 +869,7 @@ async function autoReviewOnInstall(
     jobId,
     repo: bestRepoSlug,
     prNumber: bestPrNumber,
-    autofix: false,
+    autofix: true,
     publicBaseUrl,
   });
 
