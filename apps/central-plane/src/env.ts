@@ -97,6 +97,12 @@ export interface Env {
    */
   DEMO_RATE_SALT?: string;
   /**
+   * Stage 4 — hourly request cap for POST /workspace/idea-to-spec-draft.
+   * Parsed as integer; defaults to 20 when unset or non-numeric.
+   * Set via wrangler.toml [vars] or `wrangler secret put`.
+   */
+  WORKSPACE_GENERATION_LIMIT_PER_HOUR?: string;
+  /**
    * v0.14.5 — Lemon Squeezy MoR for paid tiers (Stripe Korea is
    * personal-only; LS handles VAT across KR/US/EU). All four secrets
    * required for billing routes to function; otherwise /billing

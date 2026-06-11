@@ -1,7 +1,12 @@
 /**
  * Dashboard-side API client for the central-plane workspace endpoint.
- * Falls back to local mock generators on network error or API failure
- * so the user-facing flow never breaks.
+ *
+ * Failure modes handled:
+ *   - 429 rate limit      → { ok: false, error: "rate_limited", retryAfterSeconds }
+ *                           NO mock fallback (intentional — rate limit is a billing control)
+ *   - Network / timeout   → local mock fallback
+ *   - LLM 5xx from server → local mock fallback (server already fell back)
+ *   - ok: false from API  → local mock fallback
  */
 
 import type { IdeaToSpecDraftResponse } from "./workspace-types";
@@ -14,8 +19,6 @@ import {
 
 export type { IdeaToSpecDraftResponse };
 
-// Configurable in `.env.local` for local development:
-//   NEXT_PUBLIC_CENTRAL_PLANE_URL=http://localhost:8787
 const CENTRAL_PLANE_URL =
   process.env.NEXT_PUBLIC_CENTRAL_PLANE_URL ??
   "https://conclave-ai.seunghunbae.workers.dev";
@@ -25,21 +28,34 @@ export type WorkspaceApiInput = {
   answers?: Array<{ questionId: string; answer: string }>;
 };
 
+/** Rate limit hit — no fallback, show gentle notice to user */
+export type RateLimitedResult = {
+  ok: false;
+  error: "rate_limited";
+  message: string;
+  retryAfterSeconds?: number;
+};
+
+/** Network / LLM error — fallback to local mock */
+export type FallbackResult = {
+  ok: false;
+  error: "network" | "server";
+  fallback: IdeaToSpecDraftResponse;
+};
+
 export type WorkspaceApiResult =
   | { ok: true; data: IdeaToSpecDraftResponse }
-  | { ok: false; error: string; fallback: IdeaToSpecDraftResponse };
+  | RateLimitedResult
+  | FallbackResult;
 
-/**
- * Call central-plane /workspace/idea-to-spec-draft.
- * On any failure, transparently falls back to local mock generators.
- */
 export async function callWorkspaceApi(
   input: WorkspaceApiInput,
 ): Promise<WorkspaceApiResult> {
   const url = `${CENTRAL_PLANE_URL}/workspace/idea-to-spec-draft`;
 
+  let resp: Response;
   try {
-    const resp = await fetch(url, {
+    resp = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -50,20 +66,52 @@ export async function callWorkspaceApi(
       }),
       signal: AbortSignal.timeout(25000),
     });
-
-    if (!resp.ok) {
-      throw new Error(`HTTP ${resp.status}`);
-    }
-
-    const data = (await resp.json()) as IdeaToSpecDraftResponse;
-    if (!data.ok) throw new Error("server returned ok:false");
-
-    return { ok: true, data };
   } catch (err) {
-    console.warn("[workspace-api] falling back to mock:", err);
-    return { ok: false, error: String(err), fallback: buildLocalFallback(input) };
+    console.warn("[workspace-api] network error, using mock fallback:", err);
+    return { ok: false, error: "network", fallback: buildLocalFallback(input) };
   }
+
+  // ── 429 rate limited — do NOT fall back to mock ───────────────────────────
+  if (resp.status === 429) {
+    let retryAfterSeconds: number | undefined;
+    let message = "잠시 후 다시 시도해주세요. 짧은 시간에 제품 설명서 만들기 요청이 많이 발생했어요.";
+    try {
+      const body = (await resp.json()) as {
+        message?: string;
+        retryAfterSeconds?: number;
+      };
+      if (body.message) message = body.message;
+      if (body.retryAfterSeconds) retryAfterSeconds = body.retryAfterSeconds;
+    } catch {
+      // ignore parse errors, use default message
+    }
+    return { ok: false, error: "rate_limited", message, retryAfterSeconds };
+  }
+
+  // ── Other non-2xx ─────────────────────────────────────────────────────────
+  if (!resp.ok) {
+    console.warn("[workspace-api] server error", resp.status, "using mock fallback");
+    return { ok: false, error: "server", fallback: buildLocalFallback(input) };
+  }
+
+  // ── Parse success response ────────────────────────────────────────────────
+  let data: IdeaToSpecDraftResponse;
+  try {
+    data = (await resp.json()) as IdeaToSpecDraftResponse;
+  } catch {
+    console.warn("[workspace-api] JSON parse failed, using mock fallback");
+    return { ok: false, error: "server", fallback: buildLocalFallback(input) };
+  }
+
+  if (!data.ok) {
+    console.warn("[workspace-api] server returned ok:false, using mock fallback");
+    return { ok: false, error: "server", fallback: buildLocalFallback(input) };
+  }
+
+  return { ok: true, data };
 }
+
+// ─── Local mock fallback ──────────────────────────────────────────────────────
 
 function buildLocalFallback(input: WorkspaceApiInput): IdeaToSpecDraftResponse {
   const answersMap: Record<string, string> = Object.fromEntries(

@@ -30,6 +30,7 @@ export default function NewProjectPage() {
   const [ideaText, setIdeaText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isFallback, setIsFallback] = useState(false);
+  const [rateLimitMsg, setRateLimitMsg] = useState<string | null>(null);
   const [result, setResult] = useState<IdeaToSpecDraftResponse | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [isGeneratingSpec, setIsGeneratingSpec] = useState(false);
@@ -42,21 +43,26 @@ export default function NewProjectPage() {
     if (!ideaText.trim()) return;
     setIsLoading(true);
     setIsFallback(false);
+    setRateLimitMsg(null);
     const res = await callWorkspaceApi({ idea: ideaText });
     if (res.ok) {
       setResult(res.data);
       setIsFallback(res.data.source === "mock-fallback");
+      setStep(2);
+    } else if (res.error === "rate_limited") {
+      setRateLimitMsg(res.message);
     } else {
       setResult(res.fallback);
       setIsFallback(true);
+      setStep(2);
     }
     setIsLoading(false);
-    setStep(2);
   }
 
   async function handleGenerateSpec() {
     if (!result) return;
     setIsGeneratingSpec(true);
+    setRateLimitMsg(null);
     const answerArray = Object.entries(answers).map(([questionId, answer]) => ({
       questionId,
       answer,
@@ -65,12 +71,15 @@ export default function NewProjectPage() {
     if (res.ok) {
       setSpecResult(res.data);
       setIsFallback(res.data.source === "mock-fallback");
+      setStep(4);
+    } else if (res.error === "rate_limited") {
+      setRateLimitMsg(res.message);
     } else {
       setSpecResult(res.fallback);
       setIsFallback(true);
+      setStep(4);
     }
     setIsGeneratingSpec(false);
-    setStep(4);
   }
 
   function handleSave() {
@@ -161,6 +170,11 @@ export default function NewProjectPage() {
               >
                 {isLoading ? "Conclave가 이해하는 중..." : "제품 설명서 만들기 →"}
               </button>
+              {rateLimitMsg && (
+                <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
+                  {rateLimitMsg}
+                </div>
+              )}
               <p className="text-center text-xs text-gray-400 mt-3">
                 제품 설명서 만들기는 무료 베타입니다
               </p>
@@ -250,6 +264,11 @@ export default function NewProjectPage() {
                 ))}
               </div>
 
+              {rateLimitMsg && (
+                <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
+                  {rateLimitMsg}
+                </div>
+              )}
               <div className="flex gap-3">
                 <button
                   onClick={() => setStep(2)}

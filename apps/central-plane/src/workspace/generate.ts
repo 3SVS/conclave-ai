@@ -175,9 +175,67 @@ function isValidResponse(v: unknown): v is Omit<IdeaToSpecDraftResponse, "ok" | 
 
 // ─── Mock fallback ────────────────────────────────────────────────────────────
 
+/**
+ * Extract intent flags from answers array.
+ * Looks for Korean keyword signals in answer text so the fallback
+ * output changes meaningfully when the user answers differently.
+ */
+function extractAnswerFlags(answers: IdeaToSpecDraftRequest["answers"]): {
+  confirmBeforeSend: boolean;
+  autoSend: boolean;
+  editable: boolean;
+  deleteAfterProcess: boolean;
+} {
+  const allText = (answers ?? []).map((a) => a.answer).join(" ").toLowerCase();
+  // "확인 없이 자동" / "자동으로 보내도" → autoSend
+  // "확인해야" / "확인 후" / "확인하고" → confirmBeforeSend
+  // Explicit confirm phrases take precedence; auto phrases dominate when confirm is absent or negated
+  const hasExplicitAuto = /자동으로|확인 없이|자동 전송|자동으로 보내/.test(allText);
+  const hasExplicitConfirm = /확인해야|확인 후|확인하고|사용자가 확인|검토 후/.test(allText);
+  return {
+    // Confirm wins over auto only when explicitly stated
+    confirmBeforeSend: hasExplicitConfirm || (!hasExplicitAuto && /확인|검토|선택|승인/.test(allText)),
+    autoSend: hasExplicitAuto && !hasExplicitConfirm,
+    editable: !/수정 불가|읽기 전용|readonly/.test(allText),
+    deleteAfterProcess: /삭제|제거/.test(allText) || (!/보관|저장/.test(allText)),
+  };
+}
+
 function buildMockFallback(req: IdeaToSpecDraftRequest): IdeaToSpecDraftResponse {
   const isMeeting = /회의|녹음|요약|linear|미팅/i.test(req.idea);
+  const flags = extractAnswerFlags(req.answers);
+
   if (isMeeting) {
+    const hasAnswers = (req.answers ?? []).length > 0;
+    // If answers explicitly say "auto send" → no confirm step; otherwise default to confirm
+    const confirmSend = hasAnswers ? flags.confirmBeforeSend || !flags.autoSend : true;
+    const editable = flags.editable;
+
+    const sendDecision = confirmSend
+      ? "사용자가 확인한 할 일만 Linear로 전송"
+      : "처리 완료 후 Linear로 자동 전송 (확인 단계 없음)";
+    const sendRisk = confirmSend
+      ? undefined
+      : "자동 전송 시 잘못 추출된 할 일이 팀 시스템에 바로 들어갈 수 있으므로, 전송 실패 복구 및 되돌리기 기능이 필요합니다.";
+
+    const sendItem: RequirementItem = confirmSend
+      ? {
+          id: "req_006",
+          title: "사용자가 확인하고 선택한 할 일만 Linear로 보내야 함",
+          status: "not_started",
+          criteria: ["체크한 항목만 전송됨", "전송 후 Linear 이슈 링크 표시", "전송 취소 가능"],
+        }
+      : {
+          id: "req_006",
+          title: "처리 완료 후 할 일이 자동으로 Linear로 전송되어야 함",
+          status: "not_started",
+          criteria: [
+            "처리 완료 시 자동 전송됨",
+            "전송 실패 시 재시도 또는 수동 전송으로 전환",
+            "전송 내역을 사용자가 확인할 수 있음",
+          ],
+        };
+
     return {
       ok: true,
       source: "mock-fallback",
@@ -221,23 +279,42 @@ function buildMockFallback(req: IdeaToSpecDraftRequest): IdeaToSpecDraftResponse
         oneLine: "회의를 녹음하면 요약과 할 일이 자동으로 정리됩니다",
         targetUsers: ["회의가 많은 팀", "Linear를 쓰는 스타트업"],
         problem: "회의 후 내용 정리와 할 일 분배에 시간이 많이 걸립니다.",
-        included: ["녹음 파일 업로드", "STT 변환", "요약 생성", "할 일 추출", "Linear 전송"],
+        included: [
+          "녹음 파일 업로드",
+          "STT 변환",
+          "요약 생성 (결정사항·할 일 구분)",
+          "할 일 추출",
+          confirmSend ? "사용자 확인 후 Linear 전송" : "처리 완료 후 Linear 자동 전송",
+          editable ? "추출된 할 일 수정·삭제" : "추출된 할 일 확인",
+        ],
         excluded: ["실시간 녹음", "화상 회의 연동", "번역"],
-        userFlow: ["파일 업로드", "변환·요약 처리", "할 일 확인·수정", "Linear로 전송"],
-        decisions: [],
-        openQuestions: ["파일 크기 상한선", "STT 서비스 선택"],
+        userFlow: [
+          "파일 업로드",
+          "변환·요약 처리",
+          editable ? "할 일 확인 및 수정" : "할 일 확인",
+          confirmSend ? "보낼 항목 선택 후 Linear 전송" : "자동 Linear 전송",
+        ],
+        decisions: [
+          sendDecision,
+          editable ? "할 일 수정·삭제 가능" : "할 일 읽기 전용",
+        ],
+        openQuestions: [
+          "파일 크기 상한선 (예: 500MB)",
+          "STT 서비스 선택",
+          ...(sendRisk ? [sendRisk] : []),
+        ],
       },
       items: [
         { id: "req_001", title: "녹음 파일을 올릴 수 있어야 함", status: "not_started", criteria: ["mp3, m4a, wav 파일 지원", "지원 안 되는 형식은 이유를 알려줌"] },
         { id: "req_002", title: "업로드된 녹음을 텍스트로 바꿔야 함", status: "not_started", criteria: ["변환 중 진행 상태 표시", "변환 실패 시 재시도 가능"] },
         { id: "req_003", title: "회의 내용을 요약해야 함", status: "not_started", criteria: ["결정사항과 할 일이 구분되어 보임", "원문 근거 확인 가능"] },
         { id: "req_004", title: "할 일을 자동으로 추출해야 함", status: "not_started", criteria: ["추출된 할 일이 목록으로 보임"] },
-        { id: "req_005", title: "추출된 할 일을 수정·삭제할 수 있어야 함", status: "not_started", criteria: ["텍스트 수정 가능", "항목 삭제 가능"] },
-        { id: "req_006", title: "확인한 할 일만 Linear로 보내야 함", status: "not_started", criteria: ["체크한 항목만 전송", "전송 후 Linear 링크 표시"] },
+        ...(editable ? [{ id: "req_005", title: "추출된 할 일을 수정하거나 지울 수 있어야 함", status: "not_started" as const, criteria: ["텍스트 수정 가능", "항목 삭제 가능"] }] : []),
+        sendItem,
         { id: "req_007", title: "다른 사용자의 회의록은 볼 수 없어야 함", status: "not_started", criteria: ["본인 회의록만 접근 가능"] },
         { id: "req_008", title: "처리 실패 시 다시 시도할 수 있어야 함", status: "not_started", criteria: ["오류 메시지와 재시도 버튼 표시"] },
       ],
-      warnings: ["임시 초안입니다. 다시 시도하면 더 맞춤형 결과를 받을 수 있습니다."],
+      warnings: hasAnswers ? undefined : ["임시 초안입니다. 다시 시도하면 더 맞춤형 결과를 받을 수 있습니다."],
     };
   }
 
@@ -269,22 +346,36 @@ function buildMockFallback(req: IdeaToSpecDraftRequest): IdeaToSpecDraftResponse
         allowCustom: false,
         allowLater: true,
       },
+      {
+        id: "q3",
+        question: "여러 사용자가 쓰는 서비스인가요, 개인용인가요?",
+        recommendation: "여러 사용자",
+        reason: "사용자 구분 방식에 따라 데이터 분리, 권한, 결제 구조가 달라집니다.",
+        options: ["여러 사용자 (팀/조직)", "개인용 단독 사용"],
+        allowCustom: false,
+        allowLater: true,
+      },
     ],
     productSpec: {
       productName: shortIdea,
       oneLine: req.idea.slice(0, 60),
       targetUsers: ["일반 사용자"],
       problem: "사용자가 제시한 문제를 해결합니다.",
-      included: ["핵심 기능 구현", "결과 확인 화면"],
+      included: ["핵심 기능 구현", "결과 확인 화면", "상태 표시", "오류 처리"],
       excluded: ["초기 버전에서 제외된 부가 기능"],
-      userFlow: ["1. 입력", "2. 처리", "3. 확인"],
+      userFlow: ["1. 입력 또는 등록", "2. 처리 또는 요청", "3. 결과 확인", "4. 외부 서비스 연동"],
       decisions: [],
-      openQuestions: ["구체적인 기능 범위 결정 필요"],
+      openQuestions: ["구체적인 기능 범위 결정 필요", "외부 연동 서비스 선택"],
     },
     items: [
-      { id: "req_001", title: "핵심 기능을 사용할 수 있어야 함", status: "not_started", criteria: ["주요 동작이 정상 작동함"] },
-      { id: "req_002", title: "처리 결과를 확인할 수 있어야 함", status: "not_started", criteria: ["결과 화면이 표시됨"] },
-      { id: "req_003", title: "오류 발생 시 다시 시도할 수 있어야 함", status: "not_started", criteria: ["오류 메시지와 재시도 버튼 표시"] },
+      { id: "req_001", title: "핵심 기능을 사용할 수 있어야 함", status: "not_started", criteria: ["주요 동작이 정상 작동함", "기대하는 결과가 화면에 표시됨"] },
+      { id: "req_002", title: "처리 중 상태를 볼 수 있어야 함", status: "not_started", criteria: ["처리 중 로딩 또는 진행 표시가 보임", "처리 완료 시 알림 또는 화면 전환"] },
+      { id: "req_003", title: "처리 결과를 확인할 수 있어야 함", status: "not_started", criteria: ["결과 목록 또는 상세 화면이 보임", "날짜·상태 등 기본 정보 표시"] },
+      { id: "req_004", title: "결과를 외부 도구로 내보내거나 공유할 수 있어야 함", status: "not_started", criteria: ["내보내기 또는 연동 버튼 제공", "전송 성공/실패 여부 표시"] },
+      { id: "req_005", title: "다른 사용자의 데이터는 볼 수 없어야 함", status: "not_started", criteria: ["로그인한 사용자 데이터만 보임", "URL 직접 입력으로도 타인 데이터 접근 불가"] },
+      { id: "req_006", title: "잘못된 입력을 올리면 이유를 알려줘야 함", status: "not_started", criteria: ["지원하지 않는 형식은 안내 메시지 표시", "필수 항목 누락 시 어디가 빠졌는지 표시"] },
+      { id: "req_007", title: "오류 발생 시 다시 시도할 수 있어야 함", status: "not_started", criteria: ["오류 메시지와 재시도 버튼 표시", "재시도 결과가 같은 화면에 반영됨"] },
+      { id: "req_008", title: "이전 처리 내역을 볼 수 있어야 함", status: "not_started", criteria: ["날짜 순으로 기록 목록 제공", "각 기록의 상태(완료/실패 등) 표시"] },
     ],
     warnings: ["임시 초안입니다. 다시 시도하면 더 맞춤형 결과를 받을 수 있습니다."],
   };
