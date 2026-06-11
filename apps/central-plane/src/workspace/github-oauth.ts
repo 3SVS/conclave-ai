@@ -34,6 +34,16 @@ export type GitHubRepo = {
   html_url: string;
 };
 
+export type GitHubPull = {
+  number: number;
+  title: string;
+  state: "open" | "closed";
+  html_url: string;
+  head: { ref: string };
+  base: { ref: string };
+  updated_at: string;
+};
+
 /** Generate a random 32-byte hex state token. */
 export function generateState(): string {
   const bytes = new Uint8Array(32);
@@ -95,6 +105,23 @@ export async function fetchGitHubUser(token: string, fetchImpl: FetchLike): Prom
   });
   if (!resp.ok) throw new Error(`GitHub /user HTTP ${resp.status}`);
   return resp.json() as Promise<GitHubUser>;
+}
+
+/** List open pull requests for a public repo. */
+export async function fetchGitHubPulls(
+  owner: string,
+  repo: string,
+  token: string,
+  fetchImpl: FetchLike,
+  state: "open" | "closed" | "all" = "open",
+): Promise<GitHubPull[]> {
+  const resp = await fetchImpl(
+    `${GITHUB_API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls?state=${state}&per_page=30&sort=updated`,
+    { headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "conclave-ai" } },
+  );
+  if (resp.status === 404) return []; // repo not found or private — return empty
+  if (!resp.ok) throw new Error(`GitHub /repos/.../pulls HTTP ${resp.status}`);
+  return resp.json() as Promise<GitHubPull[]>;
 }
 
 /** List public repos for the authenticated user. */

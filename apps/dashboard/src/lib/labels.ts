@@ -45,6 +45,7 @@ export const NAV_LABELS = {
   fixes: "고쳐야 할 것",
   export: "만들기 패키지",
   settings: "저장소 연결",
+  github: "PR 연결",
 } as const;
 
 /** 개발자 용어 → 사용자 표현 매핑 (문서/주석용) */

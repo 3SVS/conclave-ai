@@ -3,12 +3,15 @@
  *
  * GitHub OAuth + repo connection routes for Workspace.
  *
- * GET  /workspace/github/oauth/start        — redirect to GitHub auth
- * GET  /workspace/github/oauth/callback     — exchange code, save connection, redirect to dashboard
- * GET  /workspace/github/status             — connection status for a userKey
- * GET  /workspace/github/repos              — list public repos for connected user
- * POST /workspace/projects/:id/repo         — link a repo to a project
- * GET  /workspace/projects/:id/repo         — get linked repo for a project
+ * GET  /workspace/github/oauth/start                    — redirect to GitHub auth
+ * GET  /workspace/github/oauth/callback                 — exchange code, save connection, redirect
+ * GET  /workspace/github/status                         — connection status for a userKey
+ * GET  /workspace/github/repos                          — list public repos for connected user
+ * POST /workspace/projects/:id/repo                     — link a repo to a project
+ * GET  /workspace/projects/:id/repo                     — get linked repo for a project
+ * GET  /workspace/projects/:id/github/pulls             — list open PRs for linked repo
+ * POST /workspace/projects/:id/github/pulls/:number/link — link a PR to workspace items
+ * GET  /workspace/projects/:id/github/linked-pulls      — get linked PR mappings
  *
  * Security:
  *   - state CSRF token is validated on callback
@@ -27,9 +30,10 @@ import {
 } from "../workspace/github-db.js";
 import {
   generateState, buildAuthUrl, exchangeCode,
-  fetchGitHubUser, fetchGitHubRepos,
+  fetchGitHubUser, fetchGitHubRepos, fetchGitHubPulls,
   isAllowedReturnTo, appendGitHubConnected,
 } from "../workspace/github-oauth.js";
+import { upsertProjectPR, getLinkedPRs } from "../workspace/pr-db.js";
 
 // ─── CORS helpers (shared with workspace.ts) ──────────────────────────────────
 
@@ -342,6 +346,126 @@ export function createWorkspaceGitHubRoutes(
       }, 200, origin);
     } catch (err) {
       console.error("[workspace/projects/repo] fetch failed:", err);
+      return json({ ok: false, error: "fetch_failed" }, 500, origin);
+    }
+  });
+
+  // ── GET /workspace/projects/:id/github/pulls?userKey=... ─────────────────
+  // List open PRs for the project's linked repo.
+  app.get("/workspace/projects/:id/github/pulls", async (c) => {
+    const origin = c.req.header("origin") ?? null;
+    const projectId = c.req.param("id");
+    const userKey = c.req.query("userKey") ?? "";
+
+    if (!userKey) return json({ ok: false, error: "userKey_required" }, 400, origin);
+
+    const repo = await getProjectRepo(c.env, projectId).catch(() => null);
+    if (!repo) return json({ ok: false, error: "no_repo_linked — connect a repo first" }, 400, origin);
+
+    const conn = await getGitHubConnectionByUserKey(c.env, userKey).catch(() => null);
+    if (!conn || !conn.accessTokenEnc) {
+      return json({ ok: false, error: "not_connected — connect GitHub first" }, 401, origin);
+    }
+
+    const kek = c.env.CONCLAVE_TOKEN_KEK;
+    if (!kek) return json({ ok: false, error: "token_unavailable" }, 503, origin);
+
+    let token: string;
+    try { token = await decryptToken(conn.accessTokenEnc, kek); }
+    catch { return json({ ok: false, error: "token_decrypt_failed" }, 503, origin); }
+
+    let pulls;
+    try {
+      pulls = await fetchGitHubPulls(repo.repoOwner, repo.repoName, token, fetchImpl, "open");
+    } catch (err) {
+      return json({ ok: false, error: `github_api_failed: ${(err as Error).message}` }, 502, origin);
+    }
+
+    return json({
+      ok: true,
+      repo: { fullName: repo.repoFullName, owner: repo.repoOwner, name: repo.repoName, defaultBranch: repo.defaultBranch },
+      pulls: pulls.map((p) => ({
+        number: p.number,
+        title: p.title,
+        state: p.state,
+        htmlUrl: p.html_url,
+        headBranch: p.head.ref,
+        baseBranch: p.base.ref,
+        updatedAt: p.updated_at,
+      })),
+    }, 200, origin);
+  });
+
+  // ── POST /workspace/projects/:id/github/pulls/:number/link ───────────────
+  // Link a PR to workspace items. No review job is created.
+  app.post("/workspace/projects/:id/github/pulls/:number/link", async (c) => {
+    const origin = c.req.header("origin") ?? null;
+    const projectId = c.req.param("id");
+    const prNumberStr = c.req.param("number");
+    const prNumber = parseInt(prNumberStr, 10);
+    if (isNaN(prNumber) || prNumber < 1) {
+      return json({ ok: false, error: "invalid_pr_number" }, 400, origin);
+    }
+
+    let body: unknown;
+    try { body = await c.req.json(); } catch {
+      return json({ ok: false, error: "invalid_json" }, 400, origin);
+    }
+    const b = body as Record<string, unknown>;
+    const userKey = typeof b["userKey"] === "string" ? b["userKey"] : "";
+    const pr = b["pullRequest"] as Record<string, unknown> | undefined;
+    const selectedItemIds = Array.isArray(b["selectedItemIds"])
+      ? (b["selectedItemIds"] as unknown[]).filter((x): x is string => typeof x === "string")
+      : [];
+
+    if (!userKey) return json({ ok: false, error: "userKey_required" }, 400, origin);
+    if (!pr || typeof pr["title"] !== "string") {
+      return json({ ok: false, error: "pullRequest.title_required" }, 400, origin);
+    }
+    if (selectedItemIds.length === 0) {
+      return json({ ok: false, error: "selectedItemIds_must_not_be_empty" }, 400, origin);
+    }
+
+    const repo = await getProjectRepo(c.env, projectId).catch(() => null);
+    if (!repo) return json({ ok: false, error: "no_repo_linked" }, 400, origin);
+
+    try {
+      const linked = await upsertProjectPR(c.env, {
+        projectId, userKey,
+        repoFullName: repo.repoFullName,
+        prNumber,
+        prTitle: String(pr["title"]),
+        prState: typeof pr["state"] === "string" ? pr["state"] : "open",
+        prUrl: typeof pr["htmlUrl"] === "string" ? pr["htmlUrl"] : undefined,
+        prHeadBranch: typeof pr["headBranch"] === "string" ? pr["headBranch"] : undefined,
+        prBaseBranch: typeof pr["baseBranch"] === "string" ? pr["baseBranch"] : undefined,
+        selectedItemIds,
+      });
+      return json({ ok: true, pull: { id: linked.id, repoFullName: linked.repoFullName, number: linked.prNumber, title: linked.prTitle, state: linked.prState, htmlUrl: linked.prUrl, headBranch: linked.prHeadBranch, baseBranch: linked.prBaseBranch, selectedItemIds: linked.selectedItemIds, updatedAt: linked.updatedAt } }, 200, origin);
+    } catch (err) {
+      console.error("[workspace/github/pulls/link] save failed:", err);
+      return json({ ok: false, error: "save_failed" }, 500, origin);
+    }
+  });
+
+  // ── GET /workspace/projects/:id/github/linked-pulls ──────────────────────
+  app.get("/workspace/projects/:id/github/linked-pulls", async (c) => {
+    const origin = c.req.header("origin") ?? null;
+    const projectId = c.req.param("id");
+
+    try {
+      const pulls = await getLinkedPRs(c.env, projectId);
+      return json({
+        ok: true,
+        pulls: pulls.map((p) => ({
+          id: p.id, repoFullName: p.repoFullName, number: p.prNumber,
+          title: p.prTitle, state: p.prState, htmlUrl: p.prUrl,
+          headBranch: p.prHeadBranch, baseBranch: p.prBaseBranch,
+          selectedItemIds: p.selectedItemIds, updatedAt: p.updatedAt,
+        })),
+      }, 200, origin);
+    } catch (err) {
+      console.error("[workspace/github/linked-pulls] fetch failed:", err);
       return json({ ok: false, error: "fetch_failed" }, 500, origin);
     }
   });

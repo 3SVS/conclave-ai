@@ -137,3 +137,97 @@ export async function fetchProjectRepo(projectId: string): Promise<ProjectRepoRe
     return { ok: false, error: String(err) };
   }
 }
+
+// ─── Pull Requests ────────────────────────────────────────────────────────────
+
+export type GitHubPull = {
+  number: number;
+  title: string;
+  state: "open" | "closed";
+  htmlUrl: string;
+  headBranch: string;
+  baseBranch: string;
+  updatedAt?: string;
+};
+
+export type LinkedPull = {
+  id: string;
+  repoFullName: string;
+  number: number;
+  title: string;
+  state: string;
+  htmlUrl?: string;
+  headBranch?: string;
+  baseBranch?: string;
+  selectedItemIds: string[];
+  updatedAt: string;
+};
+
+export type PullListResponse =
+  | { ok: true; repo: { fullName: string; owner: string; name: string; defaultBranch?: string }; pulls: GitHubPull[] }
+  | { ok: false; error: string };
+
+export type LinkedPullsResponse =
+  | { ok: true; pulls: LinkedPull[] }
+  | { ok: false; error: string };
+
+export type LinkPullResponse =
+  | { ok: true; pull: LinkedPull }
+  | { ok: false; error: string };
+
+export async function fetchProjectPulls(
+  projectId: string,
+  userKey: string,
+): Promise<PullListResponse> {
+  try {
+    const resp = await fetch(
+      `${CENTRAL_PLANE_URL}/workspace/projects/${encodeURIComponent(projectId)}/github/pulls?userKey=${encodeURIComponent(userKey)}`,
+      { signal: AbortSignal.timeout(15000) },
+    );
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` })) as { error?: string };
+      return { ok: false, error: err.error ?? `HTTP ${resp.status}` };
+    }
+    return (await resp.json()) as PullListResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+export async function fetchLinkedPulls(projectId: string): Promise<LinkedPullsResponse> {
+  try {
+    const resp = await fetch(
+      `${CENTRAL_PLANE_URL}/workspace/projects/${encodeURIComponent(projectId)}/github/linked-pulls`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    if (!resp.ok) return { ok: false, error: `HTTP ${resp.status}` };
+    return (await resp.json()) as LinkedPullsResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+export async function linkPullRequest(
+  projectId: string,
+  prNumber: number,
+  input: { userKey: string; pullRequest: Omit<GitHubPull, "updatedAt">; selectedItemIds: string[] },
+): Promise<LinkPullResponse> {
+  try {
+    const resp = await fetch(
+      `${CENTRAL_PLANE_URL}/workspace/projects/${encodeURIComponent(projectId)}/github/pulls/${prNumber}/link`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+        signal: AbortSignal.timeout(10000),
+      },
+    );
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` })) as { error?: string };
+      return { ok: false, error: err.error ?? `HTTP ${resp.status}` };
+    }
+    return (await resp.json()) as LinkPullResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
