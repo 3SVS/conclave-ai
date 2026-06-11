@@ -1,25 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { QuestionCard } from "@/components/QuestionCard";
-import {
-  generateUnderstanding,
-  generateQuestions,
-  generateSpec,
-  generateRequirements,
-  ACCEPTANCE_CRITERIA,
-  type AdaptiveQuestion,
-} from "@/lib/mock-generators";
-import type { Understanding, GeneratedSpec } from "@/lib/workflow-store";
+import { callWorkspaceApi } from "@/lib/workspace-api";
+import { ACCEPTANCE_CRITERIA } from "@/lib/mock-generators";
 import {
   saveProject,
   generateProjectId,
 } from "@/lib/workflow-store";
-import type { RequirementItem } from "@/lib/mock-data";
+import type {
+  IdeaToSpecDraftResponse,
+  WorkspaceQuestion,
+  WorkspaceRequirementItem,
+} from "@/lib/workspace-types";
 import { StatusBadge } from "@/components/StatusBadge";
-import { PRIORITY_LABEL } from "@/lib/labels";
 
 const EXAMPLE_IDEAS = [
   "회의 녹음 파일을 올리면 자동으로 요약하고, 할 일을 뽑아서 Linear로 보내주는 앱",
@@ -33,59 +28,74 @@ export default function NewProjectPage() {
   const router = useRouter();
   const [step, setStep] = useState<Step>(1);
   const [ideaText, setIdeaText] = useState("");
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [understanding, setUnderstanding] = useState<Understanding | null>(null);
-  const [questions, setQuestions] = useState<AdaptiveQuestion[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isFallback, setIsFallback] = useState(false);
+  const [result, setResult] = useState<IdeaToSpecDraftResponse | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [spec, setSpec] = useState<GeneratedSpec | null>(null);
-  const [requirements, setRequirements] = useState<RequirementItem[]>([]);
+  const [isGeneratingSpec, setIsGeneratingSpec] = useState(false);
+  const [specResult, setSpecResult] = useState<IdeaToSpecDraftResponse | null>(null);
 
   const answeredCount = Object.keys(answers).length;
-  const allAnswered = questions.length > 0 && answeredCount >= questions.length;
-
-  function handleExampleClick(text: string) {
-    setIdeaText(text);
-  }
+  const questions = result?.questions ?? [];
 
   async function handleGenerateUnderstanding() {
     if (!ideaText.trim()) return;
-    setIsGenerating(true);
-    await sleep(1200);
-    const u = generateUnderstanding(ideaText);
-    const q = generateQuestions(ideaText);
-    setUnderstanding(u);
-    setQuestions(q);
-    setIsGenerating(false);
+    setIsLoading(true);
+    setIsFallback(false);
+    const res = await callWorkspaceApi({ idea: ideaText });
+    if (res.ok) {
+      setResult(res.data);
+      setIsFallback(res.data.source === "mock-fallback");
+    } else {
+      setResult(res.fallback);
+      setIsFallback(true);
+    }
+    setIsLoading(false);
     setStep(2);
   }
 
   async function handleGenerateSpec() {
-    setIsGenerating(true);
-    await sleep(1000);
-    const s = generateSpec(ideaText, answers);
-    const r = generateRequirements(ideaText, answers);
-    setSpec(s);
-    setRequirements(r);
-    setIsGenerating(false);
+    if (!result) return;
+    setIsGeneratingSpec(true);
+    const answerArray = Object.entries(answers).map(([questionId, answer]) => ({
+      questionId,
+      answer,
+    }));
+    const res = await callWorkspaceApi({ idea: ideaText, answers: answerArray });
+    if (res.ok) {
+      setSpecResult(res.data);
+      setIsFallback(res.data.source === "mock-fallback");
+    } else {
+      setSpecResult(res.fallback);
+      setIsFallback(true);
+    }
+    setIsGeneratingSpec(false);
     setStep(4);
   }
 
   function handleSave() {
+    const spec = specResult ?? result;
     if (!spec) return;
     const id = generateProjectId();
     saveProject({
       id,
-      name: spec.productName,
-      description: spec.tagline,
+      name: spec.productSpec.productName,
+      description: spec.productSpec.oneLine,
       createdAt: new Date().toISOString().slice(0, 10),
       spec: {
         completeness: 60,
-        goal: spec.problem,
-        included: spec.included,
-        excluded: spec.excluded,
-        openDecisions: spec.openDecisions,
+        goal: spec.productSpec.problem,
+        included: spec.productSpec.included,
+        excluded: spec.productSpec.excluded,
+        openDecisions: spec.productSpec.openQuestions,
       },
-      requirements,
+      requirements: spec.items.map((item) => ({
+        id: item.id,
+        title: item.title,
+        status: "not_started" as const,
+        category: "feature",
+        priority: "must" as const,
+      })),
     });
     router.push(`/projects/${id}`);
   }
@@ -107,12 +117,8 @@ export default function NewProjectPage() {
         </span>
       </header>
 
-      {/* Progress bar */}
       <div className="h-1 bg-gray-100">
-        <div
-          className="h-1 bg-indigo-500 transition-all duration-500"
-          style={{ width: progressWidth }}
-        />
+        <div className="h-1 bg-indigo-500 transition-all duration-500" style={{ width: progressWidth }} />
       </div>
 
       <main className="flex-1 flex justify-center px-4 py-10">
@@ -127,7 +133,6 @@ export default function NewProjectPage() {
               <p className="text-sm text-gray-500 mb-8">
                 완성된 문장이 아니어도 괜찮습니다. 아이디어를 자유롭게 적어주세요.
               </p>
-
               <textarea
                 value={ideaText}
                 onChange={(e) => setIdeaText(e.target.value)}
@@ -135,14 +140,13 @@ export default function NewProjectPage() {
                 rows={5}
                 className="w-full text-sm border border-gray-200 rounded-xl px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none bg-white"
               />
-
               <div className="mt-4 mb-8">
                 <p className="text-xs text-gray-400 mb-2">예시로 시작하기</p>
                 <div className="flex flex-col gap-2">
                   {EXAMPLE_IDEAS.map((ex, i) => (
                     <button
                       key={i}
-                      onClick={() => handleExampleClick(ex)}
+                      onClick={() => setIdeaText(ex)}
                       className="text-left text-sm text-gray-600 bg-white border border-gray-200 rounded-lg px-4 py-2.5 hover:border-indigo-300 hover:bg-indigo-50 transition-all"
                     >
                       {ex}
@@ -150,13 +154,12 @@ export default function NewProjectPage() {
                   ))}
                 </div>
               </div>
-
               <button
                 onClick={handleGenerateUnderstanding}
-                disabled={!ideaText.trim() || isGenerating}
+                disabled={!ideaText.trim() || isLoading}
                 className="w-full bg-indigo-600 text-white text-sm font-medium py-3.5 rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                {isGenerating ? "Conclave가 이해하는 중..." : "제품 설명서 만들기 →"}
+                {isLoading ? "Conclave가 이해하는 중..." : "제품 설명서 만들기 →"}
               </button>
               <p className="text-center text-xs text-gray-400 mt-3">
                 제품 설명서 만들기는 무료 베타입니다
@@ -164,44 +167,45 @@ export default function NewProjectPage() {
             </div>
           )}
 
-          {/* ── Step 2: Conclave가 이해한 내용 ──────────────────────── */}
-          {step === 2 && understanding && (
+          {/* ── Step 2: 이해한 내용 ───────────────────────────────── */}
+          {step === 2 && result && (
             <div>
               <div className="flex items-center gap-2 mb-6">
                 <span className="text-xs font-mono bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">
                   Conclave
                 </span>
                 <span className="text-sm text-gray-500">이해한 내용</span>
+                {isFallback && (
+                  <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-100">
+                    임시 초안
+                  </span>
+                )}
               </div>
 
-              <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-                <p className="text-sm text-gray-800 leading-relaxed mb-5">
-                  {understanding.summary}
-                </p>
+              {isFallback && (
+                <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 mb-5 text-xs text-amber-700">
+                  지금은 임시 초안으로 보여드리고 있어요. 다시 시도하면 더 맞춤형으로 만들 수 있습니다.
+                </div>
+              )}
 
+              <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+                <p className="text-sm text-gray-800 leading-relaxed mb-5">{result.understood.summary}</p>
                 <div className="mb-4">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                    주요 사용자
-                  </p>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">주요 사용자</p>
                   <ul className="space-y-1">
-                    {understanding.targetUsers.map((u, i) => (
+                    {result.understood.targetUsers.map((u, i) => (
                       <li key={i} className="flex gap-2 text-sm text-gray-700">
-                        <span className="text-indigo-400 mt-0.5">•</span>
-                        {u}
+                        <span className="text-indigo-400 mt-0.5">•</span>{u}
                       </li>
                     ))}
                   </ul>
                 </div>
-
                 <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                    주요 흐름
-                  </p>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">주요 흐름</p>
                   <ol className="space-y-1">
-                    {understanding.mainFlow.map((f, i) => (
+                    {result.understood.mainFlow.map((f, i) => (
                       <li key={i} className="flex gap-2 text-sm text-gray-700">
-                        <span className="text-gray-300 w-4 flex-shrink-0">{i + 1}.</span>
-                        {f}
+                        <span className="text-gray-300 w-4 flex-shrink-0">{i + 1}.</span>{f}
                       </li>
                     ))}
                   </ol>
@@ -210,12 +214,7 @@ export default function NewProjectPage() {
 
               <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 mb-8 text-sm text-amber-800">
                 이 내용이 맞지 않으면{" "}
-                <button
-                  onClick={() => setStep(1)}
-                  className="underline font-medium"
-                >
-                  아이디어를 수정
-                </button>
+                <button onClick={() => setStep(1)} className="underline font-medium">아이디어를 수정</button>
                 하세요.
               </div>
 
@@ -228,7 +227,7 @@ export default function NewProjectPage() {
             </div>
           )}
 
-          {/* ── Step 3: 맞춤 질문 ────────────────────────────────── */}
+          {/* ── Step 3: 질문 ──────────────────────────────────────── */}
           {step === 3 && (
             <div>
               <h2 className="text-xl font-bold text-gray-900 mb-1">
@@ -240,15 +239,13 @@ export default function NewProjectPage() {
 
               <div className="space-y-4 mb-8">
                 {questions.map((q, i) => (
-                  <QuestionCard
+                  <ApiQuestionCard
                     key={q.id}
                     question={q}
                     index={i}
                     total={questions.length}
                     answer={answers[q.id]}
-                    onAnswer={(val) =>
-                      setAnswers((prev) => ({ ...prev, [q.id]: val }))
-                    }
+                    onAnswer={(val) => setAnswers((prev) => ({ ...prev, [q.id]: val }))}
                   />
                 ))}
               </div>
@@ -262,130 +259,227 @@ export default function NewProjectPage() {
                 </button>
                 <button
                   onClick={handleGenerateSpec}
-                  disabled={isGenerating}
+                  disabled={isGeneratingSpec}
                   className="flex-[2] bg-indigo-600 text-white text-sm font-medium py-3.5 rounded-xl hover:bg-indigo-700 disabled:opacity-40 transition-colors"
                 >
-                  {isGenerating
+                  {isGeneratingSpec
                     ? "제품 설명서 만드는 중..."
-                    : allAnswered
-                    ? "제품 설명서 만들기 →"
                     : `제품 설명서 만들기 (${answeredCount}/${questions.length} 답변) →`}
                 </button>
               </div>
             </div>
           )}
 
-          {/* ── Step 4: 제품 설명서 + 항목 카드 ────────────────────── */}
-          {step === 4 && spec && (
-            <div>
-              <h2 className="text-xl font-bold text-gray-900 mb-1">
-                제품 설명서 초안이 완성됐습니다
-              </h2>
-              <p className="text-sm text-gray-500 mb-8">
-                저장하면 프로젝트 페이지에서 언제든 확인할 수 있습니다.
-              </p>
-
-              {/* Spec */}
-              <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-                <h3 className="text-lg font-bold text-gray-900 mb-0.5">{spec.productName}</h3>
-                <p className="text-sm text-gray-500 mb-5">{spec.tagline}</p>
-
-                <SpecRow label="누가 쓰는 제품" value={spec.targetUser} />
-                <SpecRow label="해결하려는 문제" value={spec.problem} />
-
-                <div className="mt-4">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
-                    이번 버전에 포함
-                  </p>
-                  <ul className="space-y-1">
-                    {spec.included.map((item, i) => (
-                      <li key={i} className="flex gap-2 text-sm text-gray-700">
-                        <span className="text-green-500 mt-0.5">•</span> {item}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                {spec.excluded.length > 0 && (
-                  <div className="mt-4">
-                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
-                      이번 버전에서 제외
-                    </p>
-                    <ul className="space-y-1">
-                      {spec.excluded.map((item, i) => (
-                        <li key={i} className="flex gap-2 text-sm text-gray-500">
-                          <span className="mt-0.5">×</span> {item}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {spec.openDecisions.length > 0 && (
-                  <div className="mt-4 bg-violet-50 rounded-lg p-4">
-                    <p className="text-xs font-semibold text-violet-600 uppercase tracking-wide mb-2">
-                      아직 결정 필요
-                    </p>
-                    <ul className="space-y-1">
-                      {spec.openDecisions.map((d, i) => (
-                        <li key={i} className="flex gap-2 text-sm text-violet-700">
-                          <span className="mt-0.5">!</span> {d}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-
-              {/* Requirements */}
-              <div className="mb-8">
-                <p className="text-sm font-semibold text-gray-700 mb-3">
-                  꼭 들어가야 할 것 ({requirements.length}개)
-                </p>
-                <div className="space-y-2">
-                  {requirements.map((req) => (
-                    <div key={req.id} className="bg-white rounded-xl border border-gray-200 p-4">
-                      <div className="flex items-start gap-3 mb-2">
-                        <p className="text-sm font-medium text-gray-800 flex-1">{req.title}</p>
-                        <StatusBadge status={req.status} />
-                      </div>
-                      {ACCEPTANCE_CRITERIA[req.id] && (
-                        <ul className="space-y-1 pl-1">
-                          {ACCEPTANCE_CRITERIA[req.id].map((c, i) => (
-                            <li key={i} className="flex gap-2 text-xs text-gray-500">
-                              <span className="text-gray-300">-</span> {c}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                      <div className="mt-2">
-                        <span className="text-xs text-gray-400">
-                          {PRIORITY_LABEL[req.priority]}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setStep(3)}
-                  className="flex-1 bg-white text-gray-600 border border-gray-200 text-sm font-medium py-3.5 rounded-xl hover:bg-gray-50 transition-colors"
-                >
-                  ← 질문 수정
-                </button>
-                <button
-                  onClick={handleSave}
-                  className="flex-[2] bg-indigo-600 text-white text-sm font-medium py-3.5 rounded-xl hover:bg-indigo-700 transition-colors"
-                >
-                  저장하고 프로젝트 시작하기 →
-                </button>
-              </div>
-            </div>
+          {/* ── Step 4: 결과 ──────────────────────────────────────── */}
+          {step === 4 && (specResult ?? result) && (
+            <SpecPreview
+              data={(specResult ?? result)!}
+              isFallback={isFallback}
+              onBack={() => setStep(3)}
+              onSave={handleSave}
+            />
           )}
         </div>
       </main>
+    </div>
+  );
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function ApiQuestionCard({
+  question,
+  index,
+  total,
+  answer,
+  onAnswer,
+}: {
+  question: WorkspaceQuestion;
+  index: number;
+  total: number;
+  answer: string | undefined;
+  onAnswer: (v: string) => void;
+}) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-xs font-mono text-gray-400">{index + 1} / {total}</span>
+        {answer && answer !== "defer" && (
+          <span className="text-xs text-green-600 font-medium">✓ 답변 완료</span>
+        )}
+        {answer === "defer" && <span className="text-xs text-gray-400">나중에 정하기</span>}
+      </div>
+      <p className="text-base font-medium text-gray-900 mb-4 leading-snug">{question.question}</p>
+      <div className="bg-indigo-50 rounded-lg px-4 py-3 mb-5">
+        <p className="text-xs font-semibold text-indigo-700 mb-0.5">추천: {question.recommendation}</p>
+        <p className="text-xs text-indigo-600 leading-relaxed">{question.reason}</p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {question.options.map((opt, i) => (
+          <button
+            key={i}
+            onClick={() => onAnswer(opt)}
+            className={`text-sm px-4 py-2 rounded-lg border transition-all ${
+              answer === opt
+                ? "bg-indigo-600 text-white border-indigo-600"
+                : "bg-white text-gray-700 border-gray-200 hover:border-indigo-300 hover:bg-indigo-50"
+            }`}
+          >
+            {opt}
+          </button>
+        ))}
+        {question.allowLater && (
+          <button
+            onClick={() => onAnswer("defer")}
+            className={`text-sm px-4 py-2 rounded-lg border transition-all ${
+              answer === "defer"
+                ? "bg-gray-200 text-gray-700 border-gray-300"
+                : "bg-white text-gray-400 border-gray-200 hover:bg-gray-50"
+            }`}
+          >
+            나중에 정하기
+          </button>
+        )}
+        {question.allowCustom && (
+          <button
+            onClick={() => onAnswer("custom")}
+            className={`text-sm px-4 py-2 rounded-lg border transition-all ${
+              answer === "custom"
+                ? "bg-gray-800 text-white border-gray-800"
+                : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"
+            }`}
+          >
+            직접 입력
+          </button>
+        )}
+      </div>
+      {answer === "custom" && (
+        <input
+          autoFocus
+          type="text"
+          placeholder="직접 입력하세요"
+          className="mt-3 w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+          onBlur={(e) => e.target.value && onAnswer(e.target.value)}
+        />
+      )}
+    </div>
+  );
+}
+
+function SpecPreview({
+  data,
+  isFallback,
+  onBack,
+  onSave,
+}: {
+  data: IdeaToSpecDraftResponse;
+  isFallback: boolean;
+  onBack: () => void;
+  onSave: () => void;
+}) {
+  const { productSpec, items } = data;
+  return (
+    <div>
+      <h2 className="text-xl font-bold text-gray-900 mb-1">제품 설명서 초안이 완성됐습니다</h2>
+      <p className="text-sm text-gray-500 mb-6">
+        저장하면 프로젝트 페이지에서 언제든 확인할 수 있습니다.
+      </p>
+
+      {isFallback && (
+        <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 mb-5 text-xs text-amber-700">
+          지금은 임시 초안으로 보여드리고 있어요. 저장 후 언제든 수정할 수 있습니다.
+        </div>
+      )}
+
+      <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+        <h3 className="text-lg font-bold text-gray-900 mb-0.5">{productSpec.productName}</h3>
+        <p className="text-sm text-gray-500 mb-5">{productSpec.oneLine}</p>
+
+        <SpecRow label="누가 쓰는 제품" value={productSpec.targetUsers.join(", ")} />
+        <SpecRow label="해결하려는 문제" value={productSpec.problem} />
+
+        <div className="mt-4">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">이번 버전에 포함</p>
+          <ul className="space-y-1">
+            {productSpec.included.map((item, i) => (
+              <li key={i} className="flex gap-2 text-sm text-gray-700">
+                <span className="text-green-500 mt-0.5">•</span> {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {productSpec.excluded.length > 0 && (
+          <div className="mt-4">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">이번 버전에서 제외</p>
+            <ul className="space-y-1">
+              {productSpec.excluded.map((item, i) => (
+                <li key={i} className="flex gap-2 text-sm text-gray-500">
+                  <span className="mt-0.5">×</span> {item}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {productSpec.openQuestions.length > 0 && (
+          <div className="mt-4 bg-violet-50 rounded-lg p-4">
+            <p className="text-xs font-semibold text-violet-600 uppercase tracking-wide mb-2">아직 결정 필요</p>
+            <ul className="space-y-1">
+              {productSpec.openQuestions.map((d, i) => (
+                <li key={i} className="flex gap-2 text-sm text-violet-700">
+                  <span className="mt-0.5">!</span> {d}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      <div className="mb-8">
+        <p className="text-sm font-semibold text-gray-700 mb-3">꼭 들어가야 할 것 ({items.length}개)</p>
+        <div className="space-y-2">
+          {items.map((item) => (
+            <RequirementRow key={item.id} item={item} />
+          ))}
+        </div>
+      </div>
+
+      <div className="flex gap-3">
+        <button
+          onClick={onBack}
+          className="flex-1 bg-white text-gray-600 border border-gray-200 text-sm font-medium py-3.5 rounded-xl hover:bg-gray-50 transition-colors"
+        >
+          ← 질문 수정
+        </button>
+        <button
+          onClick={onSave}
+          className="flex-[2] bg-indigo-600 text-white text-sm font-medium py-3.5 rounded-xl hover:bg-indigo-700 transition-colors"
+        >
+          저장하고 프로젝트 시작하기 →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function RequirementRow({ item }: { item: WorkspaceRequirementItem }) {
+  const criteriaList = item.criteria.length > 0 ? item.criteria : (ACCEPTANCE_CRITERIA[item.id] ?? []);
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-4">
+      <div className="flex items-start gap-3 mb-2">
+        <p className="text-sm font-medium text-gray-800 flex-1">{item.title}</p>
+        <StatusBadge status={item.status} />
+      </div>
+      {criteriaList.length > 0 && (
+        <ul className="space-y-1 pl-1">
+          {criteriaList.map((c, i) => (
+            <li key={i} className="flex gap-2 text-xs text-gray-500">
+              <span className="text-gray-300">-</span> {c}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -397,8 +491,4 @@ function SpecRow({ label, value }: { label: string; value: string }) {
       <p className="text-sm text-gray-700">{value}</p>
     </div>
   );
-}
-
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
 }

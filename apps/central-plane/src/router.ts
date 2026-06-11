@@ -29,6 +29,7 @@ import { createPromptVariantsRoutes } from "./routes/prompt-variants.js";
 import { createSpawnedAgentsRoutes } from "./routes/spawned-agents.js";
 import { createBillingRoutes } from "./routes/billing.js";
 import { createLemonsqueezyWebhookRoutes } from "./routes/lemonsqueezy-webhook.js";
+import { createWorkspaceRoutes } from "./routes/workspace.js";
 import type { FetchLike } from "./github.js";
 
 /**
@@ -122,6 +123,9 @@ export function createApp(opts: { fetch?: FetchLike } = {}): Hono<{ Bindings: En
   // v0.14.5 — Lemon Squeezy webhook receiver. POST /webhook/lemonsqueezy
   // verifies X-Signature HMAC + grants paid_credits on order_created.
   app.route("/", createLemonsqueezyWebhookRoutes());
+  // Workspace generation — free beta, no auth, CORS-enabled for dashboard.
+  // POST /workspace/idea-to-spec-draft
+  app.route("/", createWorkspaceRoutes());
   app.onError((err, c) => {
     console.error("central-plane error:", err);
     return c.json({ error: err.message || "internal error" }, 500);
