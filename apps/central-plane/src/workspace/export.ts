@@ -4,6 +4,8 @@
  * Deterministic "만들기 패키지" (builder pack) generation.
  * No LLM calls — pure string assembly from structured project data.
  * Produces Markdown files ready for Claude Code or Codex.
+ *
+ * Stage 7: supports selectedItemIds filtering + stronger task-focus prompts.
  */
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -74,6 +76,10 @@ export type WorkspaceExportBuilderPackRequest = {
     checkResults?: ExportCheckResults;
     fixSuggestions?: Record<string, ExportFixSuggestion>;
   };
+  /** When provided, only these item IDs are included in items.md, checks.md, fixes.md, and prompts.
+   *  product.md always contains the full product context.
+   *  If empty or omitted, all items are included. */
+  selectedItemIds?: string[];
   target: ExportTarget;
   format: ExportFormat;
   locale?: "ko" | "en";
@@ -92,6 +98,8 @@ export type WorkspaceExportBuilderPackResponse = {
   };
   summary: {
     fileCount: number;
+    totalItems: number;
+    selectedItems: number;
     recommendedNextStep: string;
   };
 };
@@ -111,29 +119,48 @@ function statusLabel(status: string): string {
 
 // ─── File generators ──────────────────────────────────────────────────────────
 
-function genReadme(title: string, target: ExportTarget): string {
+function genReadme(
+  title: string,
+  target: ExportTarget,
+  totalItems: number,
+  selectedItems: number,
+): string {
+  const isFiltered = selectedItems < totalItems;
   const lines = [
     `# 만들기 패키지 — ${title}`,
     "",
     "이 패키지는 Conclave Workspace에서 내보낸 제품 설명서와 개발 지시서입니다.",
     "",
-    "## 개발 AI에 넘기는 방법",
-    "",
   ];
 
-  if (target !== "codex") {
-    lines.push("### Claude Code 사용 시");
+  if (isFiltered) {
     lines.push(
-      "`CLAUDE_CODE_PROMPT.md` 파일 내용을 복사해서 Claude Code 대화창에 붙여넣으세요.",
+      `> **이번 패키지에 포함된 항목: ${selectedItems}개** (전체 ${totalItems}개 중)`,
+      "> 포함되지 않은 항목은 건드리지 마세요.",
+      "",
     );
-    lines.push("");
+  } else {
+    lines.push(
+      `> 이번 패키지에 포함된 항목: ${selectedItems}개 (전체)`,
+      "",
+    );
+  }
+
+  lines.push("## 개발 AI에 넘기는 방법", "");
+
+  if (target !== "codex") {
+    lines.push(
+      "### Claude Code 사용 시",
+      "`CLAUDE_CODE_PROMPT.md` 파일 내용을 복사해서 Claude Code 대화창에 붙여넣으세요.",
+      "",
+    );
   }
   if (target !== "claude_code") {
-    lines.push("### Codex 사용 시");
     lines.push(
+      "### Codex 사용 시",
       "`CODEX_PROMPT.md` 파일 내용을 복사해서 Codex 대화창에 붙여넣으세요.",
+      "",
     );
-    lines.push("");
   }
 
   lines.push(
@@ -162,79 +189,55 @@ function genProductMd(spec: ExportProductSpec): string {
   ];
 
   if (spec.targetUsers.length > 0) {
-    sections.push(
-      "",
-      "## 누가 쓰는 제품",
-      "",
-      ...spec.targetUsers.map((u) => `- ${u}`),
-    );
+    sections.push("", "## 누가 쓰는 제품", "", ...spec.targetUsers.map((u) => `- ${u}`));
   }
 
   sections.push("", "## 해결하려는 문제", "", spec.problem);
 
   if (spec.included.length > 0) {
-    sections.push(
-      "",
-      "## 이번 버전에 포함",
-      "",
-      ...spec.included.map((i) => `- ${i}`),
-    );
+    sections.push("", "## 이번 버전에 포함", "", ...spec.included.map((i) => `- ${i}`));
   }
 
   if (spec.excluded.length > 0) {
-    sections.push(
-      "",
-      "## 이번 버전에서 제외",
-      "",
-      ...spec.excluded.map((e) => `- ~~${e}~~`),
-    );
+    sections.push("", "## 이번 버전에서 제외", "", ...spec.excluded.map((e) => `- ~~${e}~~`));
   }
 
   if (spec.userFlow.length > 0) {
-    sections.push(
-      "",
-      "## 사용자 흐름",
-      "",
-      ...spec.userFlow.map((f, i) => `${i + 1}. ${f}`),
-    );
+    sections.push("", "## 사용자 흐름", "", ...spec.userFlow.map((f, i) => `${i + 1}. ${f}`));
   }
 
   if (spec.decisions.length > 0) {
-    sections.push(
-      "",
-      "## 결정된 사항",
-      "",
-      ...spec.decisions.map((d) => `- ${d}`),
-    );
+    sections.push("", "## 결정된 사항", "", ...spec.decisions.map((d) => `- ${d}`));
   }
 
   if (spec.openQuestions.length > 0) {
-    sections.push(
-      "",
-      "## 아직 결정이 필요한 사항",
-      "",
-      ...spec.openQuestions.map((q) => `- [ ] ${q}`),
-    );
+    sections.push("", "## 아직 결정이 필요한 사항", "", ...spec.openQuestions.map((q) => `- [ ] ${q}`));
   }
 
   return sections.join("\n");
 }
 
-function genItemsMd(items: ExportItem[]): string {
+function genItemsMd(items: ExportItem[], totalItems: number): string {
   if (items.length === 0) {
     return "# 꼭 들어가야 할 항목\n\n항목이 없습니다.";
   }
 
-  const lines = ["# 꼭 들어가야 할 항목", ""];
+  const header =
+    items.length < totalItems
+      ? `# 꼭 들어가야 할 항목 (이번 패키지: ${items.length}개 / 전체: ${totalItems}개)\n`
+      : `# 꼭 들어가야 할 항목 (${items.length}개)\n`;
+
+  const lines = [header];
+  if (items.length < totalItems) {
+    lines.push("> 포함되지 않은 항목은 이번 패키지에서 건드리지 마세요.\n");
+  }
 
   for (const item of items) {
     lines.push(`## ${item.title}`);
     lines.push(`**상태:** ${statusLabel(item.status)}`);
     if (item.criteria.length > 0) {
       lines.push("", "**완성 기준:**", "");
-      for (const c of item.criteria) {
-        lines.push(`- [ ] ${c}`);
-      }
+      for (const c of item.criteria) lines.push(`- [ ] ${c}`);
     }
     lines.push("");
   }
@@ -242,7 +245,7 @@ function genItemsMd(items: ExportItem[]): string {
   return lines.join("\n");
 }
 
-function genChecksMd(checkResults?: ExportCheckResults): string {
+function genChecksMd(checkResults?: ExportCheckResults, totalItems?: number): string {
   const disclaimer =
     "> **안내:** 이 확인 결과는 제품 설명서 기준의 사전 점검입니다. 아직 실제 코드나 GitHub PR을 확인한 결과가 아닙니다.";
 
@@ -257,7 +260,12 @@ function genChecksMd(checkResults?: ExportCheckResults): string {
   }
 
   const { summary, results } = checkResults;
-  const lines = ["# 확인 결과", "", disclaimer, ""];
+  const isFiltered = totalItems !== undefined && results.length < totalItems;
+  const title = isFiltered
+    ? `# 확인 결과 (이번 패키지: ${results.length}개 항목)`
+    : "# 확인 결과";
+
+  const lines = [title, "", disclaimer, ""];
 
   lines.push(
     "## 요약",
@@ -301,10 +309,7 @@ function genFixesMd(
   fixSuggestions?: Record<string, ExportFixSuggestion>,
 ): string {
   const needsFix = items.filter(
-    (i) =>
-      i.status === "failed" ||
-      i.status === "inconclusive" ||
-      i.status === "needs_decision",
+    (i) => i.status === "failed" || i.status === "inconclusive" || i.status === "needs_decision",
   );
 
   if (needsFix.length === 0) {
@@ -321,7 +326,7 @@ function genFixesMd(
     if (fix) {
       const { plainSummary, builderBrief } = fix.suggestion;
       lines.push("### 수정 제안", "", plainSummary, "");
-      lines.push(`### 개발 AI에게 줄 작업 지시`, "");
+      lines.push("### 개발 AI에게 줄 작업 지시", "");
       lines.push(`**${builderBrief.title}**`, "");
       lines.push(`**목표:** ${builderBrief.goal}`, "");
 
@@ -353,44 +358,44 @@ function genFixesMd(
 
 function genClaudeCodePrompt(
   title: string,
-  items: ExportItem[],
+  effectiveItems: ExportItem[],
+  totalItems: number,
 ): string {
-  const todoItems = items.filter((i) => i.status !== "passed");
-  const itemList =
-    todoItems.length > 0
-      ? todoItems.map((i) => `- [ ] ${i.title}`).join("\n")
-      : items.map((i) => `- [ ] ${i.title}`).join("\n");
+  const isFiltered = effectiveItems.length < totalItems;
+  const itemList = effectiveItems.map((i) => `- [ ] ${i.title}`).join("\n");
 
   return [
     `# Claude Code용 지시서 — ${title}`,
     "",
     "이 파일 내용을 Claude Code 대화창에 그대로 붙여넣으세요.",
     "",
+    isFiltered
+      ? `> **이번 패키지에 포함된 항목: ${effectiveItems.length}개** (전체 ${totalItems}개 중)`
+      : `> 이번 패키지에 포함된 항목: ${effectiveItems.length}개 (전체)`,
+    ">",
+    "> 포함되지 않은 항목은 건드리지 마세요.",
+    "",
     "---",
     "",
     "## 지시사항",
     "",
-    "1. 먼저 다음 파일을 읽어라:",
-    "   - `product.md` — 제품 설명서",
-    "   - `items.md` — 꼭 들어가야 할 항목과 완성 기준",
-    "   - `checks.md` — 확인 결과",
-    "   - `fixes.md` — 고쳐야 할 항목",
+    "1. 먼저 `product.md`를 읽어 전체 맥락을 이해한다.",
+    `2. \`items.md\`에서 이번에 포함된 항목만 확인한다. (총 ${effectiveItems.length}개)`,
+    "3. `checks.md`에서 각 항목의 문제가 된 이유를 확인한다.",
+    "4. `fixes.md`의 수정 지시를 따른다.",
+    "5. 코딩 전에 관련 파일을 탐색하고 짧은 구현 계획을 작성한다.",
+    "6. 구현 후 각 항목의 완성 기준별로 스스로 확인한다.",
+    "7. 변경 파일, 완료한 항목, 실행한 테스트, 남은 위험을 보고한다.",
     "",
-    "2. 전체 제품을 한 번에 만들지 말고, 아래 목록에서 **지금 구현할 항목 하나**를 선택해서 구현하라.",
+    "## 중요한 제약",
     "",
-    "3. 범위를 벗어난 기능은 구현하지 마라. `product.md`의 '이번 버전에서 제외' 항목은 절대 구현하지 않는다.",
+    "- **이번 패키지에 포함된 항목만 구현하거나 수정한다.**",
+    "- 포함되지 않은 항목은 건드리지 않는다.",
+    "- `product.md`의 '이번 버전에서 제외' 항목은 절대 구현하지 않는다.",
+    "- 전체 제품을 한 번에 만들지 않는다. 이번 패키지 범위만 구현한다.",
+    "- 애매한 점이 있으면 코드 작성 전에 질문한다.",
     "",
-    "4. 애매한 점이 있으면 코드 작성 전에 질문하라.",
-    "",
-    "5. 구현 후 `items.md`의 완성 기준을 기준으로 스스로 확인하라.",
-    "",
-    "6. 완료 시 다음 형식으로 보고하라:",
-    "   - 변경한 파일 목록",
-    "   - 완료한 항목",
-    "   - 실행한 테스트",
-    "   - 남은 위험 또는 불확실한 부분",
-    "",
-    "## 구현할 항목 목록",
+    "## 포함된 항목 목록",
     "",
     itemList,
   ].join("\n");
@@ -399,13 +404,14 @@ function genClaudeCodePrompt(
 function genCodexPrompt(
   title: string,
   spec: ExportProductSpec,
-  items: ExportItem[],
+  effectiveItems: ExportItem[],
+  totalItems: number,
   fixSuggestions?: Record<string, ExportFixSuggestion>,
 ): string {
-  const todoItems = items.filter((i) => i.status !== "passed");
+  const isFiltered = effectiveItems.length < totalItems;
 
   const tasksLines: string[] = [];
-  for (const item of todoItems.length > 0 ? todoItems : items) {
+  for (const item of effectiveItems) {
     tasksLines.push(`- ${item.title}`);
     const fix = fixSuggestions?.[item.id];
     if (fix?.suggestion.builderBrief.tasks.length) {
@@ -416,7 +422,7 @@ function genCodexPrompt(
   }
 
   const doneWhenLines: string[] = [];
-  for (const item of todoItems.length > 0 ? todoItems : items) {
+  for (const item of effectiveItems) {
     const fix = fixSuggestions?.[item.id];
     const criteria = fix?.suggestion.builderBrief.doneWhen.length
       ? fix.suggestion.builderBrief.doneWhen
@@ -427,14 +433,15 @@ function genCodexPrompt(
     doneWhenLines.push("- (완성 기준을 items.md에서 확인하세요)");
   }
 
-  const doNotDoLines: string[] = spec.excluded.map(
-    (e) => `- ${e}을(를) 구현하지 마세요`,
-  );
-  for (const fix of Object.values(fixSuggestions ?? {})) {
-    for (const d of fix.suggestion.builderBrief.doNotDo) {
-      doNotDoLines.push(`- ${d}`);
-    }
-  }
+  const doNotDoLines: string[] = [
+    isFiltered
+      ? `- 이번 패키지에 포함되지 않은 항목 (전체 ${totalItems}개 중 ${effectiveItems.length}개만 포함)은 건드리지 마세요.`
+      : "- 이번 버전 범위를 벗어난 기능은 구현하지 마세요.",
+    ...spec.excluded.map((e) => `- ${e}을(를) 구현하지 마세요`),
+    ...Object.values(fixSuggestions ?? {}).flatMap(
+      (f) => f.suggestion.builderBrief.doNotDo.map((d) => `- ${d}`)
+    ),
+  ];
 
   return [
     `# Codex용 지시서 — ${title}`,
@@ -456,16 +463,23 @@ function genCodexPrompt(
     "이번 버전에 포함할 기능:",
     ...spec.included.map((i) => `- ${i}`),
     "",
-    "## Constraints",
+    "## Selected tasks",
     "",
-    "- 이번 버전 범위의 기능만 구현한다.",
-    "- 아래 'Do not do' 항목은 절대 구현하지 않는다.",
-    "- 애매한 부분이 있으면 코드 작성 전에 명확하게 정의하라.",
-    "- 기존 코드베이스가 있다면 기존 패턴을 따른다.",
-    "",
-    "## Tasks",
+    isFiltered
+      ? `**이번에 구현할 항목 (${effectiveItems.length}개 / 전체 ${totalItems}개 중):**`
+      : `**이번에 구현할 항목 (${effectiveItems.length}개):**`,
     "",
     ...(tasksLines.length > 0 ? tasksLines : ["- (items.md 참고)"]),
+    "",
+    "> 포함되지 않은 항목은 건드리지 마세요.",
+    "",
+    "## Constraints",
+    "",
+    "- 위 'Selected tasks' 목록의 항목만 구현한다.",
+    "- 전체 제품을 한 번에 만들지 않는다.",
+    "- 아래 'Do not do' 항목은 절대 구현하지 않는다.",
+    "- 코딩 전에 관련 파일을 탐색하고 짧은 구현 계획을 작성한다.",
+    "- 기존 코드베이스가 있다면 기존 패턴을 따른다.",
     "",
     "## Done when",
     "",
@@ -473,14 +487,13 @@ function genCodexPrompt(
     "",
     "## Do not do",
     "",
-    ...(doNotDoLines.length > 0
-      ? doNotDoLines
-      : ["- (product.md의 이번 버전 제외 항목을 확인하세요)"]),
+    ...doNotDoLines,
     "",
     "## Verify by",
     "",
     "- 각 항목의 완성 기준(items.md)을 기준으로 직접 확인한다.",
-    "- 범위 밖 기능이 포함되지 않았는지 확인한다.",
+    "- 포함되지 않은 항목이 변경되지 않았는지 확인한다.",
+    "- 범위 밖 기능이 추가되지 않았는지 확인한다.",
     "- 아직 결정이 필요한 사항(product.md)이 구현에 영향을 미치지 않았는지 확인한다.",
     "",
     "## Final response format",
@@ -514,39 +527,91 @@ export function generateBuilderPack(
       ok: true,
       source: "deterministic",
       bundle: { files: [] },
-      summary: { fileCount: 0, recommendedNextStep: "project 데이터를 포함해서 다시 요청해주세요." },
+      summary: {
+        fileCount: 0,
+        totalItems: 0,
+        selectedItems: 0,
+        recommendedNextStep: "project 데이터를 포함해서 다시 요청해주세요.",
+      },
     };
   }
 
-  const { title, productSpec, items, checkResults, fixSuggestions } = project;
+  const { title, productSpec, items: allItems, checkResults, fixSuggestions } = project;
   const target = req.target;
 
+  // ── Apply selectedItemIds filter ──────────────────────────────────────────
+  const selectedSet =
+    req.selectedItemIds && req.selectedItemIds.length > 0
+      ? new Set(req.selectedItemIds)
+      : null;
+  const effectiveItems = selectedSet
+    ? allItems.filter((i) => selectedSet.has(i.id))
+    : allItems;
+
+  // ── Filter check results and fix suggestions to selected items ─────────────
+  const effectiveCheckResults: ExportCheckResults | undefined = (() => {
+    if (!checkResults) return undefined;
+    const results = selectedSet
+      ? checkResults.results.filter((r) => selectedSet.has(r.itemId))
+      : checkResults.results;
+    const summary = {
+      passed: results.filter((r) => r.status === "passed").length,
+      failed: results.filter((r) => r.status === "failed").length,
+      inconclusive: results.filter((r) => r.status === "inconclusive").length,
+      needsDecision: results.filter((r) => r.status === "needs_decision").length,
+    };
+    return { results, summary };
+  })();
+
+  const effectiveFixSuggestions: Record<string, ExportFixSuggestion> | undefined =
+    fixSuggestions && selectedSet
+      ? Object.fromEntries(
+          Object.entries(fixSuggestions).filter(([id]) => selectedSet.has(id)),
+        )
+      : fixSuggestions;
+
+  // ── Generate files ────────────────────────────────────────────────────────
   const baseFiles: ExportFile[] = [
-    { path: "conclave-build-pack/README.md", content: genReadme(title, target) },
-    { path: "conclave-build-pack/product.md", content: genProductMd(productSpec) },
-    { path: "conclave-build-pack/items.md", content: genItemsMd(items) },
-    { path: "conclave-build-pack/checks.md", content: genChecksMd(checkResults) },
-    { path: "conclave-build-pack/fixes.md", content: genFixesMd(items, fixSuggestions) },
+    {
+      path: "conclave-build-pack/README.md",
+      content: genReadme(title, target, allItems.length, effectiveItems.length),
+    },
+    {
+      path: "conclave-build-pack/product.md",
+      content: genProductMd(productSpec), // always full context
+    },
+    {
+      path: "conclave-build-pack/items.md",
+      content: genItemsMd(effectiveItems, allItems.length),
+    },
+    {
+      path: "conclave-build-pack/checks.md",
+      content: genChecksMd(effectiveCheckResults, allItems.length),
+    },
+    {
+      path: "conclave-build-pack/fixes.md",
+      content: genFixesMd(effectiveItems, effectiveFixSuggestions),
+    },
   ];
 
   if (target !== "codex") {
     baseFiles.push({
       path: "conclave-build-pack/CLAUDE_CODE_PROMPT.md",
-      content: genClaudeCodePrompt(title, items),
+      content: genClaudeCodePrompt(title, effectiveItems, allItems.length),
     });
   }
   if (target !== "claude_code") {
     baseFiles.push({
       path: "conclave-build-pack/CODEX_PROMPT.md",
-      content: genCodexPrompt(title, productSpec, items, fixSuggestions),
+      content: genCodexPrompt(title, productSpec, effectiveItems, allItems.length, effectiveFixSuggestions),
     });
   }
 
   const hasIssues =
-    checkResults &&
-    (checkResults.summary.failed > 0 ||
-      checkResults.summary.inconclusive > 0 ||
-      checkResults.summary.needsDecision > 0);
+    effectiveCheckResults &&
+    (effectiveCheckResults.summary.failed > 0 ||
+      effectiveCheckResults.summary.inconclusive > 0 ||
+      effectiveCheckResults.summary.needsDecision > 0);
 
   const recommendedNextStep = hasIssues
     ? "fixes.md에서 고쳐야 할 항목을 확인하고, 해당 지시서를 개발 AI에 넘기세요."
@@ -556,6 +621,11 @@ export function generateBuilderPack(
     ok: true,
     source: "deterministic",
     bundle: { files: baseFiles },
-    summary: { fileCount: baseFiles.length, recommendedNextStep },
+    summary: {
+      fileCount: baseFiles.length,
+      totalItems: allItems.length,
+      selectedItems: effectiveItems.length,
+      recommendedNextStep,
+    },
   };
 }

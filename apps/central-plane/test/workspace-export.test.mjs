@@ -146,17 +146,19 @@ describe("workspace export-builder-pack", () => {
     assert.equal(res.bundle.files.length, 0);
   });
 
-  it("CLAUDE_CODE_PROMPT.md contains all 6 required instructions", () => {
+  it("CLAUDE_CODE_PROMPT.md contains all 7 required instructions", () => {
     const res = generateBuilderPack(makeReq("claude_code"));
     const file = res.bundle.files.find((f) => f.path.endsWith("CLAUDE_CODE_PROMPT.md"));
     assert.ok(file, "file missing");
-    // 6 numbered instructions
-    assert.ok(file.content.includes("1."), "instruction 1 missing");
-    assert.ok(file.content.includes("2."), "instruction 2 missing");
+    // 7 numbered steps
+    for (let i = 1; i <= 7; i++) {
+      assert.ok(file.content.includes(`${i}.`), `instruction ${i} missing`);
+    }
     assert.ok(file.content.includes("완성 기준"), "완성 기준 instruction missing");
-    assert.ok(file.content.includes("범위를 벗어난"), "scope constraint missing");
+    assert.ok(file.content.includes("제외"), "scope constraint missing");
     assert.ok(file.content.includes("질문"), "ask-before-code instruction missing");
     assert.ok(file.content.includes("보고"), "report instruction missing");
+    assert.ok(file.content.includes("포함된 항목만 구현"), "selection constraint missing");
   });
 
   it("CODEX_PROMPT.md has all required sections", () => {
@@ -170,5 +172,111 @@ describe("workspace export-builder-pack", () => {
     assert.ok(file.content.includes("## Do not do"), "Do not do section missing");
     assert.ok(file.content.includes("## Verify by"), "Verify by section missing");
     assert.ok(file.content.includes("## Final response format"), "Final response format section missing");
+  });
+});
+
+// ─── Stage 7: selectedItemIds tests ──────────────────────────────────────────
+
+describe("workspace export-builder-pack (Stage 7: selectedItemIds)", () => {
+  it("export without selectedItemIds includes all items", () => {
+    const res = generateBuilderPack(makeReq("both"));
+    assert.equal(res.summary.totalItems, MOCK_ITEMS.length);
+    assert.equal(res.summary.selectedItems, MOCK_ITEMS.length);
+
+    const itemsFile = res.bundle.files.find((f) => f.path.endsWith("items.md"));
+    assert.ok(itemsFile, "items.md missing");
+    for (const item of MOCK_ITEMS) {
+      assert.ok(itemsFile.content.includes(item.title), `${item.title} missing from items.md`);
+    }
+  });
+
+  it("export with selectedItemIds includes only selected items in items.md", () => {
+    const res = generateBuilderPack({
+      ...makeReq("both"),
+      selectedItemIds: ["req_001"],
+    });
+    assert.equal(res.summary.totalItems, MOCK_ITEMS.length);
+    assert.equal(res.summary.selectedItems, 1);
+
+    const itemsFile = res.bundle.files.find((f) => f.path.endsWith("items.md"));
+    assert.ok(itemsFile, "items.md missing");
+    assert.ok(itemsFile.content.includes("녹음 파일을 올릴 수 있어야 함"), "selected item missing");
+    assert.ok(!itemsFile.content.includes("텍스트로 변환되어야 함"), "non-selected item should not appear");
+  });
+
+  it("product.md keeps full context even when items are filtered", () => {
+    const res = generateBuilderPack({
+      ...makeReq("both"),
+      selectedItemIds: ["req_001"],
+    });
+    const productFile = res.bundle.files.find((f) => f.path.endsWith("product.md"));
+    assert.ok(productFile, "product.md missing");
+    assert.ok(productFile.content.includes(MOCK_SPEC.productName), "product name missing");
+    assert.ok(productFile.content.includes(MOCK_SPEC.problem), "problem missing from product.md");
+    assert.ok(productFile.content.includes(MOCK_SPEC.included[0]), "included features missing");
+  });
+
+  it("checks.md filters to selected items only", () => {
+    const res = generateBuilderPack({
+      ...makeReq("both", { checkResults: MOCK_CHECK_RESULTS }),
+      selectedItemIds: ["req_001"],
+    });
+    const checksFile = res.bundle.files.find((f) => f.path.endsWith("checks.md"));
+    assert.ok(checksFile, "checks.md missing");
+    // req_001 is "passed" — should appear
+    assert.ok(checksFile.content.includes("녹음 파일을 올릴 수 있어야 함"), "selected item missing from checks");
+    // req_002 is "failed" but NOT selected — should NOT appear
+    assert.ok(!checksFile.content.includes("텍스트로 변환되어야 함"), "non-selected item should not appear in checks");
+  });
+
+  it("summary.selectedItems reflects the filter", () => {
+    const res = generateBuilderPack({
+      ...makeReq("both"),
+      selectedItemIds: ["req_001", "req_002"],
+    });
+    assert.equal(res.summary.selectedItems, 2);
+    assert.equal(res.summary.totalItems, MOCK_ITEMS.length);
+  });
+
+  it("empty selectedItemIds falls back to all items", () => {
+    const res = generateBuilderPack({
+      ...makeReq("both"),
+      selectedItemIds: [],
+    });
+    assert.equal(res.summary.selectedItems, MOCK_ITEMS.length);
+  });
+
+  it("Claude prompt says only selected items should be implemented", () => {
+    const res = generateBuilderPack({
+      ...makeReq("claude_code"),
+      selectedItemIds: ["req_001"],
+    });
+    const file = res.bundle.files.find((f) => f.path.endsWith("CLAUDE_CODE_PROMPT.md"));
+    assert.ok(file, "CLAUDE_CODE_PROMPT.md missing");
+    assert.ok(file.content.includes("포함된 항목만 구현"), "scope constraint missing");
+    assert.ok(file.content.includes("포함되지 않은 항목은 건드리지"), "non-selected warning missing");
+    assert.ok(file.content.includes("녹음 파일을 올릴 수 있어야 함"), "selected item missing from prompt");
+  });
+
+  it("Codex prompt has Selected tasks section", () => {
+    const res = generateBuilderPack({
+      ...makeReq("codex"),
+      selectedItemIds: ["req_002"],
+    });
+    const file = res.bundle.files.find((f) => f.path.endsWith("CODEX_PROMPT.md"));
+    assert.ok(file, "CODEX_PROMPT.md missing");
+    assert.ok(file.content.includes("## Selected tasks"), "Selected tasks section missing");
+    assert.ok(file.content.includes("텍스트로 변환되어야 함"), "selected item missing from Codex prompt");
+  });
+
+  it("README shows item count when filtered", () => {
+    const res = generateBuilderPack({
+      ...makeReq("both"),
+      selectedItemIds: ["req_001"],
+    });
+    const readme = res.bundle.files.find((f) => f.path.endsWith("README.md"));
+    assert.ok(readme, "README.md missing");
+    assert.ok(readme.content.includes("1개"), "filtered item count missing from README");
+    assert.ok(readme.content.includes(`${MOCK_ITEMS.length}개 중`), "total item count missing from README");
   });
 });

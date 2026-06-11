@@ -22,7 +22,7 @@ export type ExportBuilderPackResponse = {
   ok: true;
   source: "deterministic";
   bundle: { files: ExportFile[] };
-  summary: { fileCount: number; recommendedNextStep: string };
+  summary: { fileCount: number; totalItems: number; selectedItems: number; recommendedNextStep: string };
 };
 
 export type ExportApiError =
@@ -38,6 +38,8 @@ export type ExportBuilderPackInput = {
     checkResults?: unknown;
     fixSuggestions?: unknown;
   };
+  /** When provided, only these item IDs are included in items/checks/fixes/prompts. */
+  selectedItemIds?: string[];
   target: ExportTarget;
 };
 

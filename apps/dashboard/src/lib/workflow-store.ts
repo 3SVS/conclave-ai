@@ -126,3 +126,44 @@ export function loadExtendedProjectData(projectId: string): ExtendedProjectData 
     return null;
   }
 }
+
+// ─── Builder pack outcome recording ──────────────────────────────────────────
+
+import type { ExportTarget } from "./workspace-export-api";
+
+export type OutcomeStatus = "worked" | "partial" | "failed" | "not_checked";
+
+export type BuilderPackOutcome = {
+  id: string;
+  projectId: string;
+  target: ExportTarget;
+  selectedItemIds: string[];
+  outcome: OutcomeStatus;
+  note?: string;
+  createdAt: string;
+};
+
+const OUTCOMES_KEY = (projectId: string) => `conclave_outcomes_${projectId}`;
+
+export function saveOutcome(outcome: BuilderPackOutcome): void {
+  if (typeof window === "undefined") return;
+  const existing = loadOutcomes(outcome.projectId);
+  existing.unshift(outcome);
+  localStorage.setItem(OUTCOMES_KEY(outcome.projectId), JSON.stringify(existing.slice(0, 50)));
+}
+
+export function loadOutcomes(projectId: string): BuilderPackOutcome[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(OUTCOMES_KEY(projectId));
+    return raw ? (JSON.parse(raw) as BuilderPackOutcome[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function generateOutcomeId(): string {
+  const ts = Date.now().toString(36).slice(-5);
+  const rand = Math.random().toString(36).slice(2, 5);
+  return `oc_${ts}${rand}`;
+}
