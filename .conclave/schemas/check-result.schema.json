@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CheckResult",
+  "type": "object",
+  "required": [
+    "id",
+    "requirementId",
+    "status",
+    "userLabel",
+    "summary",
+    "evidence",
+    "suggestedNextActions",
+    "createdAt"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "requirementId": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "passed",
+        "failed",
+        "inconclusive",
+        "needs_decision",
+        "accepted_risk"
+      ]
+    },
+    "userLabel": {
+      "enum": [
+        "통과",
+        "안 맞음",
+        "확인 부족",
+        "결정 필요",
+        "위험 감수"
+      ]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "evidence": {
+      "type": "array"
+    },
+    "suggestedNextActions": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "fix",
+          "create_task",
+          "edit_spec",
+          "accept_risk",
+          "ask_user"
+        ]
+      }
+    },
+    "createdAt": {
+      "type": "string"
+    }
+  }
+}

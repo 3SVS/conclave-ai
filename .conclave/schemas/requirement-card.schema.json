@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RequirementCard",
+  "type": "object",
+  "required": [
+    "id",
+    "projectId",
+    "title",
+    "plainText",
+    "source",
+    "category",
+    "priority",
+    "status"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "projectId": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "plainText": {
+      "type": "string"
+    },
+    "source": {
+      "enum": [
+        "idea",
+        "question_answer",
+        "product_spec",
+        "manual"
+      ]
+    },
+    "category": {
+      "enum": [
+        "feature",
+        "validation",
+        "permission",
+        "data_boundary",
+        "integration",
+        "ui_state",
+        "error_state",
+        "agent_capability"
+      ]
+    },
+    "priority": {
+      "enum": [
+        "must",
+        "should",
+        "could"
+      ]
+    },
+    "status": {
+      "enum": [
+        "not_started",
+        "building",
+        "implemented",
+        "passed",
+        "failed",
+        "inconclusive",
+        "needs_decision",
+        "accepted_risk"
+      ]
+    },
+    "acceptanceChecks": {
+      "type": "array"
+    },
+    "lastResult": {
+      "type": "object"
+    }
+  }
+}

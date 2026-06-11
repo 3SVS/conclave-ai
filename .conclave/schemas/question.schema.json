@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ClarifyingQuestion",
+  "type": "object",
+  "required": [
+    "id",
+    "projectId",
+    "category",
+    "question",
+    "whyItMatters",
+    "options",
+    "priority",
+    "status"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "projectId": {
+      "type": "string"
+    },
+    "category": {
+      "enum": [
+        "scope",
+        "user_flow",
+        "data",
+        "permission",
+        "integration",
+        "failure_case",
+        "business_rule",
+        "privacy",
+        "launch_boundary"
+      ]
+    },
+    "question": {
+      "type": "string"
+    },
+    "whyItMatters": {
+      "type": "string"
+    },
+    "recommendedAnswer": {
+      "type": "string"
+    },
+    "options": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "value"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "tradeoff": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "priority": {
+      "type": "number"
+    },
+    "answer": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "unanswered",
+        "answered",
+        "skipped",
+        "deferred"
+      ]
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProductIdea",
+  "type": "object",
+  "required": [
+    "id",
+    "projectId",
+    "rawText",
+    "understoodSummary",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "projectId": {
+      "type": "string"
+    },
+    "rawText": {
+      "type": "string"
+    },
+    "understoodSummary": {
+      "type": "string"
+    },
+    "detectedCapabilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "detectedIntegrations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "detectedSensitiveAreas": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "createdAt": {
+      "type": "string"
+    },
+    "updatedAt": {
+      "type": "string"
+    }
+  }
+}

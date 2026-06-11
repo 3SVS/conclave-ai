@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FixLoop",
+  "type": "object",
+  "required": [
+    "id",
+    "requirementId",
+    "sourceResultId",
+    "stage",
+    "attempt",
+    "maxAttempts",
+    "status",
+    "plan"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "requirementId": {
+      "type": "string"
+    },
+    "sourceResultId": {
+      "type": "string"
+    },
+    "stage": {
+      "enum": [
+        "spec_fix",
+        "implementation_fix"
+      ]
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "maxAttempts": {
+      "const": 2
+    },
+    "status": {
+      "enum": [
+        "draft_plan",
+        "waiting_for_user",
+        "running",
+        "passed",
+        "failed",
+        "needs_human"
+      ]
+    },
+    "plan": {
+      "type": "string"
+    },
+    "generatedBuilderPrompt": {
+      "type": "string"
+    },
+    "linkedJobId": {
+      "type": "string"
+    },
+    "rerunResultId": {
+      "type": "string"
+    }
+  }
+}
