@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { getProject } from "@/lib/mock-data";
 import { NAV_LABELS } from "@/lib/labels";
+import { MockUserBadge } from "@/components/MockUserBadge";
 
 const NAV_ITEMS = [
   { key: "idea", href: "idea" },
@@ -19,8 +19,8 @@ export default async function ProjectLayout({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  // localStorage 프로젝트는 클라이언트에서 렌더링 — 여기선 이름만 필요, 없으면 fallback
   const project = getProject(id);
-  if (!project) notFound();
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -29,12 +29,14 @@ export default async function ProjectLayout({
           ← 목록
         </Link>
         <span className="text-gray-200">|</span>
-        <span className="text-sm font-medium text-gray-900 truncate">{project.name}</span>
+        <span className="text-sm font-medium text-gray-900 truncate">
+          {project?.name ?? "프로젝트"}
+        </span>
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        <nav className="w-48 bg-white border-r border-gray-200 py-6 px-3 flex-shrink-0">
-          <ul className="space-y-1">
+        <nav className="w-48 bg-white border-r border-gray-200 flex flex-col flex-shrink-0">
+          <ul className="space-y-1 py-6 px-3 flex-1">
             <li>
               <Link
                 href={`/projects/${id}`}
@@ -54,6 +56,7 @@ export default async function ProjectLayout({
               </li>
             ))}
           </ul>
+          <MockUserBadge />
         </nav>
 
         <main className="flex-1 overflow-auto p-8">{children}</main>

@@ -1,8 +1,20 @@
+"use client";
+
 import Link from "next/link";
-import { MOCK_PROJECTS, getProjectStats } from "@/lib/mock-data";
+import { useEffect, useState } from "react";
+import { MOCK_PROJECTS, getProjectStats, type Project } from "@/lib/mock-data";
+import { loadLocalProjects } from "@/lib/workflow-store";
 import { SpecCompleteness } from "@/components/SpecCompleteness";
 
 export default function ProjectsPage() {
+  const [localProjects, setLocalProjects] = useState<Project[]>([]);
+
+  useEffect(() => {
+    setLocalProjects(loadLocalProjects());
+  }, []);
+
+  const allProjects = [...localProjects, ...MOCK_PROJECTS];
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
@@ -11,9 +23,12 @@ export default function ProjectsPage() {
           <span className="text-gray-300">|</span>
           <span className="text-sm text-gray-500">작업공간</span>
         </div>
-        <button className="text-sm bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors">
+        <Link
+          href="/projects/new"
+          className="text-sm bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors"
+        >
           + 새 프로젝트
-        </button>
+        </Link>
       </header>
 
       <main className="max-w-4xl mx-auto px-6 py-10">
@@ -21,7 +36,7 @@ export default function ProjectsPage() {
         <p className="text-gray-500 text-sm mb-8">아이디어를 제품으로 만드는 과정을 추적합니다.</p>
 
         <div className="grid gap-4">
-          {MOCK_PROJECTS.map((project) => {
+          {allProjects.map((project) => {
             const stats = getProjectStats(project);
             return (
               <Link
@@ -40,7 +55,6 @@ export default function ProjectsPage() {
                 <div className="mb-3">
                   <div className="flex justify-between text-xs text-gray-500 mb-1">
                     <span>제품 설명서 완성도</span>
-                    <span>{project.spec.completeness}%</span>
                   </div>
                   <SpecCompleteness value={project.spec.completeness} />
                 </div>
