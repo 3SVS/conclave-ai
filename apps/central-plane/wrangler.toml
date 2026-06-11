@@ -1,4 +1,5 @@
 name = "conclave-ai"
+account_id = "8735d5a7b0af1d7f97dd46f705ace797"
 main = "src/index.ts"
 compatibility_date = "2026-04-20"
 compatibility_flags = ["nodejs_compat"]

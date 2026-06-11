@@ -59,8 +59,14 @@ export default function ItemsPage() {
         ))}
       </div>
 
-      <div className="mt-6 text-xs text-gray-400 bg-gray-100 rounded-lg px-4 py-3">
-        Stage 4에서 질문 답변을 바탕으로 항목이 자동 생성되고, Stage 5에서 각 항목이 검증됩니다.
+      <div className="mt-6 bg-indigo-50 border border-indigo-100 rounded-xl px-5 py-4 flex items-center justify-between">
+        <p className="text-sm text-indigo-800">항목을 확인하고 개발 AI에 넘길 준비가 됐나요?</p>
+        <a
+          href={`/projects/${id}/export`}
+          className="text-sm text-indigo-600 font-medium hover:text-indigo-800"
+        >
+          개발 AI에게 넘길 패키지 만들기 →
+        </a>
       </div>
     </div>
   );

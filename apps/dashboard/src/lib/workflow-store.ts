@@ -82,3 +82,47 @@ export function generateProjectId(): string {
   const rand = Math.random().toString(36).slice(2, 5);
   return `proj_${ts}${rand}`;
 }
+
+// ─── User key (anonymous, persisted) ─────────────────────────────────────────
+
+const USER_KEY_STORAGE = "conclave_user_key";
+
+export function getUserKey(): string {
+  if (typeof window === "undefined") return "server";
+  let key = localStorage.getItem(USER_KEY_STORAGE);
+  if (!key) {
+    key = `uk_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+    localStorage.setItem(USER_KEY_STORAGE, key);
+  }
+  return key;
+}
+
+// ─── Extended project data (productSpec, check results, fix suggestions) ─────
+
+import type { WorkspaceProductSpec } from "./workspace-types";
+import type { CheckDraftResponse, FixSuggestionResponse } from "./workspace-check-api";
+
+export type ExtendedProjectData = {
+  productSpec?: WorkspaceProductSpec;
+  itemCriteria?: Record<string, string[]>;
+  checkResults?: CheckDraftResponse;
+  fixSuggestions?: Record<string, FixSuggestionResponse>;
+};
+
+const EXT_KEY = (id: string) => `conclave_wf_ext_${id}`;
+
+export function saveExtendedProjectData(projectId: string, patch: Partial<ExtendedProjectData>): void {
+  if (typeof window === "undefined") return;
+  const existing = loadExtendedProjectData(projectId) ?? {};
+  localStorage.setItem(EXT_KEY(projectId), JSON.stringify({ ...existing, ...patch }));
+}
+
+export function loadExtendedProjectData(projectId: string): ExtendedProjectData | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(EXT_KEY(projectId));
+    return raw ? (JSON.parse(raw) as ExtendedProjectData) : null;
+  } catch {
+    return null;
+  }
+}

@@ -44,3 +44,7 @@ tmp/
 .conclave/episodic/
 .conclave/federated/
 .conclave/visual/
+
+# marketplace screenshot artifacts (regenerated via packages/smoke-verifier/marketplace-capture.mjs)
+apps/landing/public/screenshots/
+packages/smoke-verifier/marketplace-*.mjs

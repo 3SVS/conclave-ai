@@ -13,6 +13,24 @@
 import { Hono } from "hono";
 import type { Env } from "../env.js";
 import { generateIdeaToSpecDraft, type IdeaToSpecDraftRequest } from "../workspace/generate.js";
+import {
+  generateCheckDraft,
+  type WorkspaceCheckDraftRequest,
+} from "../workspace/check.js";
+import {
+  generateFixSuggestion,
+  type WorkspaceFixSuggestionRequest,
+} from "../workspace/fix.js";
+import {
+  upsertProject,
+  getProject,
+  saveCheckRun,
+  saveFixSuggestion as saveFixSuggestionToDb,
+} from "../workspace/db.js";
+import {
+  generateBuilderPack,
+  type WorkspaceExportBuilderPackRequest,
+} from "../workspace/export.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -206,6 +224,182 @@ export function createWorkspaceRoutes(): Hono<{ Bindings: Env }> {
       status: 200,
       headers: { "content-type": "application/json", ...headers },
     });
+  });
+
+  // ── POST /workspace/projects ─────────────────────────────────────────────────
+  // Save a workspace project to D1. No auth — user_key is client-generated UUID.
+  app.post("/workspace/projects", async (c) => {
+    const origin = c.req.header("origin") ?? null;
+    const headers = corsHeaders(origin);
+    let body: unknown;
+    try { body = await c.req.json(); } catch {
+      return new Response(JSON.stringify({ ok: false, error: "invalid_json" }), { status: 400, headers: { "content-type": "application/json", ...headers } });
+    }
+    const b = body as Record<string, unknown>;
+    if (!b["userKey"] || !b["title"]) {
+      return new Response(JSON.stringify({ ok: false, error: "userKey_and_title_required" }), { status: 400, headers: { "content-type": "application/json", ...headers } });
+    }
+    try {
+      const id = await upsertProject(c.env, {
+        id: typeof b["id"] === "string" ? b["id"] : undefined,
+        userKey: String(b["userKey"]),
+        title: String(b["title"]),
+        idea: typeof b["idea"] === "string" ? b["idea"] : "",
+        understood: b["understood"] ?? {},
+        productSpec: b["productSpec"] ?? {},
+        items: b["items"] ?? [],
+      });
+      return new Response(JSON.stringify({ ok: true, id }), { status: 200, headers: { "content-type": "application/json", ...headers } });
+    } catch (err) {
+      console.error("[workspace/projects] save failed:", err);
+      return new Response(JSON.stringify({ ok: false, error: "save_failed" }), { status: 500, headers: { "content-type": "application/json", ...headers } });
+    }
+  });
+
+  // ── GET /workspace/projects/:id ──────────────────────────────────────────────
+  app.get("/workspace/projects/:id", async (c) => {
+    const origin = c.req.header("origin") ?? null;
+    const headers = corsHeaders(origin);
+    const id = c.req.param("id");
+    try {
+      const project = await getProject(c.env, id);
+      if (!project) return new Response(JSON.stringify({ ok: false, error: "not_found" }), { status: 404, headers: { "content-type": "application/json", ...headers } });
+      return new Response(JSON.stringify({ ok: true, project }), { status: 200, headers: { "content-type": "application/json", ...headers } });
+    } catch (err) {
+      console.error("[workspace/projects] fetch failed:", err);
+      return new Response(JSON.stringify({ ok: false, error: "fetch_failed" }), { status: 500, headers: { "content-type": "application/json", ...headers } });
+    }
+  });
+
+  // ── POST /workspace/check-draft ──────────────────────────────────────────────
+  // Check spec + items for completeness. Rate-limited (check bucket).
+  app.post("/workspace/check-draft", async (c) => {
+    const origin = c.req.header("origin") ?? null;
+    const headers = corsHeaders(origin);
+
+    const limitPerHour = parseInt(c.env.WORKSPACE_GENERATION_LIMIT_PER_HOUR ?? "", 10) || DEFAULT_LIMIT_PER_HOUR;
+    const rawIp = c.req.header("cf-connecting-ip") ?? (c.req.header("x-forwarded-for") ?? "").split(",")[0]?.trim() ?? "unknown";
+    const ipHash = await sha256Hex(`workspace-check::${rawIp}`);
+    const hourUtc = currentHourUtc();
+    const count = await getRateLimitCount(c.env.DB, ipHash, hourUtc);
+    if (count >= limitPerHour) {
+      return new Response(JSON.stringify({ ok: false, error: "rate_limited", message: "잠시 후 다시 시도해주세요. 확인 요청이 너무 많이 발생했어요.", retryAfterSeconds: secondsUntilNextHour() }), { status: 429, headers: { "content-type": "application/json", "retry-after": String(secondsUntilNextHour()), ...headers } });
+    }
+
+    let body: unknown;
+    try { body = await c.req.json(); } catch {
+      return new Response(JSON.stringify({ ok: false, error: "invalid_json" }), { status: 400, headers: { "content-type": "application/json", ...headers } });
+    }
+    const req = body as Partial<WorkspaceCheckDraftRequest>;
+    if (!req.productSpec || !Array.isArray(req.items)) {
+      return new Response(JSON.stringify({ ok: false, error: "productSpec_and_items_required" }), { status: 400, headers: { "content-type": "application/json", ...headers } });
+    }
+
+    let result;
+    try {
+      result = await generateCheckDraft({ productSpec: req.productSpec, items: req.items, projectId: req.projectId, locale: req.locale ?? "ko" }, c.env.ANTHROPIC_API_KEY);
+    } catch (err) {
+      console.error("[workspace/check-draft] error:", err);
+      return new Response(JSON.stringify({ ok: false, error: "internal_error" }), { status: 500, headers: { "content-type": "application/json", ...headers } });
+    }
+
+    await incrementRateLimitCount(c.env.DB, ipHash, hourUtc);
+
+    // Best-effort persist check run to D1
+    if (req.projectId) {
+      saveCheckRun(c.env, req.projectId, result.source, result).catch(() => undefined);
+    }
+
+    return new Response(JSON.stringify(result), { status: 200, headers: { "content-type": "application/json", ...headers } });
+  });
+
+  // ── POST /workspace/fix-suggestion ──────────────────────────────────────────
+  // Generate fix suggestion + builder brief for a failed/inconclusive/needs_decision item.
+  app.post("/workspace/fix-suggestion", async (c) => {
+    const origin = c.req.header("origin") ?? null;
+    const headers = corsHeaders(origin);
+
+    const limitPerHour = parseInt(c.env.WORKSPACE_GENERATION_LIMIT_PER_HOUR ?? "", 10) || DEFAULT_LIMIT_PER_HOUR;
+    const rawIp = c.req.header("cf-connecting-ip") ?? (c.req.header("x-forwarded-for") ?? "").split(",")[0]?.trim() ?? "unknown";
+    const ipHash = await sha256Hex(`workspace-fix::${rawIp}`);
+    const hourUtc = currentHourUtc();
+    const count = await getRateLimitCount(c.env.DB, ipHash, hourUtc);
+    if (count >= limitPerHour * 2) { // fix suggestions get 2x limit
+      return new Response(JSON.stringify({ ok: false, error: "rate_limited", message: "잠시 후 다시 시도해주세요.", retryAfterSeconds: secondsUntilNextHour() }), { status: 429, headers: { "content-type": "application/json", "retry-after": String(secondsUntilNextHour()), ...headers } });
+    }
+
+    let body: unknown;
+    try { body = await c.req.json(); } catch {
+      return new Response(JSON.stringify({ ok: false, error: "invalid_json" }), { status: 400, headers: { "content-type": "application/json", ...headers } });
+    }
+    const req = body as Partial<WorkspaceFixSuggestionRequest>;
+    if (!req.item || !req.checkResult) {
+      return new Response(JSON.stringify({ ok: false, error: "item_and_checkResult_required" }), { status: 400, headers: { "content-type": "application/json", ...headers } });
+    }
+
+    let result;
+    try {
+      result = await generateFixSuggestion(req as WorkspaceFixSuggestionRequest, c.env.ANTHROPIC_API_KEY);
+    } catch (err) {
+      console.error("[workspace/fix-suggestion] error:", err);
+      return new Response(JSON.stringify({ ok: false, error: "internal_error" }), { status: 500, headers: { "content-type": "application/json", ...headers } });
+    }
+
+    await incrementRateLimitCount(c.env.DB, ipHash, hourUtc);
+
+    if (req.projectId) {
+      saveFixSuggestionToDb(c.env, req.projectId, req.item.id, result.suggestion).catch(() => undefined);
+    }
+
+    return new Response(JSON.stringify(result), { status: 200, headers: { "content-type": "application/json", ...headers } });
+  });
+
+  // ── POST /workspace/export-builder-pack ──────────────────────────────────────
+  // Deterministic — no LLM, no rate limit. Assembles markdown files from project data.
+  app.post("/workspace/export-builder-pack", async (c) => {
+    const origin = c.req.header("origin") ?? null;
+    const headers = { ...corsHeaders(origin), "Access-Control-Allow-Methods": "POST, OPTIONS" };
+
+    let body: unknown;
+    try { body = await c.req.json(); } catch {
+      return new Response(JSON.stringify({ ok: false, error: "invalid_json" }), { status: 400, headers: { "content-type": "application/json", ...headers } });
+    }
+
+    const req = body as Partial<WorkspaceExportBuilderPackRequest>;
+    if (!req.target || !["claude_code", "codex", "both"].includes(req.target)) {
+      return new Response(JSON.stringify({ ok: false, error: "target_required: claude_code | codex | both" }), { status: 400, headers: { "content-type": "application/json", ...headers } });
+    }
+    if (!req.project && !req.projectId) {
+      return new Response(JSON.stringify({ ok: false, error: "project_or_projectId_required" }), { status: 400, headers: { "content-type": "application/json", ...headers } });
+    }
+
+    // If projectId provided but no inline project, attempt to load from D1
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let project: any = req.project;
+    if (!project && req.projectId) {
+      try {
+        const dbProj = await getProject(c.env, req.projectId);
+        if (dbProj) {
+          project = {
+            title: dbProj.title,
+            idea: dbProj.idea ?? "",
+            productSpec: dbProj.productSpec ?? {},
+            items: Array.isArray(dbProj.items) ? dbProj.items : [],
+          };
+        }
+      } catch (err) {
+        console.warn("[workspace/export] D1 load failed:", err);
+      }
+    }
+
+    const result = generateBuilderPack({
+      project,
+      target: req.target,
+      format: req.format ?? "json",
+      locale: req.locale ?? "ko",
+    });
+
+    return new Response(JSON.stringify(result), { status: 200, headers: { "content-type": "application/json", ...headers } });
   });
 
   return app;

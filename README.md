@@ -1,314 +1,60 @@
-<div align="center">
+# Conclave Claude Code Builder Pack
 
-# Conclave AI
+이 묶음은 Conclave를 **개발자용 CLI/PR 리뷰 툴**에서 **일반 유저가 아이디어가 제품으로 만들어지는 과정을 시각적으로 확인하는 작업공간**으로 확장하기 위한 Claude Code용 작업 문서입니다.
 
-**Drop a PRD. Every PR auto-reviews against your spec.**
-<br/>
-<sub>Scope drift, missing requirements, unauthorized changes — caught automatically. Three models, one verdict, autofix included.</sub>
+## 목표
 
-[![npm](https://img.shields.io/npm/v/@conclave-ai/cli?label=%40conclave-ai%2Fcli&color=%230a3a5e)](https://www.npmjs.com/package/@conclave-ai/cli)
-[![license](https://img.shields.io/badge/license-FSL--1.1--Apache--2.0-%230a3a5e)](LICENSE)
-[![node](https://img.shields.io/node/v/@conclave-ai/cli?color=%230a3a5e)](https://nodejs.org)
-[![demo](https://img.shields.io/badge/demo-conclave--ai.dev-%230a3a5e)](https://conclave-ai.dev)
-
-[**▶ Try the demo**](https://conclave-ai.dev) · [**Install GitHub App**](https://github.com/apps/conclave-ai-code-council) · [**Pricing**](https://conclave-ai.dev#pricing) · [**Docs**](docs/)
-
-</div>
-
----
-
-## What is this?
-
-Conclave AI is a **spec-first PR review gate** for AI-built apps. Drop a `.conclave/prd.md` and every pull request is automatically reviewed against your spec — catching scope drift, missing requirements, and unauthorized changes that no diff-only reviewer can see. Three frontier models (Claude, GPT-5, Gemini) deliberate in parallel, then one verdict lands with autofix.
-
-> **Not** a Claude Code / Cursor / Copilot replacement. Those are IDE assistants. Conclave runs at the **PR layer** — one review per push, automatic autofix, native GitHub App.
-
-## The PRD layer: why it matters
-
-The hardest bugs to catch aren't wrong code — they're correct code that does the wrong thing. A diff looks clean. Tests pass. But the PR added telemetry you didn't authorize, dropped an acceptance criterion, or routed to the wrong endpoint. Diff-only review can't see this. Spec-aware review can.
-
-Drop a `.conclave/prd.md` once. From then on, every PR is automatically checked against it and any divergence surfaces as a first-class blocker:
-
-| Category | What it catches |
-|---|---|
-| `spec-missing` | PRD requires it; the diff doesn't implement it |
-| `spec-wrong` | Implemented, but wrong shape/route/behavior vs PRD |
-| `spec-scope` | PR adds behavior the PRD doesn't authorize |
-| `spec-ambiguous` | PRD is unclear — states interpretation, asks for clarification |
-
-When we ran the same 3 PRs with and without a PRD attached:
-
-| PR | No PRD | With PRD |
-|---|---|---|
-| build-bug | 3 blockers, **rework** | **9 blockers (5 spec-mismatch)**, **reject** |
-| a11y-bug | 5 blockers, **rework** | **11 blockers (4 spec-mismatch)**, **reject** |
-| regression-bug | 4 blockers, **rework** | **7 blockers (6 spec-mismatch)**, **reject** |
-
-## Why three agents instead of one
-
-We dogfooded 15 synthetic-bug PRs across 5 vibe-coder Next.js templates (Vercel commerce, ai-chatbot, next-forge, platforms, postgres-auth-starter):
-
-| | **Conclave (3-agent)** | **Claude alone** |
-|---|---|---|
-| Catch rate (synthetic blockers) | 100% | 100% |
-| **Mean blockers surfaced per PR** | **10.93** | 3.80 |
-| Latency | 128s (parallel) | 12s |
-| Cache hit rate | 39.9% | n/a |
-
-Same catch rate **but 3× the depth** — and the depth matters: the extra blockers are usually missing tests, edge-case handling, and security gaps that a single agent considered "minor enough to skip."
-
-<sub>Numbers are from an internal dogfooding run (n=15 PRs, 5 Next.js templates). Reproduction protocol + scoring rubric live in [`benchmarks/`](benchmarks/) (skeleton — raw per-run results pending a redaction pass before split-out into a standalone `conclave-benchmarks` repo). Treat as an indicative ratio, not a peer-reviewed benchmark.</sub>
-
-### The PRD layer is the moat
-
-When we re-ran the same 3 PRs with a structured `.conclave/prd.md` attached:
-
-| PR | No PRD | With PRD |
-|---|---|---|
-| build-bug | 3 blockers, verdict **rework** | **9 blockers (5 spec-mismatch)**, verdict **reject** |
-| a11y-bug | 5 blockers, verdict **rework** | **11 blockers (4 spec-mismatch)**, verdict **reject** |
-| regression-bug | 4 blockers, verdict **rework** | **7 blockers (6 spec-mismatch!)**, verdict **reject** |
-
-`spec-mismatch` is a **categorically new flag class** — agents only produce it when they have access to the PRD. Examples it catches that plain code review can't:
-
-- Endpoint exists but **wrong route** vs PRD (`/phase2-settings` vs `/settings`)
-- **Missing acceptance criteria** (PRD says "must return 400 on bad input", code throws 500)
-- **Scope creep** (PR adds telemetry the PRD doesn't authorize)
-- **Hard-requirement violations** (PRD says "must NOT log Authorization headers", code does)
-
-## Quick start
-
-### As a SaaS user (recommended)
-
-```bash
-npm i -g @conclave-ai/cli
-conclave login
-```
-
-Install the [GitHub App](https://github.com/apps/conclave-ai-code-council) on your repo, drop a `.conclave/prd.md`, and open a PR. Verdict + autofix land as a PR check + Telegram notification within ~2 minutes.
-
-**Free tier**: BYO Anthropic key for unlimited usage, or 5 reviews/month no-card trial.
-
-### As a self-hoster
-
-```bash
-git clone https://github.com/3SVS/conclave-ai
-cd conclave-ai && pnpm install && pnpm build
-# Configure your own ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY
-node packages/cli/dist/bin/conclave.js review --pr 42
-```
-
-The full pipeline runs locally on your repo's clone. The federated failure-catalog (cross-tenant learning) is SaaS-only — the rest of the engine is FSL-licensed source.
-
-### Vercel Pro / strict deploy gates
-
-Conclave AI's autofix bot commits as the canonical GitHub App noreply
-identity (`<APP_ID>+conclave-ai-code-council[bot]@users.noreply.github.com`)
-— the same format Dependabot and GitHub Actions use. Default Vercel /
-Netlify projects accept it automatically.
-
-If your project enables **"Verify Commit Authors"** (Vercel Pro+) and
-deploys are blocked on autofix commits, allow GitHub App bot accounts
-in your Vercel team settings (`Project → Settings → Git → Deployment
-Authorization`). Same as you'd do for Dependabot. See
-[docs/vercel-pro-setup.md](docs/vercel-pro-setup.md) for the exact path.
-
-## How it works
-
-We don't stop at "your PR has problems." Conclave takes responsibility for the full lifecycle: review → debate → rewrite → re-review → ship. You get a green check or a clear blocker, never a half-finished verdict.
+사용자에게는 어려운 개발자 용어를 숨기고, 다음 흐름을 앱 안에서 쉽게 보여줍니다.
 
 ```text
-PR opens
-  ↓
-GitHub App webhook → Cloudflare Worker
-  ↓
-Auth + repo allow-list check
-  ↓
-Spawn ephemeral Cloudflare Container (Node 20)
-  ↓
-─────────────────────────────────────────────
-  COUNCIL  (up to 3 deliberation rounds)
-─────────────────────────────────────────────
-  Round 1: agents review IN PARALLEL
-   ┌──── Claude Sonnet 4.6 ────┐
-   ├──── GPT-5-mini ───────────┤  + design / failure-gate when relevant
-   └──── Gemini 2.5 Pro ───────┘
-       ↓
-   Consensus?  ─── yes ────────────────► verdict locked
-       ↓ no
-  Round 2: each agent sees others' blockers + rebuts
-       ↓
-   Consensus?  ─── yes ────────────────► verdict locked
-       ↓ no
-  Round 3: final round, majority verdict locked
-─────────────────────────────────────────────
-  ↓
-final verdict
-   ↓
-   approve     rework               reject
-       │         │                    │
-       │   Worker (Opus 4.7) rewrites │  rejected: human escalation,
-       │   the offending files in     │  no auto-merge, comment posted
-       │   full ──► git push          │
-       │         │                    │
-       │   AUTOFIX LOOP (up to 3      │
-       │   attempts — same Council    │
-       │   re-runs each push) ────────┘
-       │         │
-       │   council re-converges OR caps out
-       │         │
-   ✓ approve   merge gate held until human ack
-       │
-   Telegram + GitHub check-run keyboard
+아이디어 입력
+→ Conclave가 이해한 내용
+→ 맞춤 질문
+→ 제품 설명서
+→ 꼭 들어가야 할 항목
+→ 만들기 진행상황
+→ 확인 결과
+→ 고쳐야 할 것
+→ 다시 확인
 ```
 
-End-to-end guarantees:
-
-- **3 council rounds** before locking a verdict — single-agent disagreement never wins by itself.
-- **Up to 3 autofix cycles** when the verdict is `rework` — worker rewrites whole files (not minimal patches), Council re-reviews each push.
-- **Hard stop** if the loop can't converge: a `reject` verdict + clear human-readable blocker list lands as a PR check, never silent.
-- **Smoke verification** runs against the deploy URL after autofix lands — if the build/runtime fails post-merge, the verdict downgrades to `rework` automatically and the PR check goes red. (Phase 5 catch-regression detector also tracks "this category was missed; flag harder next time.")
-
-The full architecture is in [`ARCHITECTURE.md`](ARCHITECTURE.md). The 34 design decisions locked on 2026-04-19 are in [`docs/decisions.md`](docs/decisions.md).
-
-## Self-evolve loop
-
-Conclave doesn't just review PRs — **the rule set itself gets smarter over time**. Three pipelines feed the council's prompt:
+내부적으로는 PRD, requirements, verification, autofix 같은 구조를 쓰더라도, 사용자 화면에는 다음 표현을 우선 사용합니다.
 
 ```text
-Reactive (from your feedback)
-  conclave feedback → POST /feedback
-        ↓ Haiku classify (sync, cron retry on failure)
-    user_feedback table
-        ↓ daily 0400 UTC promoter cron
-    promoted_seeds  ← synthesized via Haiku from ≥3 same-category rows
-        ↓
-    CLI review/audit fetch + inject
-
-Proactive (from the world)
-  daily 0300 UTC      Vercel Design / shadcn-ui / Refactoring UI / Design
-                      Systems Checklist                         → external_references
-  weekly 0500 UTC Sun GitHub Trending sweep (design-system / a11y / patterns)
-                      → source_candidates (operator approves)
-  daily 0600 UTC      OSS bugfix PR scan (Next.js / React / shadcn-ui /
-                      Tailwind / Storybook / Vercel style-guide)
-                      → oss_pr_patterns (Haiku extracts anti-pattern)
-
-All three streams flow into ctx.answerKeys / ctx.failureCatalog at every council review.
+제품 설명서
+꼭 들어가야 할 항목
+완성 기준
+확인 결과
+안 맞음
+확인 부족
+결정 필요
+고쳐보기
 ```
 
-Operator surface (`INTERNAL_CALLBACK_TOKEN`-auth):
+## 적용 방법
 
-- `GET  /admin/learning-stats` — substrate snapshot (feedback by status / category, promoted-seed counts, external-ref counts)
-- `GET  /admin/source-candidates[?status=…]` — newly-discovered candidate repos
-- `POST /admin/source-candidates/:id/decide` — approve / reject a candidate
-- `POST /admin/promote-seeds` / `/admin/run-source-discovery` / `/admin/run-oss-pr-miner` — manual triggers (cron handles the same calls)
+1. 이 폴더의 내용을 Conclave 레포 루트에 복사합니다.
+2. 이미 `CLAUDE.md`가 있다면 덮어쓰지 말고 내용을 병합합니다.
+3. Claude Code를 레포 루트에서 실행합니다.
+4. 먼저 `.conclave/prompts/00-start-here-for-claude-code.md` 내용을 붙여 넣습니다.
+5. 첫 단계는 **탐색만** 합니다. 코드 수정은 하지 않습니다.
+6. Claude Code가 작성한 진행 결과를 사용자에게 보고하고 다음 단계를 진행합니다.
 
-User surface:
+## 절대 처음부터 전체 구현하지 않기
 
-- `POST /feedback` (Bearer) — submit feedback on a prior review
-- `GET /me/feedback` (Bearer) — list your own
-- `conclave feedback [--list] [--json]` — CLI wrapper
+이 기능은 크고 실패 가능성이 높습니다. 반드시 단계별로 나눕니다.
 
-Every `conclave review --json` emits `metrics.rag` with per-source injection counts so you can see which streams contributed to a given review.
-
-## Pricing
-
-| Plan | Price | Reviews | Autofixes | Notes |
-|---|---|---|---|---|
-| **Free (BYO key)** | $0 | unlimited | unlimited | bring your own Anthropic API key + opt into anonymous failure-pattern sharing |
-| **Trial** | $0 | 5/month | 2/month | platform-managed key; no card required |
-| **Solo** | $19/mo | 30 | 10 | most popular for indie builders |
-| **Pro** | $49/mo | 80 | 30 | priority sandbox queue + private mode |
-
-Hard cutoffs (no surprise overage bills). $5 booster top-ups for one-off bursts.
-
-## Architecture status
-
-| Component | Status |
-|---|---|
-| CLI (`@conclave-ai/cli`) — `conclave login / review / audit / autofix / whoami / feedback` | ✅ shipped, npm latest |
-| Multi-agent council (Claude + OpenAI + Gemini) | ✅ shipped |
-| Design agent + visual review (a11y / tokens / hierarchy) | ✅ shipped |
-| PRD-aware spec-mismatch flagging | ✅ shipped (v0.15) |
-| Mechanical handlers (AF-1..AF-11 — deterministic fixers) | ✅ shipped |
-| GitHub App + webhook | ✅ live (`conclave-ai-code-council`) |
-| Device Flow auth (`conclave login`) | ✅ live |
-| Curated external-reference cache (5 sources, daily refresh) | ✅ shipped (v0.16.8 / Phase 4) |
-| User feedback intake + Haiku classifier | ✅ shipped (v0.16.9 / Sprint A) |
-| `conclave feedback` CLI subcommand | ✅ shipped (v0.16.10 / Sprint B) |
-| Promoted-seed loop (`feedback → bundled rules`, daily promoter cron) | ✅ shipped (v0.16.10 / Sprint C) |
-| Failure-gate + catch-regression focus filter | ✅ shipped (v0.16.10) |
-| `/admin/learning-stats` + `metrics.rag` per review | ✅ shipped (v0.16.11 / Sprint D) |
-| GitHub Trending source-discovery crawler | ✅ shipped (v0.16.12 / Sprint E1) |
-| OSS bugfix-PR pattern miner | ✅ shipped (v0.16.13 / Sprint E2) |
-| Changelog/spec monitor (React/Next.js/Tailwind/TS/shadcn-ui/Storybook releases) | ✅ shipped (v0.16.14 / Sprint E3) |
-| Prompt-variant override + outcome ingestion + Bayesian confidence intervals | ✅ shipped (v0.16.15-16 / Sprint E4 — operator-opt-in via `INTERNAL_CALLBACK_TOKEN`) |
-| Agent self-spawning + council wire-in (trial state, advisory verdict during trial, auto-graduation by pass-rate window) | ✅ shipped (v0.14.3 / Sprint E5 — operator-opt-in via `INTERNAL_CALLBACK_TOKEN`) |
-| `/saas/review` + `/saas/autofix` endpoints | ✅ shipped (v0.14.4 / Sprint E6 — operator runs `wrangler deploy` per [`docs/saas-deploy-checklist.md`](docs/saas-deploy-checklist.md)) |
-| Cloudflare Containers worker (`ConclaveSandbox`) | ✅ shipped (v0.14.4 / Sprint E6 — Node 20 + git + GH CLI; runs autofix-pipeline per /saas/* request, callback to `/internal/job-done`) |
-| Stripe metering + paid tiers | ⏳ deferred until moat data accumulates from real usage |
-
-## Project structure
-
-```
-packages/
-  cli/                       Conclave CLI binary + autofix-pipeline
-  core/                      Pure orchestration: council, autofix loop, memory
-  agent-claude/              Claude Sonnet 4.6 review agent
-  agent-openai/              GPT-5-mini review agent
-  agent-gemini/              Gemini 2.5 Pro review agent
-  agent-design/              Design / a11y review (vision + structured)
-  agent-worker/              Worker model that produces full-file rewrites
-  scm-github/                GitHub PR + deploy-status helpers
-  secret-guard/              Pre-apply secret scanner (blocks on high-confidence findings)
-  visual-review/             Playwright + pixel diff for design domain
-  integration-{telegram,discord,slack,email}/  Equal-weight notifiers
-  platform-{vercel,netlify,cloudflare,railway,render}/  Deploy-status adapters
-  observability-langfuse/    Optional self-hosted tracing
-
-apps/
-  central-plane/             Cloudflare Worker + D1 — auth, webhook, SaaS endpoints
-  landing/                   Next.js landing on conclave-ai.dev
+```text
+Stage 0: 레포 탐색, 구현 위치 파악, 계획 작성
+Stage 1: 일반 유저용 언어/정보 구조 정리
+Stage 2: 아이디어 입력 + 제품 설명서 초안 화면
+Stage 3: 맞춤 질문 생성 엔진
+Stage 4: 꼭 들어가야 할 항목 카드 모델
+Stage 5: 확인 결과 + 고쳐보기 2단계 루프
+Stage 6: Claude/Codex용 만들기 패키지 내보내기
+Stage 7: 기존 Conclave review/autofix job과 연결
 ```
 
-## Repo conventions
+## 현재 할 일
 
-- **One package, one responsibility.** No `utility/` or `common/` dumping grounds.
-- **Zod at every external boundary.** HTTP bodies, file formats, CLI input, LLM tool-use responses — all parsed.
-- **Tests alongside the code.** `node --test` only — no Jest, no Vitest.
-- **TypeScript strict + `noUncheckedIndexedAccess`**. Indexing returns `T | undefined`; handle it.
-- **Lockstep versioning.** All publishable packages bump together (pre-1.0 policy).
-
-See [`CLAUDE.md`](CLAUDE.md) for the canonical convention list.
-
-## Contributing
-
-PRs welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for:
-
-- How to run the test suite (`pnpm test` — 26 packages, 1700+ tests across 168 files)
-- How to add a new agent adapter (mirror `packages/agent-claude`)
-- How to add a platform deploy-status adapter (mirror `packages/platform-railway`)
-- Commit + PR conventions
-
-We dogfood our own product — every PR to this repo is reviewed by Conclave AI itself.
-
-## License
-
-[FSL-1.1-Apache-2.0](LICENSE) — Functional Source License. You can use, modify, and redistribute the source freely for any purpose **except** running it as a competing commercial code-review SaaS. The license auto-converts to **Apache 2.0** on **2028-05-07** (two years from first publication).
-
-In plain English:
-
-- ✅ Self-host for your own internal use — go for it
-- ✅ Fork it, patch it, send PRs upstream — please do
-- ✅ Build a non-competing tool that integrates with it — go for it
-- ✅ Use it in education, research, or your own non-SaaS product — yes
-- ❌ Run it as a competing managed-service offering before 2028-05-07 — no
-
-Same approach used by Sentry, Strapi, Convex, Buoyant.
-
----
-
-<div align="center">
-<sub>Built by <a href="https://3svs.com">3SVS</a> · powered by Anthropic, OpenAI, Google · <a href="https://conclave-ai.dev">conclave-ai.dev</a></sub>
-</div>
+처음에는 `.conclave/current-task.md`가 Stage 0으로 설정되어 있습니다. Claude Code에게 먼저 탐색과 계획만 시키세요.

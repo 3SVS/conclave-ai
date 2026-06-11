@@ -88,3 +88,22 @@ Per-repo: `.conclaverc.json` at the repo root, loaded via `cosmiconfig`. Tier-2 
 ## Federated sync (decision #21)
 
 `conclave sync` is **opt-in**. Only `{kind, domain, category, severity, normalized tags, day bucket, sha256}` leaves the machine — never code, diffs, titles, repo names, user names, or commit messages. See `docs/federated-sync.md` for the wire format.
+
+---
+
+## ★ 배포 실패 방지 게이트 (Cowork 에이전트가 자동 추가) ★
+
+### Vercel을 CI로 쓰지 않는다
+main 직접 push로 프로덕션 빌드에서 에러 확인하는 방식을 금지한다. 검증은 push 이전에 끝낸다.
+- 로컬: `.githooks/pre-push`가 `pnpm verify`(typecheck+build+lint)를 자동 실행 → 깨지면 push 차단
+- 원격: `.github/workflows/ci.yml`가 PR/push에서 동일 검증
+- feature 브랜치 → PR → CI green + Vercel 프리뷰 확인 → main 머지. main 직접 push는 hotfix만(로컬 verify 통과 후).
+
+### 회귀 전수 검색 (동일 버그 재발 방지)
+버그 하나 고칠 때마다, 고치기 전에 같은 패턴이 다른 곳/형제 포크에 또 있는지 `rg`로 전수 검색한다.
+재발 패턴: `rg "perPage|listUsers"` · `rg "asean|DEFAULT_EVENT"` · `rg "useCallback\(" -A2` · `rg "\.update\(|\.delete\(" -A3`(event_id 스코프) · `rg "createSignedUrl"`.
+같은 결함은 같은 커밋에서 함께 고치고, 커밋 메시지에 검색 결과를 적는다.
+
+### Supabase 타입 동기화 — `as` 캐스팅 우회 금지
+스키마/RPC 변경 시 즉시 `pnpm db:types` 재생성하고 커밋. `as Function`/`as any`로 타입 에러를 우회하지 않는다.
+(xdigital/platform 프로덕션 연쇄 실패의 핵심 원인이 rebind RPC 누락된 stale types였다.)

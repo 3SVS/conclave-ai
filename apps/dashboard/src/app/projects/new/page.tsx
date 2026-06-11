@@ -8,7 +8,10 @@ import { ACCEPTANCE_CRITERIA } from "@/lib/mock-generators";
 import {
   saveProject,
   generateProjectId,
+  saveExtendedProjectData,
+  getUserKey,
 } from "@/lib/workflow-store";
+import { saveProjectToDb } from "@/lib/workspace-check-api";
 import type {
   IdeaToSpecDraftResponse,
   WorkspaceQuestion,
@@ -106,6 +109,21 @@ export default function NewProjectPage() {
         priority: "must" as const,
       })),
     });
+    // Save full productSpec + item criteria for checks/fixes pages
+    saveExtendedProjectData(id, {
+      productSpec: spec.productSpec,
+      itemCriteria: Object.fromEntries(spec.items.map((i) => [i.id, i.criteria ?? []])),
+    });
+    // Background DB sync — best-effort, never blocks navigation
+    saveProjectToDb({
+      id,
+      userKey: getUserKey(),
+      title: spec.productSpec.productName,
+      idea: ideaText,
+      understood: spec.understood,
+      productSpec: spec.productSpec,
+      items: spec.items,
+    }).catch(() => undefined);
     router.push(`/projects/${id}`);
   }
 
