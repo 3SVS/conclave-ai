@@ -29,6 +29,7 @@ import {
   type LatestPostedCommentSummary,
   type PrReviewComparisonResponse,
   type CreditEnforcementDryRun,
+  type CreditEnforcementResult,
 } from "@/lib/workspace-github-api";
 import { StatusBadge } from "@/components/StatusBadge";
 import type { ItemStatus } from "@/lib/labels";
@@ -51,7 +52,7 @@ export default function GitHubPage() {
   const [reviewRuns, setReviewRuns] = useState<Record<number, ReviewRun>>({});
   const [reviewPhase, setReviewPhase] = useState<Record<number, "idle" | "running" | "done" | "error">>({});
   // Credit dry-run result: keyed by prNumber (populated after each review run)
-  const [creditDryRunByPr, setCreditDryRunByPr] = useState<Record<number, CreditEnforcementDryRun>>({});
+  const [creditDryRunByPr, setCreditDryRunByPr] = useState<Record<number, CreditEnforcementResult | CreditEnforcementDryRun>>({});
   // Comparison data: keyed by prNumber (loaded by ComparisonPanel, used by PRCommentPanel)
   const [comparisonDataByPr, setComparisonDataByPr] = useState<Record<number, PrReviewComparisonResponse>>({});
 
@@ -168,7 +169,9 @@ export default function GitHubPage() {
     if (res.ok) {
       setReviewRuns((prev) => ({ ...prev, [lp.number]: res.run }));
       setReviewPhase((prev) => ({ ...prev, [lp.number]: "done" }));
-      if (res.creditDryRun) {
+      if (res.creditEnforcement) {
+        setCreditDryRunByPr((prev) => ({ ...prev, [lp.number]: res.creditEnforcement! }));
+      } else if (res.creditDryRun) {
         setCreditDryRunByPr((prev) => ({ ...prev, [lp.number]: res.creditDryRun! }));
       }
     } else {
@@ -1224,29 +1227,53 @@ function ReviewResultPanel({ run, onRerun }: { run: ReviewRun; onRerun: () => vo
 
 // ─── Credit Dry-Run Banner ────────────────────────────────────────────────────
 
-function CreditDryRunBanner({ dryRun }: { dryRun: CreditEnforcementDryRun }) {
+function CreditDryRunBanner({ dryRun }: { dryRun: CreditEnforcementResult | CreditEnforcementDryRun }) {
   if (dryRun.billingStatus === "included" || dryRun.billingStatus === "ignored") return null;
 
   const covered = dryRun.allowance?.coveredByAllowance === true;
   const isWouldBlock = dryRun.wouldBlock;
+  const enforcement = dryRun as CreditEnforcementResult;
+  const actualDebitsEnabled = enforcement.actualDebitsEnabled === true;
+  const debitOk = actualDebitsEnabled && enforcement.debit?.ok === true;
+  const debitFailed = actualDebitsEnabled && enforcement.debit?.ok === false;
 
-  const borderColor = covered
-    ? "border-green-100 bg-green-50"
-    : isWouldBlock
+  const borderColor = debitFailed || isWouldBlock
     ? "border-amber-200 bg-amber-50"
+    : debitOk
+    ? "border-indigo-100 bg-indigo-50"
+    : covered
+    ? "border-green-100 bg-green-50"
     : "border-blue-100 bg-blue-50";
-  const textColor = covered
-    ? "text-green-700"
-    : isWouldBlock
+  const textColor = debitFailed || isWouldBlock
     ? "text-amber-700"
+    : debitOk
+    ? "text-indigo-700"
+    : covered
+    ? "text-green-700"
     : "text-blue-700";
-  const labelColor = covered
-    ? "text-green-600"
-    : isWouldBlock
+  const labelColor = debitFailed || isWouldBlock
     ? "text-amber-600"
+    : debitOk
+    ? "text-indigo-600"
+    : covered
+    ? "text-green-600"
     : "text-blue-600";
 
-  const headerLabel = covered ? "월 무료 제공량 안에 포함" : "예상 credit 확인";
+  const headerLabel = debitOk
+    ? "credit 차감됨"
+    : debitFailed
+    ? "credit 차감 실패"
+    : covered
+    ? "월 무료 제공량 안에 포함"
+    : "예상 credit 확인";
+
+  const footerNote = actualDebitsEnabled
+    ? (debitOk
+        ? `잔액: ${enforcement.debit?.newBalance ?? enforcement.remainingAfter} review credit`
+        : debitFailed
+        ? `차감 오류: ${enforcement.debit?.reason ?? "알 수 없음"}`
+        : "실제 차감 활성화됨")
+    : "실제 차감 없음 · 실행은 허용됨";
 
   return (
     <div className={`mt-3 border rounded-xl px-4 py-3 ${borderColor}`}>
@@ -1260,7 +1287,7 @@ function CreditDryRunBanner({ dryRun }: { dryRun: CreditEnforcementDryRun }) {
             : ""}
         </p>
       )}
-      <p className="text-xs text-gray-400 mt-1">실제 차감 없음 · 실행은 허용됨</p>
+      <p className="text-xs text-gray-400 mt-1">{footerNote}</p>
     </div>
   );
 }

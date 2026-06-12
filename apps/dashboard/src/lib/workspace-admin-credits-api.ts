@@ -148,6 +148,17 @@ export type MonthlyCreditPreviewResult = {
   projects: MonthlyProjectSummary[];
 };
 
+// Stage 24: credit execution config
+export type CreditExecutionConfigResult = {
+  ok: true;
+  actualDebitsEnabled: boolean;
+  blockingEnabled: boolean;
+  envFlags: {
+    ENABLE_ACTUAL_CREDIT_DEBITS: string;
+    ENABLE_CREDIT_BLOCKING: string;
+  };
+};
+
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
 function headers(adminKey: string) {
@@ -218,6 +229,17 @@ export async function fetchCreditPreview(
     throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
   }
   return res.json() as Promise<PreviewResult>;
+}
+
+export async function fetchCreditConfig(adminKey: string): Promise<CreditExecutionConfigResult> {
+  const res = await fetch(`${BASE_URL}/admin/credits/config`, {
+    headers: headers(adminKey),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<CreditExecutionConfigResult>;
 }
 
 export async function fetchMonthlyCreditPreview(

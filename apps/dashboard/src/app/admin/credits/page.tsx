@@ -6,6 +6,7 @@ import {
   fetchCreditLedger,
   fetchCreditPreview,
   fetchMonthlyCreditPreview,
+  fetchCreditConfig,
   grantCredits,
   type CreditBalance,
   type CreditType,
@@ -15,6 +16,7 @@ import {
   type UsageRange,
   type CreditLedgerPreviewEntry,
   type MonthlyCreditPreviewResult,
+  type CreditExecutionConfigResult,
 } from "@/lib/workspace-admin-credits-api";
 
 const RANGE_LABELS: Record<UsageRange, string> = {
@@ -366,6 +368,9 @@ export default function AdminCreditsPage() {
   const [monthlyUserKey, setMonthlyUserKey] = useState("");
   const [monthlyPreview, setMonthlyPreview] = useState<MonthlyCreditPreviewResult | null>(null);
 
+  // Stage 24: credit config
+  const [creditConfig, setCreditConfig] = useState<CreditExecutionConfigResult | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [grantSuccess, setGrantSuccess] = useState<string | null>(null);
@@ -375,8 +380,26 @@ export default function AdminCreditsPage() {
     setLedger(null);
     setPreview(null);
     setMonthlyPreview(null);
+    setCreditConfig(null);
     setError(null);
     setGrantSuccess(null);
+  }
+
+  async function handleFetchConfig() {
+    if (!adminKey.trim()) {
+      setError("Admin key를 입력해주세요.");
+      return;
+    }
+    setLoading(true);
+    clearState();
+    try {
+      const result = await fetchCreditConfig(adminKey.trim());
+      setCreditConfig(result);
+    } catch (e) {
+      handleKeyError(e);
+    } finally {
+      setLoading(false);
+    }
   }
 
   function handleKeyError(e: unknown) {
@@ -521,6 +544,44 @@ export default function AdminCreditsPage() {
             onChange={(e) => setAdminKey(e.target.value)}
             className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
+        </div>
+      </SectionCard>
+
+      {/* Stage 24: Credit Execution Config */}
+      <SectionCard title="Credit 실행 설정 (Stage 24)">
+        <div className="space-y-3">
+          <button
+            onClick={handleFetchConfig}
+            disabled={loading}
+            className="border border-gray-300 px-4 py-2 rounded text-sm hover:bg-gray-50 disabled:opacity-50"
+          >
+            설정 확인
+          </button>
+          {creditConfig && (
+            <div className="mt-2 space-y-2">
+              <div className="flex gap-4 items-center">
+                <span className={`text-xs font-mono px-2 py-1 rounded ${creditConfig.actualDebitsEnabled ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-600"}`}>
+                  ENABLE_ACTUAL_CREDIT_DEBITS: {creditConfig.envFlags.ENABLE_ACTUAL_CREDIT_DEBITS}
+                  {" "}→ actualDebitsEnabled: {String(creditConfig.actualDebitsEnabled)}
+                </span>
+              </div>
+              <div className="flex gap-4 items-center">
+                <span className={`text-xs font-mono px-2 py-1 rounded ${creditConfig.blockingEnabled ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-600"}`}>
+                  ENABLE_CREDIT_BLOCKING: {creditConfig.envFlags.ENABLE_CREDIT_BLOCKING}
+                  {" "}→ blockingEnabled: {String(creditConfig.blockingEnabled)}
+                </span>
+              </div>
+              {!creditConfig.actualDebitsEnabled && (
+                <p className="text-xs text-gray-500">현재 dry-run 모드: 실제 차감 없음, 실행 차단 없음</p>
+              )}
+              {creditConfig.actualDebitsEnabled && !creditConfig.blockingEnabled && (
+                <p className="text-xs text-amber-600">실제 차감 활성 · 차단 비활성: credit이 차감되지만 실행은 차단되지 않음</p>
+              )}
+              {creditConfig.actualDebitsEnabled && creditConfig.blockingEnabled && (
+                <p className="text-xs text-red-600 font-medium">실제 차감 + 차단 모두 활성: credit 부족 시 HTTP 402 반환</p>
+              )}
+            </div>
+          )}
         </div>
       </SectionCard>
 

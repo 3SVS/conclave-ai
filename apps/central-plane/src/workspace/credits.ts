@@ -393,6 +393,100 @@ export async function previewCreditDebitFromUsageEvents(
   return entries.sort((a, b) => b.estimatedAmount - a.estimatedAmount);
 }
 
+// ─── Debit (actual D1 write — only called when ENABLE_ACTUAL_CREDIT_DEBITS=true) ──
+
+export type DebitCreditsInput = {
+  userKey: string;
+  creditType: CreditType;
+  amount: number;
+  reason: string;
+  projectId?: string;
+  sourceEventId?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type DebitCreditsResult =
+  | { ok: true; newBalance: number; ledgerEntryId: string }
+  | { ok: false; reason: "insufficient_balance" | "race_condition" | "db_error"; currentBalance: number };
+
+/**
+ * Atomically debit credits from a user's balance.
+ * Uses WHERE balance >= ? as an optimistic lock — returns ok:false with
+ * reason "race_condition" when another request won the race.
+ * Never called when ENABLE_ACTUAL_CREDIT_DEBITS is false.
+ */
+export async function debitCredits(env: Env, input: DebitCreditsInput): Promise<DebitCreditsResult> {
+  if (!Number.isInteger(input.amount) || input.amount <= 0) {
+    throw new Error("amount must be a positive integer");
+  }
+
+  // Read current balance first
+  let currentBalance = 0;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT balance FROM workspace_credit_balances WHERE user_key = ? AND credit_type = ?`,
+    )
+      .bind(input.userKey, input.creditType)
+      .first<{ balance: number }>();
+    currentBalance = row?.balance ?? 0;
+  } catch {
+    return { ok: false, reason: "db_error", currentBalance: 0 };
+  }
+
+  if (currentBalance < input.amount) {
+    return { ok: false, reason: "insufficient_balance", currentBalance };
+  }
+
+  const now = new Date().toISOString();
+
+  // Optimistic UPDATE: only succeeds when balance hasn't changed below threshold
+  let updateResult: { meta: { changes: number } };
+  try {
+    updateResult = await env.DB.prepare(
+      `UPDATE workspace_credit_balances
+       SET balance = balance - ?, updated_at = ?
+       WHERE user_key = ? AND credit_type = ? AND balance >= ?`,
+    )
+      .bind(input.amount, now, input.userKey, input.creditType, input.amount)
+      .run() as { meta: { changes: number } };
+  } catch {
+    return { ok: false, reason: "db_error", currentBalance };
+  }
+
+  if ((updateResult.meta?.changes ?? 0) === 0) {
+    // Another request decremented the balance below the threshold between read and write
+    return { ok: false, reason: "race_condition", currentBalance };
+  }
+
+  // Insert ledger entry
+  const ledgerId = randId("wcl");
+  try {
+    await env.DB.prepare(
+      `INSERT INTO workspace_credit_ledger
+         (id, user_key, project_id, credit_type, amount, direction, reason, source_event_id, metadata_json, created_at)
+       VALUES (?, ?, ?, ?, ?, 'debit', ?, ?, ?, ?)`,
+    )
+      .bind(
+        ledgerId,
+        input.userKey,
+        input.projectId ?? null,
+        input.creditType,
+        input.amount,
+        input.reason,
+        input.sourceEventId ?? null,
+        input.metadata ? JSON.stringify(input.metadata) : null,
+        now,
+      )
+      .run();
+  } catch {
+    // Ledger write failed but balance was already decremented — log and continue
+    console.error("[debitCredits] ledger insert failed after balance update", { userKey: input.userKey });
+  }
+
+  const newBalance = Math.max(0, currentBalance - input.amount);
+  return { ok: true, newBalance, ledgerEntryId: ledgerId };
+}
+
 // ─── Ledger preview (no DB writes) ────────────────────────────────────────────
 
 export function buildLedgerPreview(entries: PreviewEntry[]): CreditLedgerPreviewEntry[] {

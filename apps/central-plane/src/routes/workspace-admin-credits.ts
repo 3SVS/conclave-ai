@@ -29,6 +29,7 @@ import {
   getCurrentAllowancePeriod,
   getPeriodFromMonthKey,
 } from "../workspace/allowance-rules.js";
+import { getCreditExecutionConfig } from "../workspace/credit-config.js";
 
 // ─── Auth helper ──────────────────────────────────────────────────────────────
 
@@ -210,6 +211,32 @@ export function createWorkspaceAdminCreditsRoutes(): Hono<{ Bindings: Env }> {
       console.error("[admin/credits/preview] failed:", err);
       return c.json({ ok: false, error: "query_failed" }, 500);
     }
+  });
+
+  /**
+   * GET /admin/credits/config
+   * Returns the current credit execution feature flag state.
+   * No DB queries — reads env vars only.
+   */
+  app.get("/admin/credits/config", async (c) => {
+    const guard = authGuard(c.env, c.req.header("x-admin-key") ?? "");
+    if (!guard.ok) {
+      return c.json(
+        { ok: false, error: guard.status === 503 ? "disabled" : "unauthorized" },
+        guard.status,
+      );
+    }
+
+    const config = getCreditExecutionConfig(c.env);
+    return c.json({
+      ok: true,
+      actualDebitsEnabled: config.actualDebitsEnabled,
+      blockingEnabled: config.blockingEnabled,
+      envFlags: {
+        ENABLE_ACTUAL_CREDIT_DEBITS: c.env.ENABLE_ACTUAL_CREDIT_DEBITS ?? "(unset)",
+        ENABLE_CREDIT_BLOCKING: c.env.ENABLE_CREDIT_BLOCKING ?? "(unset)",
+      },
+    });
   });
 
   /**

@@ -55,8 +55,8 @@ import {
 } from "../workspace/pr-comment.js";
 import type { CommentResultItem, ComparisonDataForComment } from "../workspace/pr-comment.js";
 import { insertUsageEvent } from "../workspace/usage-events-db.js";
-import { checkCreditEnforcementDryRun } from "../workspace/credit-enforcement.js";
-import type { CreditEnforcementDryRun } from "../workspace/credit-enforcement.js";
+import { checkCreditEnforcementDryRun, checkCreditEnforcement } from "../workspace/credit-enforcement.js";
+import type { CreditEnforcementDryRun, CreditEnforcementResult } from "../workspace/credit-enforcement.js";
 import {
   getNotificationSettings,
   insertNotificationRecord,
@@ -613,16 +613,25 @@ export function createWorkspaceGitHubRoutes(
       return json({ ok: false, error: "no_matching_items" }, 400, origin);
     }
 
-    // 5b. Credit enforcement dry-run (non-blocking — wouldBlock=true does NOT stop execution)
-    let creditDryRun: CreditEnforcementDryRun | undefined;
+    // 5b. Credit enforcement (blocks with HTTP 402 when ENABLE_CREDIT_BLOCKING+ENABLE_ACTUAL_CREDIT_DEBITS=true)
+    let creditEnforcement: CreditEnforcementResult | CreditEnforcementDryRun | undefined;
     try {
-      creditDryRun = await checkCreditEnforcementDryRun({
+      creditEnforcement = await checkCreditEnforcement({
         env: c.env,
         userKey,
         eventType: "workspace_pr_review_run",
+        projectId,
       });
+      if ((creditEnforcement as CreditEnforcementResult).blocked) {
+        return json({
+          ok: false,
+          error: "insufficient_credits",
+          creditEnforcement,
+          message: (creditEnforcement as CreditEnforcementResult).message,
+        }, 402, origin);
+      }
     } catch (err) {
-      console.warn("[workspace/pr-review] credit dry-run failed (non-fatal):", err);
+      console.warn("[workspace/pr-review] credit enforcement failed (non-fatal):", err);
     }
 
     // 6. Insert run as running
@@ -764,7 +773,7 @@ export function createWorkspaceGitHubRoutes(
         createdAt: run.createdAt,
         updatedAt: new Date().toISOString(),
       },
-      creditDryRun,
+      creditEnforcement,
       warnings: warnings.length ? warnings : undefined,
     }, 200, origin);
   });

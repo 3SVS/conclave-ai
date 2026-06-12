@@ -164,4 +164,15 @@ export interface Env {
    */
   FOUNDER_GITHUB_LOGIN?: string;
   FOUNDER_TG_CHAT_ID?: string;
+  /**
+   * Stage 24 — feature flags for actual credit debits.
+   * Both default to false; set "true" via wrangler.toml [vars] to activate.
+   *
+   * ENABLE_ACTUAL_CREDIT_DEBITS: when "true", debitCredits() writes D1.
+   * ENABLE_CREDIT_BLOCKING:      when "true", PR review returns HTTP 402
+   *   if the user has insufficient credit after allowance is exhausted.
+   *   Has no effect when ENABLE_ACTUAL_CREDIT_DEBITS is false.
+   */
+  ENABLE_ACTUAL_CREDIT_DEBITS?: string;
+  ENABLE_CREDIT_BLOCKING?: string;
 }

@@ -32,6 +32,12 @@ WORKSPACE_GH_REDIRECT_URI = "https://conclave-ai.seunghunbae.workers.dev/workspa
 WORKSPACE_GH_SCOPES = "read:user public_repo"
 WORKSPACE_GH_DASHBOARD_URL = "https://dashboard.conclave-ai.dev"
 
+# Stage 24 — Credit execution feature flags (default false = dry-run only).
+# Set to "true" to activate actual debits / blocking. Production stays false
+# until explicitly opted in by the operator.
+ENABLE_ACTUAL_CREDIT_DEBITS = "false"
+ENABLE_CREDIT_BLOCKING = "false"
+
 # Observability. Logs retained 3 days on free tier, sufficient for v0.4-alpha.
 [observability]
 enabled = true

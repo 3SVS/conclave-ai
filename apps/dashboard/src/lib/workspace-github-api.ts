@@ -287,9 +287,46 @@ export type CreditEnforcementDryRun = {
   };
 };
 
+// Stage 24 — extends CreditEnforcementDryRun with actual debit fields
+export type CreditEnforcementResult = {
+  actualDebitsEnabled: boolean;
+  blocked: boolean;
+  wouldBlock: boolean;
+  billingStatus: string;
+  eventType: string;
+  creditType?: string;
+  requiredCredits: number;
+  currentBalance: number;
+  remainingAfter: number;
+  message: string;
+  debit?: {
+    ok: boolean;
+    newBalance?: number;
+    ledgerEntryId?: string;
+    reason?: "insufficient_balance" | "race_condition" | "db_error";
+  };
+  allowance?: {
+    enabled: true;
+    period: "monthly";
+    periodKey: string;
+    includedRuns: number;
+    usedThisPeriod: number;
+    remainingIncludedRuns: number;
+    coveredByAllowance: boolean;
+    billableUnitsAfterAllowance: number;
+  };
+};
+
 export type StartReviewResponse =
-  | { ok: true; run: ReviewRun; creditDryRun?: CreditEnforcementDryRun; warnings?: string[] }
-  | { ok: false; error: string };
+  | {
+      ok: true;
+      run: ReviewRun;
+      creditEnforcement?: CreditEnforcementResult | CreditEnforcementDryRun;
+      /** @deprecated use creditEnforcement */
+      creditDryRun?: CreditEnforcementDryRun;
+      warnings?: string[];
+    }
+  | { ok: false; error: string; creditEnforcement?: CreditEnforcementResult; message?: string };
 
 export type GetReviewResponse =
   | { ok: true; run: ReviewRun | null }
