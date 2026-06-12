@@ -53,7 +53,7 @@ import {
 import {
   buildCommentBody, bodyPreview, postGitHubComment, updateGitHubComment, hasPrCommentScope,
 } from "../workspace/pr-comment.js";
-import type { CommentResultItem } from "../workspace/pr-comment.js";
+import type { CommentResultItem, ComparisonDataForComment } from "../workspace/pr-comment.js";
 import { insertUsageEvent } from "../workspace/usage-events-db.js";
 
 // ─── CORS helpers (shared with workspace.ts) ──────────────────────────────────
@@ -84,6 +84,36 @@ function json(data: unknown, status = 200, origin: string | null = null): Respon
     status,
     headers: { "content-type": "application/json", ...corsHeaders(origin) },
   });
+}
+
+// ─── Comparison helper ────────────────────────────────────────────────────────
+
+async function loadComparisonForComment(
+  env: Env,
+  projectId: string,
+  repoFullName: string,
+  prNumber: number,
+): Promise<{ data: ComparisonDataForComment | null; warning?: string }> {
+  try {
+    const [latest, previous] = await getLatestTwoPrReviewRuns(env, projectId, repoFullName, prNumber);
+    if (!latest || !previous) return { data: null, warning: "not_enough_runs" };
+    const latestResults = parseRunResults(latest.resultJson);
+    const previousResults = parseRunResults(previous.resultJson);
+    const comparison = compareRunResults(previousResults, latestResults);
+    const latestSummary = buildRunSummary(latest);
+    const previousSummary = buildRunSummary(previous);
+    return {
+      data: {
+        previousSummary: previousSummary.summary,
+        latestSummary: latestSummary.summary,
+        improved: comparison.improved,
+        stillOpen: comparison.stillOpen,
+        newlyProblematic: comparison.newlyProblematic,
+      },
+    };
+  } catch {
+    return { data: null };
+  }
 }
 
 // ─── Route factory ────────────────────────────────────────────────────────────
@@ -822,6 +852,7 @@ export function createWorkspaceGitHubRoutes(
       ? (b["selectedItemIds"] as unknown[]).filter((x): x is string => typeof x === "string")
       : undefined;
     const includeFixBrief = b["includeFixBrief"] === true;
+    const includeComparison = b["includeComparison"] === true;
 
     // 1. Get linked repo
     const repo = await getProjectRepo(c.env, projectId).catch(() => null);
@@ -861,17 +892,28 @@ export function createWorkspaceGitHubRoutes(
     const linkedPR = linkedPRs.find((p) => p.prNumber === prNumber);
     const prTitle = linkedPR?.prTitle ?? `PR #${prNumber}`;
 
-    // 6. Build body
+    // 6. Load comparison data if requested
     const warnings: string[] = [];
-    const { body: commentBody, truncated } = buildCommentBody({
+    let comparisonData: ComparisonDataForComment | undefined;
+    if (includeComparison) {
+      const comp = await loadComparisonForComment(c.env, projectId, repo.repoFullName, prNumber);
+      if (comp.warning === "not_enough_runs") warnings.push("not_enough_runs");
+      else if (comp.data) comparisonData = comp.data;
+    }
+
+    // 7. Build body
+    const { body: commentBody, truncated, comparisonIncluded } = buildCommentBody({
       repoFullName: repo.repoFullName,
       prNumber,
       prTitle,
       selectedItems,
       summary,
       includeFixBrief,
+      includeComparison,
+      comparisonData,
     });
     if (truncated) warnings.push("코멘트가 너무 길어 일부 내용이 잘렸습니다.");
+    if (includeComparison && comparisonData && !comparisonIncluded) warnings.push("비교 섹션이 너무 길어 생략됐습니다.");
 
     return json({
       ok: true,
@@ -903,6 +945,7 @@ export function createWorkspaceGitHubRoutes(
       : undefined;
     const customBody = typeof b["body"] === "string" ? b["body"] : undefined;
     const includeFixBrief = b["includeFixBrief"] === true;
+    const includeComparison = b["includeComparison"] === true;
     // mode: "new" = always create new comment, "update_latest" = update most recent posted comment
     const mode: "new" | "update_latest" = b["mode"] === "update_latest" ? "update_latest" : "new";
 
@@ -962,8 +1005,14 @@ export function createWorkspaceGitHubRoutes(
         needsDecision: selectedItems.filter((r) => r.status === "needs_decision").length,
         passed: selectedItems.filter((r) => r.status === "passed").length,
       };
+      let comparisonData: ComparisonDataForComment | undefined;
+      if (includeComparison) {
+        const comp = await loadComparisonForComment(c.env, projectId, repo.repoFullName, prNumber);
+        if (comp.data) comparisonData = comp.data;
+      }
       const { body: built } = buildCommentBody({
-        repoFullName: repo.repoFullName, prNumber, prTitle, selectedItems, summary, includeFixBrief,
+        repoFullName: repo.repoFullName, prNumber, prTitle, selectedItems, summary,
+        includeFixBrief, includeComparison, comparisonData,
       });
       commentBody = built;
     }
@@ -1230,6 +1279,7 @@ export function createWorkspaceGitHubRoutes(
       ? (b["selectedItemIds"] as unknown[]).filter((x): x is string => typeof x === "string")
       : undefined;
     const includeFixBrief = b["includeFixBrief"] === true;
+    const includeComparison = b["includeComparison"] === true;
 
     // 1. Get existing comment record
     const existingComment = await getPrCommentById(c.env, commentId).catch(() => null);
@@ -1292,8 +1342,14 @@ export function createWorkspaceGitHubRoutes(
         needsDecision: selectedItems.filter((r) => r.status === "needs_decision").length,
         passed: selectedItems.filter((r) => r.status === "passed").length,
       };
+      let comparisonData: ComparisonDataForComment | undefined;
+      if (includeComparison) {
+        const comp = await loadComparisonForComment(c.env, projectId, repo.repoFullName, prNumber);
+        if (comp.data) comparisonData = comp.data;
+      }
       const { body: built } = buildCommentBody({
-        repoFullName: repo.repoFullName, prNumber, prTitle, selectedItems, summary, includeFixBrief,
+        repoFullName: repo.repoFullName, prNumber, prTitle, selectedItems, summary,
+        includeFixBrief, includeComparison, comparisonData,
       });
       commentBody = built;
     }

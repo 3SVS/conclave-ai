@@ -49,6 +49,8 @@ export default function GitHubPage() {
   // Review state: keyed by prNumber
   const [reviewRuns, setReviewRuns] = useState<Record<number, ReviewRun>>({});
   const [reviewPhase, setReviewPhase] = useState<Record<number, "idle" | "running" | "done" | "error">>({});
+  // Comparison data: keyed by prNumber (loaded by ComparisonPanel, used by PRCommentPanel)
+  const [comparisonDataByPr, setComparisonDataByPr] = useState<Record<number, PrReviewComparisonResponse>>({});
 
   const ext = loadExtendedProjectData(id);
   const checkResultMap = new Map(
@@ -400,6 +402,9 @@ export default function GitHubPage() {
                                 projectId={id}
                                 prNumber={lp.number}
                                 userKey={userKey}
+                                onLoad={(prNum, data) =>
+                                  setComparisonDataByPr((prev) => ({ ...prev, [prNum]: data }))
+                                }
                               />
                             </div>
                             {run.results && run.results.some((r) => r.status !== "passed") && (
@@ -426,7 +431,7 @@ export default function GitHubPage() {
                                   lp={lp}
                                   projectId={id}
                                   userKey={userKey}
-                                  hasComparison={true}
+                                  comparisonData={comparisonDataByPr[lp.number] ?? null}
                                 />
                               </div>
                             )}
@@ -458,10 +463,12 @@ function ComparisonPanel({
   projectId,
   prNumber,
   userKey,
+  onLoad,
 }: {
   projectId: string;
   prNumber: number;
   userKey: string;
+  onLoad?: (prNumber: number, data: PrReviewComparisonResponse) => void;
 }) {
   const [data, setData] = useState<PrReviewComparisonResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -469,10 +476,14 @@ function ComparisonPanel({
   useEffect(() => {
     let cancelled = false;
     getPRReviewComparison(projectId, prNumber, userKey).then((res) => {
-      if (!cancelled) { setData(res); setLoading(false); }
+      if (!cancelled) {
+        setData(res);
+        setLoading(false);
+        onLoad?.(prNumber, res);
+      }
     });
     return () => { cancelled = true; };
-  }, [projectId, prNumber, userKey]);
+  }, [projectId, prNumber, userKey, onLoad]);
 
   if (loading) return null; // silent while loading
 
@@ -601,14 +612,15 @@ function PRCommentPanel({
   lp,
   projectId,
   userKey,
-  hasComparison = false,
+  comparisonData = null,
 }: {
   run: ReviewRun;
   lp: LinkedPull;
   projectId: string;
   userKey: string;
-  hasComparison?: boolean;
+  comparisonData?: PrReviewComparisonResponse | null;
 }) {
+  const comparable = comparisonData?.ok === true && comparisonData.comparable === true;
   const allResults = run.results ?? [];
   const fixable = allResults.filter(
     (r) => r.status === "failed" || r.status === "inconclusive" || r.status === "needs_decision",
@@ -621,6 +633,7 @@ function PRCommentPanel({
   );
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(defaultSelected);
+  const [includeComparison, setIncludeComparison] = useState(comparable);
   const [mode, setMode] = useState<"new" | "update_latest">("new");
   const [previewPhase, setPreviewPhase] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [previewBody, setPreviewBody] = useState<string | null>(null);
@@ -649,6 +662,7 @@ function PRCommentPanel({
     const res = await previewPRComment(projectId, lp.number, {
       userKey,
       selectedItemIds: Array.from(selectedIds),
+      includeComparison,
     });
     if (res.ok) {
       setPreviewBody(res.comment.body);
@@ -667,6 +681,7 @@ function PRCommentPanel({
       userKey,
       selectedItemIds: Array.from(selectedIds),
       body: previewBody ?? undefined,
+      includeComparison,
       mode,
     });
     if (res.ok) {
@@ -719,12 +734,25 @@ function PRCommentPanel({
         현재는 공개 저장소 PR에만 코멘트를 남길 수 있어요.
       </p>
 
-      {/* Comparison hint */}
-      {hasComparison && (
-        <p className="text-xs text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2">
-          최신 비교 결과를 바탕으로 코멘트를 업데이트할 수 있어요.
+      {/* Comparison inclusion option */}
+      <div>
+        <p className="text-xs text-gray-500 mb-1.5">
+          수정 후 다시 확인한 결과가 있으면, 코멘트에 이전보다 좋아진 점과 아직 남은 항목을 함께 넣을 수 있어요.
         </p>
-      )}
+        <label className={`flex items-center gap-2 cursor-pointer ${comparable ? "" : "opacity-50"}`}>
+          <input
+            type="checkbox"
+            checked={includeComparison}
+            disabled={!comparable}
+            onChange={(e) => setIncludeComparison(e.target.checked)}
+            className="w-4 h-4 rounded accent-indigo-600"
+          />
+          <span className="text-xs text-gray-700">이전/최신 비교 포함</span>
+        </label>
+        {!comparable && (
+          <p className="text-xs text-gray-400 mt-1 ml-6">한 번 더 PR을 확인하면 비교를 포함할 수 있어요.</p>
+        )}
+      </div>
 
       {/* Mode selector — only show after past comments loaded and existing comment exists */}
       {pastLoaded && hasExistingComment && postPhase !== "done" && (

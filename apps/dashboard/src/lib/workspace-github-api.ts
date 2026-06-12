@@ -434,6 +434,7 @@ export async function previewPRComment(
     userKey: string;
     selectedItemIds?: string[];
     includeFixBrief?: boolean;
+    includeComparison?: boolean;
   },
 ): Promise<PreviewCommentResponse> {
   try {
@@ -461,6 +462,7 @@ export async function postPRComment(
     selectedItemIds?: string[];
     body?: string;
     includeFixBrief?: boolean;
+    includeComparison?: boolean;
     mode?: "new" | "update_latest";
   },
 ): Promise<PostCommentResponse> {
@@ -490,6 +492,7 @@ export async function updatePRComment(
     selectedItemIds?: string[];
     body?: string;
     includeFixBrief?: boolean;
+    includeComparison?: boolean;
   },
 ): Promise<UpdateCommentResponse> {
   try {

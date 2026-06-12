@@ -28,6 +28,14 @@ export type CommentSummary = {
   passed: number;
 };
 
+export type ComparisonDataForComment = {
+  previousSummary: { passed: number; failed: number; inconclusive: number; needsDecision: number };
+  latestSummary: { passed: number; failed: number; inconclusive: number; needsDecision: number };
+  improved: Array<{ itemId: string; title: string; from: string; to: string; reason: string }>;
+  stillOpen: Array<{ itemId: string; title: string; status: string; reason: string }>;
+  newlyProblematic: Array<{ itemId: string; title: string; from: string; to: string; reason: string }>;
+};
+
 export type BuildCommentOptions = {
   repoFullName: string;
   prNumber: number;
@@ -36,6 +44,8 @@ export type BuildCommentOptions = {
   summary: CommentSummary;
   includeFixBrief?: boolean;
   fixBriefSummary?: string;
+  includeComparison?: boolean;
+  comparisonData?: ComparisonDataForComment;
 };
 
 export type PostCommentInput = {
@@ -60,13 +70,17 @@ const STATUS_KO: Record<string, string> = {
   needs_decision: "🟣 결정 필요",
 };
 
-// ─── Comment body builder ─────────────────────────────────────────────────────
+const STATUS_KO_PLAIN: Record<string, string> = {
+  passed: "통과",
+  failed: "안 맞음",
+  inconclusive: "확인 부족",
+  needs_decision: "결정 필요",
+};
 
-export function buildCommentBody(opts: BuildCommentOptions): {
-  body: string;
-  truncated: boolean;
-} {
-  const { repoFullName, prNumber, prTitle, selectedItems, summary, includeFixBrief, fixBriefSummary } = opts;
+// ─── Section builders ─────────────────────────────────────────────────────────
+
+function buildRequiredPart(opts: BuildCommentOptions): string {
+  const { repoFullName, prNumber, prTitle, selectedItems, summary } = opts;
 
   const fixable = selectedItems.filter(
     (i) => i.status === "failed" || i.status === "inconclusive" || i.status === "needs_decision",
@@ -111,16 +125,80 @@ export function buildCommentBody(opts: BuildCommentOptions): {
     }
   }
 
-  if (includeFixBrief && fixBriefSummary) {
-    lines.push(
-      "### 수정 제안 요약",
-      "",
-      fixBriefSummary,
-      "",
-    );
+  return lines.join("\n");
+}
+
+function buildCompSummaryPart(data: ComparisonDataForComment): string {
+  const { previousSummary: prev, latestSummary: latest } = data;
+
+  const fmt = (from: number, to: number) =>
+    from === to ? `${to}개` : `${from}개 → ${to}개`;
+
+  const lines: string[] = [
+    "",
+    "## 이전/최신 비교",
+    "",
+    "이 비교는 같은 PR을 다시 확인한 결과를 이전 결과와 비교한 것입니다. 연결된 PR의 변경 내용 기준이며, 전체 저장소나 배포된 서비스 전체를 확인한 것은 아닙니다.",
+    "",
+    "### 요약",
+    "",
+    `- 안 맞음: ${fmt(prev.failed, latest.failed)}`,
+    `- 확인 부족: ${fmt(prev.inconclusive, latest.inconclusive)}`,
+    `- 결정 필요: ${fmt(prev.needsDecision, latest.needsDecision)}`,
+    `- 통과: ${fmt(prev.passed, latest.passed)}`,
+    "",
+  ];
+
+  return lines.join("\n");
+}
+
+function buildCompDetailPart(data: ComparisonDataForComment): string {
+  const { improved, stillOpen, newlyProblematic } = data;
+  if (improved.length === 0 && stillOpen.length === 0 && newlyProblematic.length === 0) return "";
+
+  const lines: string[] = [];
+
+  if (improved.length > 0) {
+    lines.push(`### 좋아진 항목 (${improved.length}개)`, "");
+    for (const item of improved) {
+      lines.push(`- ${item.title}`);
+      lines.push(`  - 이전: ${STATUS_KO_PLAIN[item.from] ?? item.from}`);
+      lines.push(`  - 최신: ${STATUS_KO_PLAIN[item.to] ?? item.to}`);
+      lines.push(`  - 이유: ${item.reason}`);
+      lines.push("");
+    }
   }
 
-  lines.push(
+  if (stillOpen.length > 0) {
+    lines.push(`### 아직 남은 항목 (${stillOpen.length}개)`, "");
+    for (const item of stillOpen) {
+      lines.push(`- ${item.title}`);
+      lines.push(`  - 상태: ${STATUS_KO_PLAIN[item.status] ?? item.status}`);
+      lines.push(`  - 이유: ${item.reason}`);
+      lines.push("");
+    }
+  }
+
+  if (newlyProblematic.length > 0) {
+    lines.push(`### 새로 생긴 문제 (${newlyProblematic.length}개)`, "");
+    for (const item of newlyProblematic) {
+      lines.push(`- ${item.title}`);
+      lines.push(`  - 이전: ${STATUS_KO_PLAIN[item.from] ?? item.from}`);
+      lines.push(`  - 최신: ${STATUS_KO_PLAIN[item.to] ?? item.to}`);
+      lines.push(`  - 이유: ${item.reason}`);
+      lines.push("");
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function buildFixBriefPart(summary: string): string {
+  return ["", "### 수정 제안 요약", "", summary, ""].join("\n");
+}
+
+function buildFooterPart(): string {
+  return [
     "<details>",
     "<summary>이 코멘트에 대하여</summary>",
     "",
@@ -128,17 +206,48 @@ export function buildCommentBody(opts: BuildCommentOptions): {
     "이 단계에서는 코드를 자동으로 고치지 않습니다.",
     "",
     "</details>",
-  );
+  ].join("\n");
+}
 
-  const full = lines.join("\n");
-  if (full.length <= MAX_COMMENT_CHARS) {
-    return { body: full, truncated: false };
+// ─── Comment body builder ─────────────────────────────────────────────────────
+
+export function buildCommentBody(opts: BuildCommentOptions): {
+  body: string;
+  truncated: boolean;
+  comparisonIncluded: boolean;
+} {
+  const TRUNCATION = "\n\n> ⚠️ 코멘트가 너무 길어 일부 내용이 잘렸습니다.";
+
+  const required = buildRequiredPart(opts);
+  const footer = buildFooterPart();
+  const hasComparison = opts.includeComparison === true && opts.comparisonData !== undefined;
+  const compSummary = hasComparison ? buildCompSummaryPart(opts.comparisonData!) : "";
+  const compDetail = hasComparison ? buildCompDetailPart(opts.comparisonData!) : "";
+  const fixBrief =
+    opts.includeFixBrief === true && opts.fixBriefSummary
+      ? buildFixBriefPart(opts.fixBriefSummary)
+      : "";
+
+  const fits = (...parts: string[]) => parts.join("").length <= MAX_COMMENT_CHARS;
+
+  // Priority: required > compSummary > compDetail > fixBrief. Drop from lowest priority first.
+  if (fits(required, compSummary, compDetail, fixBrief, footer)) {
+    return { body: required + compSummary + compDetail + fixBrief + footer, truncated: false, comparisonIncluded: hasComparison };
+  }
+  if (fits(required, compSummary, compDetail, footer)) {
+    return { body: required + compSummary + compDetail + footer, truncated: false, comparisonIncluded: hasComparison };
+  }
+  if (fits(required, compSummary, footer)) {
+    return { body: required + compSummary + footer, truncated: false, comparisonIncluded: hasComparison };
+  }
+  if (fits(required, footer)) {
+    return { body: required + footer, truncated: false, comparisonIncluded: false };
   }
 
-  // Truncate
-  const truncationNotice = "\n\n> ⚠️ 코멘트가 너무 길어 일부 내용이 잘렸습니다.";
-  const cutAt = MAX_COMMENT_CHARS - truncationNotice.length;
-  return { body: full.slice(0, cutAt) + truncationNotice, truncated: true };
+  // Even the base is too long — truncate
+  const base = required + footer;
+  const cutAt = MAX_COMMENT_CHARS - TRUNCATION.length;
+  return { body: base.slice(0, cutAt) + TRUNCATION, truncated: true, comparisonIncluded: false };
 }
 
 // ─── Preview helper ───────────────────────────────────────────────────────────
