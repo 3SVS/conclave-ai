@@ -576,6 +576,117 @@ export async function debitCredits(env: Env, input: DebitCreditsInput): Promise<
   return { ok: true, duplicate: false, newBalance, ledgerEntryId: ledgerId, sourceEventId: input.sourceEventId, ledgerStatus: "applied" };
 }
 
+// ─── Pending ledger management (Stage 30) ────────────────────────────────────
+
+export type PendingLedgerEntry = {
+  id: string;
+  userKey: string;
+  projectId?: string;
+  creditType: string;
+  amount: number;
+  direction: "debit";
+  status: "pending";
+  reason: string;
+  sourceEventId?: string;
+  createdAt: string;
+  ageMinutes: number;
+};
+
+/**
+ * List debit ledger entries that are still in `status='pending'` after a threshold age.
+ * These represent reservations that never finalized — likely due to Worker timeout or crash.
+ * Does NOT modify any rows.
+ */
+export async function listPendingCreditLedgerEntries(
+  env: Env,
+  opts: { olderThanMinutes?: number; limit?: number },
+): Promise<PendingLedgerEntry[]> {
+  const olderThanMinutes = Math.max(1, opts.olderThanMinutes ?? 15);
+  const limit = Math.min(200, Math.max(1, opts.limit ?? 50));
+
+  // ISO string cutoff: entries created before this timestamp
+  const cutoffMs = Date.now() - olderThanMinutes * 60 * 1000;
+  const cutoff = new Date(cutoffMs).toISOString();
+
+  const result = await env.DB.prepare(
+    `SELECT id, user_key, project_id, credit_type, amount, direction, reason,
+            source_event_id, created_at
+     FROM workspace_credit_ledger
+     WHERE direction = 'debit'
+       AND status = 'pending'
+       AND created_at <= ?
+     ORDER BY created_at ASC
+     LIMIT ?`,
+  )
+    .bind(cutoff, limit)
+    .all<LedgerRow & { created_at: string }>();
+
+  const nowMs = Date.now();
+  return (result.results ?? []).map((r) => {
+    const createdMs = new Date(r.created_at).getTime();
+    const ageMinutes = Math.floor((nowMs - createdMs) / 60_000);
+    return {
+      id: r.id,
+      userKey: r.user_key,
+      ...(r.project_id ? { projectId: r.project_id } : {}),
+      creditType: r.credit_type,
+      amount: r.amount,
+      direction: "debit" as const,
+      status: "pending" as const,
+      reason: r.reason,
+      ...(r.source_event_id ? { sourceEventId: r.source_event_id } : {}),
+      createdAt: r.created_at,
+      ageMinutes,
+    };
+  });
+}
+
+export type MarkPendingFailedResult =
+  | { ok: true; entry: { id: string; status: "failed" } }
+  | { ok: false; error: "not_found" | "not_pending" };
+
+/**
+ * Mark a pending debit ledger entry as failed (admin manual cleanup).
+ * IMPORTANT: Does NOT modify workspace_credit_balances — balance is untouched.
+ * Only changes status from 'pending' to 'failed' and records admin reason.
+ */
+export async function markPendingCreditLedgerFailed(
+  env: Env,
+  opts: { ledgerEntryId: string; adminReason: string },
+): Promise<MarkPendingFailedResult> {
+  // Verify entry exists and is pending debit
+  const existing = await env.DB.prepare(
+    `SELECT id, status, direction, metadata_json FROM workspace_credit_ledger
+     WHERE id = ? LIMIT 1`,
+  )
+    .bind(opts.ledgerEntryId)
+    .first<{ id: string; status: string; direction: string; metadata_json: string | null }>();
+
+  if (!existing) return { ok: false, error: "not_found" };
+  if (existing.status !== "pending") return { ok: false, error: "not_pending" };
+
+  // Merge admin cleanup info into metadata_json
+  let meta: Record<string, unknown> = {};
+  try {
+    if (existing.metadata_json) meta = JSON.parse(existing.metadata_json) as Record<string, unknown>;
+  } catch { /* ignore malformed json */ }
+  meta["cleanup"] = {
+    markedFailedBy: "admin",
+    reason: opts.adminReason,
+    at: new Date().toISOString(),
+  };
+
+  await env.DB.prepare(
+    `UPDATE workspace_credit_ledger
+     SET status = 'failed', metadata_json = ?
+     WHERE id = ? AND status = 'pending'`,
+  )
+    .bind(JSON.stringify(meta), opts.ledgerEntryId)
+    .run();
+
+  return { ok: true, entry: { id: opts.ledgerEntryId, status: "failed" } };
+}
+
 // ─── Ledger preview (no DB writes) ────────────────────────────────────────────
 
 export function buildLedgerPreview(entries: PreviewEntry[]): CreditLedgerPreviewEntry[] {

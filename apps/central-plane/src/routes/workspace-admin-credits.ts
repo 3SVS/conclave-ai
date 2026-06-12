@@ -4,11 +4,13 @@
  * Admin-only credit management endpoints.
  * Auth: x-admin-key header must match ADMIN_USAGE_STATS_KEY env secret.
  *
- * GET  /admin/credits?userKey=...                      — list balances for a user
- * POST /admin/credits/grant                            — manually grant credits
- * GET  /admin/credits/ledger?userKey=...               — list ledger entries for a user
- * GET  /admin/credits/preview?range=...                — dry-run preview (no writes)
- * GET  /admin/credits/monthly-preview?month=YYYY-MM    — monthly allowance + credit breakdown
+ * GET  /admin/credits?userKey=...                        — list balances for a user
+ * POST /admin/credits/grant                              — manually grant credits
+ * GET  /admin/credits/ledger?userKey=...                 — list ledger entries for a user
+ * GET  /admin/credits/preview?range=...                  — dry-run preview (no writes)
+ * GET  /admin/credits/monthly-preview?month=YYYY-MM      — monthly allowance + credit breakdown
+ * GET  /admin/credits/pending?olderThanMinutes=15        — list old pending debit rows
+ * POST /admin/credits/pending/:id/mark-failed            — manually mark pending as failed
  *
  * No credit deduction on feature execution.
  * actualDebitsEnabled is always false.
@@ -22,6 +24,8 @@ import {
   getCreditBalance,
   previewCreditDebitFromUsageEvents,
   buildLedgerPreview,
+  listPendingCreditLedgerEntries,
+  markPendingCreditLedgerFailed,
 } from "../workspace/credits.js";
 import type { CreditType } from "../workspace/credits.js";
 import {
@@ -401,6 +405,75 @@ export function createWorkspaceAdminCreditsRoutes(): Hono<{ Bindings: Env }> {
   });
 
   /**
+   * GET /admin/credits/pending?olderThanMinutes=15&limit=50
+   * Lists debit ledger entries still in status='pending' after the given age threshold.
+   * Read-only — no balance changes.
+   */
+  app.get("/admin/credits/pending", async (c) => {
+    const guard = authGuard(c.env, c.req.header("x-admin-key") ?? "");
+    if (!guard.ok) {
+      return c.json(
+        { ok: false, error: guard.status === 503 ? "disabled" : "unauthorized" },
+        guard.status,
+      );
+    }
+
+    const rawMinutes = c.req.query("olderThanMinutes");
+    const rawLimit = c.req.query("limit");
+    const olderThanMinutes = rawMinutes ? Math.max(1, parseInt(rawMinutes, 10) || 15) : 15;
+    const limit = rawLimit ? Math.min(200, Math.max(1, parseInt(rawLimit, 10) || 50)) : 50;
+
+    try {
+      const entries = await listPendingCreditLedgerEntries(c.env, { olderThanMinutes, limit });
+      return c.json({ ok: true as const, olderThanMinutes, entries });
+    } catch (err) {
+      console.error("[admin/credits/pending] failed:", err);
+      return c.json({ ok: false, error: "query_failed" }, 500);
+    }
+  });
+
+  /**
+   * POST /admin/credits/pending/:ledgerEntryId/mark-failed
+   * Marks a pending debit ledger entry as failed.
+   * CRITICAL: Does NOT modify workspace_credit_balances. Balance-neutral operation.
+   */
+  app.post("/admin/credits/pending/:ledgerEntryId/mark-failed", async (c) => {
+    const guard = authGuard(c.env, c.req.header("x-admin-key") ?? "");
+    if (!guard.ok) {
+      return c.json(
+        { ok: false, error: guard.status === 503 ? "disabled" : "unauthorized" },
+        guard.status,
+      );
+    }
+
+    const ledgerEntryId = c.req.param("ledgerEntryId");
+    if (!ledgerEntryId || ledgerEntryId.trim() === "") {
+      return c.json({ ok: false, error: "missing_ledger_entry_id" }, 400);
+    }
+
+    let body: { adminReason?: string } = {};
+    try {
+      body = await c.req.json<{ adminReason?: string }>();
+    } catch { /* allow missing body */ }
+
+    const adminReason = typeof body.adminReason === "string" && body.adminReason.trim()
+      ? body.adminReason.trim()
+      : "manual admin cleanup";
+
+    try {
+      const result = await markPendingCreditLedgerFailed(c.env, { ledgerEntryId, adminReason });
+      if (!result.ok) {
+        const status = result.error === "not_found" ? 404 : 409;
+        return c.json({ ok: false, error: result.error }, status);
+      }
+      return c.json({ ok: true as const, entry: result.entry });
+    } catch (err) {
+      console.error("[admin/credits/pending/mark-failed] failed:", err);
+      return c.json({ ok: false, error: "update_failed" }, 500);
+    }
+  });
+
+  /**
    * GET /admin/credits/rollout-checklist
    * Returns a structured checklist for verifying credit system readiness before production enablement.
    * Read-only — never activates production debits.
@@ -458,7 +531,14 @@ export function createWorkspaceAdminCreditsRoutes(): Hono<{ Bindings: Env }> {
         label: "Pending 상태 장부 점검",
         status: "manual" as const,
         description:
-          "GET /admin/credits/ledger?userKey=... 에서 status=pending인 항목이 오래 유지되는 경우 중간 실패 가능성이 있습니다.",
+          "GET /admin/credits/pending 에서 오래된 pending 항목 확인. status=pending이 오래 유지되면 중간 실패 가능성 있음. mark-failed로 수동 정리 가능.",
+      },
+      {
+        id: "pending-cleanup-available",
+        label: "Pending cleanup 기능 사용 가능",
+        status: "passed" as const,
+        description:
+          "GET /admin/credits/pending + POST .../mark-failed 엔드포인트가 정상 동작하는지 확인됨. Balance 변경 없이 수동 정리 가능.",
       },
     ];
 
@@ -493,6 +573,7 @@ export function createWorkspaceAdminCreditsRoutes(): Hono<{ Bindings: Env }> {
       "잔액 부족 사용자에게 수동으로 크레딧 지급 (POST /admin/credits/grant) 할 준비 완료",
       "ENABLE_CREDIT_BLOCKING은 ENABLE_ACTUAL_CREDIT_DEBITS 활성 + 크레딧 충전 UX 완성 후에만 활성화",
       "status=pending 장부 항목 장기 잔류 모니터링 방법 수립",
+      "오래된 pending ledger를 /admin/credits/pending 에서 조회하고 mark-failed로 수동 정리할 수 있어야 한다",
     ];
 
     return c.json({

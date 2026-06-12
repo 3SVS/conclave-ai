@@ -8,6 +8,8 @@ import {
   fetchMonthlyCreditPreview,
   fetchCreditConfig,
   fetchRolloutChecklist,
+  fetchPendingLedger,
+  markPendingFailed,
   grantCredits,
   type CreditBalance,
   type CreditType,
@@ -20,6 +22,8 @@ import {
   type CreditExecutionConfigResult,
   type AdminCreditRolloutChecklistResponse,
   type RolloutCheck,
+  type PendingLedgerEntry,
+  type AdminPendingCreditLedgerResponse,
 } from "@/lib/workspace-admin-credits-api";
 
 const RANGE_LABELS: Record<UsageRange, string> = {
@@ -197,6 +201,79 @@ function LedgerPreviewTable({ entries }: { entries: CreditLedgerPreviewEntry[] }
         ))}
       </tbody>
     </table>
+  );
+}
+
+function PendingCleanupTable({
+  entries,
+  adminReason,
+  onAdminReasonChange,
+  onMarkFailed,
+  loading,
+}: {
+  entries: PendingLedgerEntry[];
+  adminReason: string;
+  onAdminReasonChange: (v: string) => void;
+  onMarkFailed: (id: string) => void;
+  loading: boolean;
+}) {
+  if (entries.length === 0)
+    return <p className="text-sm text-green-700 font-medium">오래된 pending 항목 없음 ✓</p>;
+  return (
+    <div className="space-y-3">
+      <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 text-xs text-amber-700">
+        이 작업은 balance를 변경하지 않습니다. pending 상태를 failed로 표시해 운영상 정리하는 작업입니다.
+      </div>
+      <div className="flex gap-2 items-center">
+        <input
+          type="text"
+          placeholder="Admin 정리 사유 (예: Worker timeout cleanup)"
+          value={adminReason}
+          onChange={(e) => onAdminReasonChange(e.target.value)}
+          className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+        />
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b">
+              <th className="text-left py-1 text-gray-500 font-medium">ID</th>
+              <th className="text-left py-1 text-gray-500 font-medium">userKey</th>
+              <th className="text-right py-1 text-gray-500 font-medium">금액</th>
+              <th className="text-right py-1 text-gray-500 font-medium">경과(분)</th>
+              <th className="text-left py-1 text-gray-500 font-medium pl-2">sourceEventId</th>
+              <th className="text-left py-1 text-gray-500 font-medium pl-2">생성일시</th>
+              <th className="py-1" />
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((e) => (
+              <tr key={e.id} className="border-b last:border-0">
+                <td className="py-1 font-mono text-xs text-gray-500">{e.id.slice(0, 12)}…</td>
+                <td className="py-1 font-mono text-xs">{e.userKey}</td>
+                <td className="py-1 text-right font-mono font-bold text-amber-700">{e.amount}</td>
+                <td className="py-1 text-right">
+                  <span className={`text-xs px-1.5 py-0.5 rounded ${e.ageMinutes >= 60 ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
+                    {e.ageMinutes}분
+                  </span>
+                </td>
+                <td className="py-1 pl-2 font-mono text-xs text-gray-500 max-w-xs truncate">{e.sourceEventId ?? "—"}</td>
+                <td className="py-1 pl-2 text-xs text-gray-400">{e.createdAt.slice(0, 16).replace("T", " ")}</td>
+                <td className="py-1 pl-2">
+                  <button
+                    onClick={() => onMarkFailed(e.id)}
+                    disabled={loading}
+                    className="bg-red-600 text-white px-2 py-1 rounded text-xs hover:bg-red-700 disabled:opacity-50"
+                  >
+                    failed 처리
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
@@ -489,6 +566,12 @@ export default function AdminCreditsPage() {
   // Stage 29: rollout checklist
   const [rolloutChecklist, setRolloutChecklist] = useState<AdminCreditRolloutChecklistResponse | null>(null);
 
+  // Stage 30: pending ledger cleanup
+  const [pendingResult, setPendingResult] = useState<AdminPendingCreditLedgerResponse | null>(null);
+  const [pendingMinutes, setPendingMinutes] = useState("15");
+  const [pendingAdminReason, setPendingAdminReason] = useState("");
+  const [markFailedSuccess, setMarkFailedSuccess] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [grantSuccess, setGrantSuccess] = useState<string | null>(null);
@@ -500,8 +583,10 @@ export default function AdminCreditsPage() {
     setMonthlyPreview(null);
     setCreditConfig(null);
     setRolloutChecklist(null);
+    setPendingResult(null);
     setError(null);
     setGrantSuccess(null);
+    setMarkFailedSuccess(null);
   }
 
   async function handleFetchConfig() {
@@ -637,6 +722,45 @@ export default function AdminCreditsPage() {
       );
       setGrantAmount("");
       setGrantReason("");
+    } catch (e) {
+      handleKeyError(e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleFetchPendingLedger() {
+    if (!adminKey.trim()) { setError("Admin key를 입력해주세요."); return; }
+    setLoading(true);
+    clearState();
+    try {
+      const minutes = parseInt(pendingMinutes, 10);
+      const result = await fetchPendingLedger(adminKey.trim(), {
+        olderThanMinutes: Number.isFinite(minutes) ? minutes : 15,
+      });
+      setPendingResult(result);
+    } catch (e) {
+      handleKeyError(e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleMarkFailed(entryId: string) {
+    if (!adminKey.trim()) { setError("Admin key를 입력해주세요."); return; }
+    const reason = pendingAdminReason.trim() || "manual admin cleanup";
+    setLoading(true);
+    setError(null);
+    setMarkFailedSuccess(null);
+    try {
+      await markPendingFailed(adminKey.trim(), entryId, reason);
+      setMarkFailedSuccess(`failed 처리됨: ${entryId}`);
+      // Re-fetch to show updated state
+      const minutes = parseInt(pendingMinutes, 10);
+      const updated = await fetchPendingLedger(adminKey.trim(), {
+        olderThanMinutes: Number.isFinite(minutes) ? minutes : 15,
+      });
+      setPendingResult(updated);
     } catch (e) {
       handleKeyError(e);
     } finally {
@@ -889,6 +1013,49 @@ export default function AdminCreditsPage() {
             </button>
           </div>
           {monthlyPreview && <MonthlyPreviewSection data={monthlyPreview} />}
+        </div>
+      </SectionCard>
+
+      {/* Pending ledger cleanup */}
+      <SectionCard title="Pending Ledger 수동 정리 (Stage 30)">
+        <div className="space-y-3">
+          <p className="text-xs text-gray-500">
+            오래된 status=pending debit 항목을 조회하고, balance 변경 없이 failed로 수동 정리합니다.
+            pending 상태가 오래 유지되면 Worker 중간 실패(timeout 등) 가능성이 있습니다.
+          </p>
+          <div className="flex gap-2 items-center flex-wrap">
+            <label className="text-sm text-gray-600 whitespace-nowrap">기준 시간(분):</label>
+            <select
+              value={pendingMinutes}
+              onChange={(e) => setPendingMinutes(e.target.value)}
+              className="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+            >
+              <option value="15">15분 이상</option>
+              <option value="30">30분 이상</option>
+              <option value="60">60분 이상</option>
+            </select>
+            <button
+              onClick={handleFetchPendingLedger}
+              disabled={loading}
+              className="bg-amber-600 text-white px-4 py-2 rounded text-sm hover:bg-amber-700 disabled:opacity-50 whitespace-nowrap"
+            >
+              Pending 조회
+            </button>
+          </div>
+          {markFailedSuccess && (
+            <div className="bg-green-50 border border-green-200 text-green-700 rounded-lg px-4 py-2 text-sm">
+              {markFailedSuccess}
+            </div>
+          )}
+          {pendingResult && (
+            <PendingCleanupTable
+              entries={pendingResult.entries}
+              adminReason={pendingAdminReason}
+              onAdminReasonChange={setPendingAdminReason}
+              onMarkFailed={handleMarkFailed}
+              loading={loading}
+            />
+          )}
         </div>
       </SectionCard>
 

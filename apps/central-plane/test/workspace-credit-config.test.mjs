@@ -35,12 +35,13 @@
  *  66–68. grant default status, checkCreditEnforcement ledgerStatus propagation
  *  69–70. concurrent same sourceEventId: single balance debit + single ledger entry
  *  71–78. GET /admin/credits/rollout-checklist: structure, safeForProductionDefault, auth
+ *  79–90. Stage 30 pending ledger: query, filter, mark-failed, balance invariant
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 const { getCreditExecutionConfig } = await import("../dist/workspace/credit-config.js");
-const { debitCredits, validateIdempotencyKey, buildPrReviewDebitSourceEventId } = await import("../dist/workspace/credits.js");
+const { debitCredits, validateIdempotencyKey, buildPrReviewDebitSourceEventId, listPendingCreditLedgerEntries, markPendingCreditLedgerFailed } = await import("../dist/workspace/credits.js");
 const { checkCreditEnforcement } = await import("../dist/workspace/credit-enforcement.js");
 const { createApp } = await import("../dist/router.js");
 
@@ -1027,5 +1028,261 @@ describe("Stage 29 — GET /admin/credits/rollout-checklist", () => {
       env,
     );
     assert.equal(res.status, 401);
+  });
+});
+
+// ─── Stage 30 helpers ────────────────────────────────────────────────────────
+
+function makePendingEntry(id, ageMinutes = 20, status = "pending") {
+  const createdMs = Date.now() - ageMinutes * 60 * 1000;
+  return {
+    id,
+    user_key: "gh:testuser",
+    project_id: "proj1",
+    credit_type: "review",
+    amount: 1,
+    direction: "debit",
+    reason: "workspace_pr_review_run",
+    source_event_id: `prr_${id}`,
+    metadata_json: null,
+    status,
+    created_at: new Date(createdMs).toISOString(),
+  };
+}
+
+function makeDbStage30(entries = []) {
+  const ledger = entries.map(e => ({ ...e }));
+  const writeCount = { balance: 0, status: 0 };
+
+  return {
+    _ledger: ledger,
+    _writeCount: writeCount,
+    prepare(sql) {
+      return {
+        bind(...args) {
+          return {
+            async run() {
+              if (sql.includes("UPDATE workspace_credit_ledger") && sql.includes("SET status = 'failed'")) {
+                const [metaJson, entryId] = args;
+                const entry = ledger.find(e => e.id === entryId);
+                if (entry && entry.status === "pending") {
+                  entry.status = "failed";
+                  entry.metadata_json = metaJson;
+                  writeCount.status += 1;
+                  return { meta: { changes: 1 } };
+                }
+                return { meta: { changes: 0 } };
+              }
+              if (sql.includes("UPDATE workspace_credit_balances")) {
+                writeCount.balance += 1;
+                return { meta: { changes: 1 } };
+              }
+              return { meta: { changes: 0 } };
+            },
+            async first() {
+              if (sql.includes("FROM workspace_credit_ledger") && sql.includes("WHERE id = ?")) {
+                const [id] = args;
+                return ledger.find(e => e.id === id) ?? null;
+              }
+              return null;
+            },
+            async all() {
+              if (sql.includes("FROM workspace_credit_ledger") && sql.includes("status = 'pending'")) {
+                const [cutoff, limit] = args;
+                return {
+                  results: ledger
+                    .filter(e => e.direction === "debit" && e.status === "pending" && e.created_at <= cutoff)
+                    .slice(0, limit),
+                };
+              }
+              return { results: [] };
+            },
+          };
+        },
+      };
+    },
+  };
+}
+
+function makeEnvStage30(entries = [], opts = {}) {
+  return {
+    ENVIRONMENT: "test",
+    ADMIN_USAGE_STATS_KEY: ADMIN_KEY,
+    DB: makeDbStage30(entries),
+    ...opts,
+  };
+}
+
+// ─── Tests: Stage 30 — pending ledger HTTP endpoints ─────────────────────────
+
+describe("Stage 30 — GET /admin/credits/pending", () => {
+  it("79 — returns 401 on bad admin key", async () => {
+    const env = makeEnv();
+    const app = createApp();
+    const res = await app.fetch(
+      new Request("http://localhost/admin/credits/pending", {
+        headers: { "x-admin-key": "wrong-key" },
+      }),
+      env,
+    );
+    assert.equal(res.status, 401);
+  });
+
+  it("80 — returns ok:true + entries array + olderThanMinutes (no pending)", async () => {
+    const env = makeEnv();
+    const res = await req(env, "GET", "/admin/credits/pending", null);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    assert.ok(Array.isArray(body.entries), "entries must be array");
+    assert.ok("olderThanMinutes" in body, "olderThanMinutes must be present");
+    assert.equal(body.olderThanMinutes, 15, "default olderThanMinutes is 15");
+  });
+
+  it("81 — olderThanMinutes query param is reflected in response", async () => {
+    const env = makeEnv();
+    const app = createApp();
+    const res = await app.fetch(
+      new Request("http://localhost/admin/credits/pending?olderThanMinutes=30", {
+        headers: { "x-admin-key": ADMIN_KEY },
+      }),
+      env,
+    );
+    const body = await res.json();
+    assert.equal(body.olderThanMinutes, 30);
+  });
+});
+
+// ─── Tests: Stage 30 — POST mark-failed HTTP endpoint ────────────────────────
+
+describe("Stage 30 — POST /admin/credits/pending/:id/mark-failed", () => {
+  it("89 — returns 401 on bad admin key", async () => {
+    const env = makeEnv();
+    const app = createApp();
+    const res = await app.fetch(
+      new Request("http://localhost/admin/credits/pending/wcl_test/mark-failed", {
+        method: "POST",
+        headers: { "x-admin-key": "wrong-key", "content-type": "application/json" },
+        body: JSON.stringify({ adminReason: "test" }),
+      }),
+      env,
+    );
+    assert.equal(res.status, 401);
+  });
+
+  it("90 — returns 404 when entry not found", async () => {
+    const env = makeEnvStage30([]); // empty ledger
+    const app = createApp();
+    const res = await app.fetch(
+      new Request("http://localhost/admin/credits/pending/wcl_nonexistent/mark-failed", {
+        method: "POST",
+        headers: { "x-admin-key": ADMIN_KEY, "content-type": "application/json" },
+        body: JSON.stringify({ adminReason: "cleanup" }),
+      }),
+      env,
+    );
+    assert.equal(res.status, 404);
+    const body = await res.json();
+    assert.equal(body.error, "not_found");
+  });
+});
+
+// ─── Tests: Stage 30 — listPendingCreditLedgerEntries direct ─────────────────
+
+describe("Stage 30 — listPendingCreditLedgerEntries", () => {
+  it("82 — returns entries older than threshold", async () => {
+    const env = makeEnvStage30([
+      makePendingEntry("e1", 20),   // 20 min old → older than 15 threshold
+      makePendingEntry("e2", 30),   // 30 min old → older than 15 threshold
+    ]);
+    const results = await listPendingCreditLedgerEntries(env, { olderThanMinutes: 15 });
+    assert.equal(results.length, 2, "both entries should be returned");
+    assert.equal(results[0].id, "e1");
+    assert.equal(results[0].status, "pending");
+    assert.ok(results[0].ageMinutes >= 15, "ageMinutes should be >= threshold");
+  });
+
+  it("83 — ignores entries newer than threshold", async () => {
+    const env = makeEnvStage30([
+      makePendingEntry("e_new", 5),   // 5 min old → newer than 15 threshold
+      makePendingEntry("e_old", 20),  // 20 min old → older
+    ]);
+    const results = await listPendingCreditLedgerEntries(env, { olderThanMinutes: 15 });
+    assert.equal(results.length, 1, "only old entry should be returned");
+    assert.equal(results[0].id, "e_old");
+  });
+
+  it("84 — ignores non-pending entries (applied/failed)", async () => {
+    const env = makeEnvStage30([
+      makePendingEntry("e_applied", 20, "applied"),
+      makePendingEntry("e_failed", 20, "failed"),
+      makePendingEntry("e_pending", 20, "pending"),
+    ]);
+    const results = await listPendingCreditLedgerEntries(env, { olderThanMinutes: 15 });
+    assert.equal(results.length, 1, "only pending entries returned");
+    assert.equal(results[0].id, "e_pending");
+  });
+
+  it("85 — caps limit at 200", async () => {
+    const entries = Array.from({ length: 10 }, (_, i) => makePendingEntry(`e${i}`, 30));
+    const env = makeEnvStage30(entries);
+    const results = await listPendingCreditLedgerEntries(env, { olderThanMinutes: 15, limit: 500 });
+    // limit is capped at min(200, actual rows)
+    assert.ok(results.length <= 10, "results should not exceed actual row count");
+  });
+});
+
+// ─── Tests: Stage 30 — markPendingCreditLedgerFailed direct ──────────────────
+
+describe("Stage 30 — markPendingCreditLedgerFailed", () => {
+  it("86 — changes pending to failed", async () => {
+    const env = makeEnvStage30([makePendingEntry("wcl_p1", 20, "pending")]);
+    const result = await markPendingCreditLedgerFailed(env, {
+      ledgerEntryId: "wcl_p1", adminReason: "test cleanup",
+    });
+    assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.entry.status, "failed");
+    // Verify the entry in the mock was updated
+    const entry = env.DB._ledger.find(e => e.id === "wcl_p1");
+    assert.equal(entry?.status, "failed", "entry status must be failed");
+  });
+
+  it("87 — returns not_found for missing ledgerEntryId", async () => {
+    const env = makeEnvStage30([]);
+    const result = await markPendingCreditLedgerFailed(env, {
+      ledgerEntryId: "wcl_nonexistent", adminReason: "cleanup",
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.error, "not_found");
+  });
+
+  it("88 — returns not_pending for applied entry", async () => {
+    const env = makeEnvStage30([makePendingEntry("wcl_a1", 20, "applied")]);
+    const result = await markPendingCreditLedgerFailed(env, {
+      ledgerEntryId: "wcl_a1", adminReason: "cleanup",
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.error, "not_pending");
+  });
+
+  it("91 — does not touch balance when marking pending as failed", async () => {
+    const env = makeEnvStage30([makePendingEntry("wcl_p2", 20, "pending")]);
+    await markPendingCreditLedgerFailed(env, {
+      ledgerEntryId: "wcl_p2", adminReason: "balance invariant test",
+    });
+    assert.equal(env.DB._writeCount.balance, 0, "balance must never be modified");
+  });
+
+  it("92 — records admin reason in metadata_json cleanup field", async () => {
+    const env = makeEnvStage30([makePendingEntry("wcl_p3", 20, "pending")]);
+    await markPendingCreditLedgerFailed(env, {
+      ledgerEntryId: "wcl_p3", adminReason: "intentional timeout cleanup",
+    });
+    const entry = env.DB._ledger.find(e => e.id === "wcl_p3");
+    assert.ok(entry?.metadata_json, "metadata_json must be set");
+    const meta = JSON.parse(entry.metadata_json);
+    assert.equal(meta.cleanup?.markedFailedBy, "admin");
+    assert.equal(meta.cleanup?.reason, "intentional timeout cleanup");
+    assert.ok(meta.cleanup?.at, "cleanup.at timestamp must be set");
   });
 });

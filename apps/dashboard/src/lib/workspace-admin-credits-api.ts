@@ -162,6 +162,31 @@ export type CreditExecutionConfigResult = {
   };
 };
 
+// Stage 30: pending ledger types
+export type PendingLedgerEntry = {
+  id: string;
+  userKey: string;
+  projectId?: string;
+  creditType: string;
+  amount: number;
+  status: "pending";
+  reason: string;
+  sourceEventId?: string;
+  createdAt: string;
+  ageMinutes: number;
+};
+
+export type AdminPendingCreditLedgerResponse = {
+  ok: true;
+  olderThanMinutes: number;
+  entries: PendingLedgerEntry[];
+};
+
+export type MarkPendingFailedResponse = {
+  ok: true;
+  entry: { id: string; status: "failed" };
+};
+
 // Stage 29: rollout checklist types
 export type RolloutCheckStatus = "manual" | "passed" | "warning" | "blocked";
 
@@ -272,6 +297,42 @@ export async function fetchCreditConfig(adminKey: string): Promise<CreditExecuti
     throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
   }
   return res.json() as Promise<CreditExecutionConfigResult>;
+}
+
+export async function fetchPendingLedger(
+  adminKey: string,
+  opts: { olderThanMinutes?: number; limit?: number } = {},
+): Promise<AdminPendingCreditLedgerResponse> {
+  const params = new URLSearchParams();
+  if (opts.olderThanMinutes !== undefined) params.set("olderThanMinutes", String(opts.olderThanMinutes));
+  if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+  const url = `${BASE_URL}/admin/credits/pending${params.size > 0 ? `?${params}` : ""}`;
+  const res = await fetch(url, { headers: headers(adminKey) });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<AdminPendingCreditLedgerResponse>;
+}
+
+export async function markPendingFailed(
+  adminKey: string,
+  ledgerEntryId: string,
+  adminReason: string,
+): Promise<MarkPendingFailedResponse> {
+  const res = await fetch(
+    `${BASE_URL}/admin/credits/pending/${encodeURIComponent(ledgerEntryId)}/mark-failed`,
+    {
+      method: "POST",
+      headers: headers(adminKey),
+      body: JSON.stringify({ adminReason }),
+    },
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<MarkPendingFailedResponse>;
 }
 
 export async function fetchRolloutChecklist(
