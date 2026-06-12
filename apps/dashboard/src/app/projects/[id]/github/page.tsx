@@ -159,12 +159,14 @@ export default function GitHubPage() {
       criteria: (r as { criteria?: string[] }).criteria ?? [],
     }));
     const productSpec = (ext2?.productSpec ?? {}) as Record<string, unknown>;
+    const idempotencyKey = `${crypto.randomUUID()}`;
 
     const res = await startPRReview(id, lp.number, {
       userKey,
       selectedItemIds: lp.selectedItemIds,
       items,
       productSpec,
+      idempotencyKey,
     });
     if (res.ok) {
       setReviewRuns((prev) => ({ ...prev, [lp.number]: res.run }));

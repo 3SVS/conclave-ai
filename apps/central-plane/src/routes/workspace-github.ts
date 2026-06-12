@@ -57,7 +57,7 @@ import type { CommentResultItem, ComparisonDataForComment } from "../workspace/p
 import { insertUsageEvent } from "../workspace/usage-events-db.js";
 import { checkCreditEnforcementDryRun, checkCreditEnforcement } from "../workspace/credit-enforcement.js";
 import type { CreditEnforcementDryRun, CreditEnforcementResult } from "../workspace/credit-enforcement.js";
-import { generateDebitId } from "../workspace/credits.js";
+import { generateDebitId, buildPrReviewDebitSourceEventId, validateIdempotencyKey } from "../workspace/credits.js";
 import {
   getNotificationSettings,
   insertNotificationRecord,
@@ -615,17 +615,45 @@ export function createWorkspaceGitHubRoutes(
     }
 
     // 5b. Credit enforcement (blocks with HTTP 402 when ENABLE_CREDIT_BLOCKING+ENABLE_ACTUAL_CREDIT_DEBITS=true)
-    // Generate a stable per-request debit ID (Option A idempotency — one ID per review attempt)
-    const prReviewExecutionId = generateDebitId();
+    // Stage 27: extract idempotency key (header priority > body fallback), validate, build sourceEventId
+    const idempotencyKeyHeader = c.req.header("Idempotency-Key") ?? null;
+    const idempotencyKeyBody = typeof b["idempotencyKey"] === "string" ? b["idempotencyKey"] : null;
+    const rawIdempotencyKey = idempotencyKeyHeader ?? idempotencyKeyBody ?? null;
+
+    if (rawIdempotencyKey !== null && !validateIdempotencyKey(rawIdempotencyKey)) {
+      return json({ ok: false, error: "invalid_idempotency_key" }, 400, origin);
+    }
+
+    let prReviewExecutionId: string;
+    if (rawIdempotencyKey) {
+      prReviewExecutionId = await buildPrReviewDebitSourceEventId({
+        projectId,
+        repoFullName: repo.repoFullName,
+        prNumber,
+        userKey,
+        idempotencyKey: rawIdempotencyKey,
+      });
+    } else {
+      prReviewExecutionId = generateDebitId();
+    }
+
     let creditEnforcement: CreditEnforcementResult | CreditEnforcementDryRun | undefined;
     try {
-      creditEnforcement = await checkCreditEnforcement({
+      const enfResult = await checkCreditEnforcement({
         env: c.env,
         userKey,
         eventType: "workspace_pr_review_run",
         projectId,
         sourceEventId: prReviewExecutionId,
       });
+      creditEnforcement = {
+        ...enfResult,
+        idempotency: {
+          provided: rawIdempotencyKey !== null,
+          keyAccepted: rawIdempotencyKey !== null,
+          sourceEventId: prReviewExecutionId,
+        },
+      };
       if ((creditEnforcement as CreditEnforcementResult).blocked) {
         return json({
           ok: false,

@@ -287,7 +287,7 @@ export type CreditEnforcementDryRun = {
   };
 };
 
-// Stage 24/26 — extends CreditEnforcementDryRun with actual debit + idempotency fields
+// Stage 24/26/27 — extends CreditEnforcementDryRun with actual debit + idempotency fields
 export type CreditEnforcementResult = {
   actualDebitsEnabled: boolean;
   blocked: boolean;
@@ -307,6 +307,11 @@ export type CreditEnforcementResult = {
     ledgerEntryId?: string;
     newBalance?: number;
     error?: string;
+  };
+  idempotency?: {
+    provided: boolean;
+    keyAccepted: boolean;
+    sourceEventId: string;
   };
   allowance?: {
     enabled: true;
@@ -346,14 +351,19 @@ export async function startPRReview(
     selectedItemIds?: string[];
     items?: WorkspaceItem[];
     productSpec?: ProductSpec;
+    idempotencyKey?: string;
   },
 ): Promise<StartReviewResponse> {
   try {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (input.idempotencyKey) {
+      headers["Idempotency-Key"] = input.idempotencyKey;
+    }
     const resp = await fetch(
       `${CENTRAL_PLANE_URL}/workspace/projects/${encodeURIComponent(projectId)}/github/pulls/${prNumber}/review`,
       {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers,
         body: JSON.stringify(input),
         signal: AbortSignal.timeout(40000),
       },

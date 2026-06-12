@@ -69,6 +69,7 @@ function buildMessage(
 // actual debit outcome. CreditEnforcementDryRun is kept as a type alias
 // for backwards compatibility with existing callers.
 // Stage 26 — debit field extended with idempotency fields.
+// Stage 27 — idempotency? field added (set by PR review endpoint, not by checkCreditEnforcement).
 export type CreditEnforcementResult = {
   actualDebitsEnabled: boolean;
   blocked: boolean;
@@ -88,6 +89,11 @@ export type CreditEnforcementResult = {
     ledgerEntryId?: string;
     newBalance?: number;
     error?: string;
+  };
+  idempotency?: {
+    provided: boolean;
+    keyAccepted: boolean;
+    sourceEventId: string;
   };
   allowance?: {
     enabled: true;

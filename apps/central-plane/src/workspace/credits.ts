@@ -28,6 +28,33 @@ export function generateDebitId(): string {
   return randId("prr");
 }
 
+/** Validate a client-supplied idempotency key: 8-128 chars, [a-zA-Z0-9_\-:] only. */
+export function validateIdempotencyKey(key: string): boolean {
+  if (typeof key !== "string") return false;
+  if (key.length < 8 || key.length > 128) return false;
+  return /^[a-zA-Z0-9_\-:]+$/.test(key);
+}
+
+/**
+ * Build a deterministic debit sourceEventId from a client idempotency key + request context.
+ * Same inputs always produce the same `prr_<32hexchars>` string —
+ * so retries with the same key hit the existing ledger entry instead of creating a new debit.
+ */
+export async function buildPrReviewDebitSourceEventId(opts: {
+  projectId: string;
+  repoFullName: string;
+  prNumber: number;
+  userKey: string;
+  idempotencyKey: string;
+}): Promise<string> {
+  const data = `${opts.projectId}:${opts.repoFullName}:${opts.prNumber}:${opts.userKey}:${opts.idempotencyKey}`;
+  const encoder = new TextEncoder();
+  const hashBuffer = await crypto.subtle.digest("SHA-256", encoder.encode(data));
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `prr_${hashHex.slice(0, 32)}`;
+}
+
 // ─── DB row types ─────────────────────────────────────────────────────────────
 
 type BalanceRow = {

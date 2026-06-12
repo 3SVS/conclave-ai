@@ -1,21 +1,22 @@
 /**
  * workspace-credit-config.test.mjs
  *
- * Stage 24: credit-config.ts + debitCredits() + checkCreditEnforcement() + config endpoint
+ * Stage 24–27: credit-config.ts + debitCredits() + checkCreditEnforcement() + config endpoint
+ *              + idempotency (Stage 26) + idempotency key validation + SHA-256 sourceEventId (Stage 27)
  *
  * Tests:
  *  01. getCreditExecutionConfig: both flags false when env unset
  *  02. getCreditExecutionConfig: actualDebitsEnabled true when ENABLE_ACTUAL_CREDIT_DEBITS="true"
  *  03. getCreditExecutionConfig: blockingEnabled true when ENABLE_CREDIT_BLOCKING="true"
  *  04. getCreditExecutionConfig: flags false when set to non-"true" value
- *  05. debitCredits: returns insufficient_balance when balance=0
+ *  05. debitCredits: returns insufficient_credits when balance=0
  *  06. debitCredits: decrements balance and inserts ledger entry
  *  07. debitCredits: returns race_condition when changes=0
  *  08. debitCredits: returns db_error on SELECT failure
  *  09. checkCreditEnforcement: blocked=false when flags off (dry-run mode)
  *  10. checkCreditEnforcement: blocked=false when actualDebitsEnabled=true but wouldBlock=false
  *  11. checkCreditEnforcement: blocked=true when both flags true + insufficient balance
- *  12. checkCreditEnforcement: debit.ok=true when actualDebitsEnabled=true + sufficient balance
+ *  12. checkCreditEnforcement: debit.applied=true when actualDebitsEnabled=true + sufficient balance
  *  13. checkCreditEnforcement: debit absent when actualDebitsEnabled=false
  *  14. checkCreditEnforcement: blocked=false for included event type
  *  15. GET /admin/credits/config: returns flags + envFlags
@@ -24,12 +25,16 @@
  *  18. GET /admin/credits/config: returns 401 on bad admin key
  *  19. PR review returns 402 when blocked=true
  *  20. PR review proceeds when blocked=false despite wouldBlock=true (dry-run)
+ *  ... (21–42: Stage 25–26 scenarios)
+ *  43–52. validateIdempotencyKey: length/charset validation
+ *  53–58. buildPrReviewDebitSourceEventId: prefix, format, determinism, sensitivity
+ *  59–60. idempotency round-trip: deterministic key prevents double-debit
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 const { getCreditExecutionConfig } = await import("../dist/workspace/credit-config.js");
-const { debitCredits } = await import("../dist/workspace/credits.js");
+const { debitCredits, validateIdempotencyKey, buildPrReviewDebitSourceEventId } = await import("../dist/workspace/credits.js");
 const { checkCreditEnforcement } = await import("../dist/workspace/credit-enforcement.js");
 const { createApp } = await import("../dist/router.js");
 
@@ -653,5 +658,133 @@ describe("Stage 26 — checkCreditEnforcement idempotency", () => {
     await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run", sourceEventId: "prr_s42" });
     await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run", sourceEventId: "prr_s42" });
     assert.equal(balances.get("u1:review")?.balance, 4, "balance: 5-1=4, NOT 5-2=3");
+  });
+});
+
+// ─── Tests: Stage 27 — validateIdempotencyKey ─────────────────────────────────
+
+describe("Stage 27 — validateIdempotencyKey", () => {
+  it("43 — valid key: 8 chars minimum accepted", () => {
+    assert.equal(validateIdempotencyKey("abcdefgh"), true);
+  });
+
+  it("44 — valid key: UUID-style with hyphens accepted", () => {
+    assert.equal(validateIdempotencyKey("550e8400-e29b-41d4-a716-446655440000"), true);
+  });
+
+  it("45 — valid key: mixed alphanum + underscore + colon accepted", () => {
+    assert.equal(validateIdempotencyKey("proj:abc_123-XYZ"), true);
+  });
+
+  it("46 — invalid key: 7 chars rejected (< 8)", () => {
+    assert.equal(validateIdempotencyKey("abcdefg"), false);
+  });
+
+  it("47 — invalid key: 129 chars rejected (> 128)", () => {
+    assert.equal(validateIdempotencyKey("a".repeat(129)), false);
+  });
+
+  it("48 — valid key: exactly 128 chars accepted", () => {
+    assert.equal(validateIdempotencyKey("a".repeat(128)), true);
+  });
+
+  it("49 — invalid key: space character rejected", () => {
+    assert.equal(validateIdempotencyKey("abc defghij"), false);
+  });
+
+  it("50 — invalid key: at-sign rejected", () => {
+    assert.equal(validateIdempotencyKey("abc@defghij"), false);
+  });
+
+  it("51 — invalid key: empty string rejected", () => {
+    assert.equal(validateIdempotencyKey(""), false);
+  });
+
+  it("52 — invalid key: non-string value rejected", () => {
+    assert.equal(validateIdempotencyKey(null), false);
+    assert.equal(validateIdempotencyKey(12345678), false);
+  });
+});
+
+// ─── Tests: Stage 27 — buildPrReviewDebitSourceEventId ───────────────────────
+
+describe("Stage 27 — buildPrReviewDebitSourceEventId", () => {
+  it("53 — result has prr_ prefix", async () => {
+    const id = await buildPrReviewDebitSourceEventId({
+      projectId: "proj1", repoFullName: "owner/repo", prNumber: 42,
+      userKey: "user1", idempotencyKey: "test-key-12345",
+    });
+    assert.ok(id.startsWith("prr_"), `expected prr_ prefix, got: ${id}`);
+  });
+
+  it("54 — result is exactly prr_ + 32 hex chars", async () => {
+    const id = await buildPrReviewDebitSourceEventId({
+      projectId: "proj1", repoFullName: "owner/repo", prNumber: 42,
+      userKey: "user1", idempotencyKey: "test-key-12345",
+    });
+    assert.match(id, /^prr_[0-9a-f]{32}$/, `unexpected format: ${id}`);
+  });
+
+  it("55 — same inputs always produce same sourceEventId (deterministic)", async () => {
+    const opts = {
+      projectId: "proj1", repoFullName: "owner/repo", prNumber: 42,
+      userKey: "user1", idempotencyKey: "my-key-abcdef",
+    };
+    const id1 = await buildPrReviewDebitSourceEventId(opts);
+    const id2 = await buildPrReviewDebitSourceEventId(opts);
+    assert.equal(id1, id2, "same inputs must produce same ID");
+  });
+
+  it("56 — different idempotency key produces different sourceEventId", async () => {
+    const base = { projectId: "proj1", repoFullName: "owner/repo", prNumber: 42, userKey: "user1" };
+    const id1 = await buildPrReviewDebitSourceEventId({ ...base, idempotencyKey: "key-aaaaaa11" });
+    const id2 = await buildPrReviewDebitSourceEventId({ ...base, idempotencyKey: "key-bbbbbb22" });
+    assert.notEqual(id1, id2, "different keys must produce different IDs");
+  });
+
+  it("57 — different prNumber produces different sourceEventId", async () => {
+    const base = { projectId: "proj1", repoFullName: "owner/repo", userKey: "user1", idempotencyKey: "key-xyzxyz99" };
+    const id1 = await buildPrReviewDebitSourceEventId({ ...base, prNumber: 1 });
+    const id2 = await buildPrReviewDebitSourceEventId({ ...base, prNumber: 2 });
+    assert.notEqual(id1, id2, "different prNumber must produce different IDs");
+  });
+
+  it("58 — different userKey produces different sourceEventId", async () => {
+    const base = { projectId: "proj1", repoFullName: "owner/repo", prNumber: 10, idempotencyKey: "key-mnomno77" };
+    const id1 = await buildPrReviewDebitSourceEventId({ ...base, userKey: "userA" });
+    const id2 = await buildPrReviewDebitSourceEventId({ ...base, userKey: "userB" });
+    assert.notEqual(id1, id2, "different userKey must produce different IDs");
+  });
+});
+
+// ─── Tests: Stage 27 — idempotency round-trip via debitCredits ───────────────
+
+describe("Stage 27 — idempotency key round-trip: deterministic sourceEventId prevents double-debit", () => {
+  it("59 — two debit calls with same deterministic sourceEventId: second is duplicate", async () => {
+    const balances = balanceMap("u1", "review", 5);
+    const env = makeEnv({ balances, changesOnUpdate: 1 });
+    const sourceEventId = await buildPrReviewDebitSourceEventId({
+      projectId: "proj1", repoFullName: "owner/repo", prNumber: 7,
+      userKey: "u1", idempotencyKey: "idem-key-stage27",
+    });
+    const r1 = await debitCredits(env, { userKey: "u1", creditType: "review", amount: 1, reason: "a", sourceEventId });
+    const r2 = await debitCredits(env, { userKey: "u1", creditType: "review", amount: 1, reason: "b", sourceEventId });
+    assert.equal(r1.ok, true);
+    if (r1.ok) assert.equal(r1.duplicate, false, "first call: not a duplicate");
+    assert.equal(r2.ok, true);
+    if (r2.ok) assert.equal(r2.duplicate, true, "second call with same deterministic ID: duplicate");
+  });
+
+  it("60 — balance decremented only once even when same deterministic key is retried", async () => {
+    const balances = balanceMap("u1", "review", 5);
+    const env = makeEnv({ balances, changesOnUpdate: 1 });
+    const sourceEventId = await buildPrReviewDebitSourceEventId({
+      projectId: "proj2", repoFullName: "owner/repo2", prNumber: 99,
+      userKey: "u1", idempotencyKey: "retry-key-stage27",
+    });
+    await debitCredits(env, { userKey: "u1", creditType: "review", amount: 1, reason: "first", sourceEventId });
+    await debitCredits(env, { userKey: "u1", creditType: "review", amount: 1, reason: "retry", sourceEventId });
+    const row = balances.get("u1:review");
+    assert.equal(row?.balance, 4, "balance: 5-1=4 (not 5-2=3)");
   });
 });
