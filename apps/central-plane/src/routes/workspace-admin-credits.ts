@@ -34,6 +34,11 @@ import {
   getPeriodFromMonthKey,
 } from "../workspace/allowance-rules.js";
 import { getCreditExecutionConfig } from "../workspace/credit-config.js";
+import {
+  listAdminTopUpRequests,
+  fulfillTopUpRequest,
+  rejectTopUpRequest,
+} from "../workspace/credit-topup.js";
 
 // ─── Auth helper ──────────────────────────────────────────────────────────────
 
@@ -619,6 +624,96 @@ export function createWorkspaceAdminCreditsRoutes(): Hono<{ Bindings: Env }> {
       recommendedScenarios,
       productionEnableCriteria,
     });
+  });
+
+  // ─── Stage 33: Admin top-up request endpoints ────────────────────────────────
+
+  /**
+   * GET /admin/credits/top-up-requests?status=requested
+   * Lists top-up requests, optionally filtered by status.
+   */
+  app.get("/admin/credits/top-up-requests", async (c) => {
+    const guard = authGuard(c.env, c.req.header("x-admin-key") ?? "");
+    if (!guard.ok) {
+      return c.json({ ok: false, error: guard.status === 503 ? "disabled" : "unauthorized" }, guard.status);
+    }
+
+    const status = c.req.query("status");
+    try {
+      const requests = await listAdminTopUpRequests(c.env, status);
+      return c.json({ ok: true, requests });
+    } catch (err) {
+      console.error("[admin/credits/top-up-requests] list failed:", err);
+      return c.json({ ok: false, error: "query_failed" }, 500);
+    }
+  });
+
+  /**
+   * POST /admin/credits/top-up-requests/:id/fulfill
+   * Body: { adminNote? }
+   * Calls grantCredits + marks request fulfilled.
+   */
+  app.post("/admin/credits/top-up-requests/:id/fulfill", async (c) => {
+    const guard = authGuard(c.env, c.req.header("x-admin-key") ?? "");
+    if (!guard.ok) {
+      return c.json({ ok: false, error: guard.status === 503 ? "disabled" : "unauthorized" }, guard.status);
+    }
+
+    const id = c.req.param("id");
+    let adminNote: string | undefined;
+    try {
+      const body = await c.req.json().catch(() => ({})) as { adminNote?: string };
+      adminNote = body.adminNote;
+    } catch { /* no body is fine */ }
+
+    try {
+      const result = await fulfillTopUpRequest(c.env, id, adminNote);
+      if (!result.ok) {
+        if (result.error === "not_found") return c.json({ ok: false, error: result.error }, 404);
+        if (result.error.startsWith("already_resolved:")) {
+          return c.json({ ok: false, error: result.error }, 409);
+        }
+        return c.json({ ok: false, error: result.error }, 500);
+      }
+      return c.json({ ok: true, request: result.request, newBalance: result.newBalance });
+    } catch (err) {
+      console.error("[admin/credits/top-up-requests/:id/fulfill] failed:", err);
+      return c.json({ ok: false, error: "fulfill_failed" }, 500);
+    }
+  });
+
+  /**
+   * POST /admin/credits/top-up-requests/:id/reject
+   * Body: { adminNote? }
+   * Marks request rejected. No credit change.
+   */
+  app.post("/admin/credits/top-up-requests/:id/reject", async (c) => {
+    const guard = authGuard(c.env, c.req.header("x-admin-key") ?? "");
+    if (!guard.ok) {
+      return c.json({ ok: false, error: guard.status === 503 ? "disabled" : "unauthorized" }, guard.status);
+    }
+
+    const id = c.req.param("id");
+    let adminNote: string | undefined;
+    try {
+      const body = await c.req.json().catch(() => ({})) as { adminNote?: string };
+      adminNote = body.adminNote;
+    } catch { /* no body is fine */ }
+
+    try {
+      const result = await rejectTopUpRequest(c.env, id, adminNote);
+      if (!result.ok) {
+        if (result.error === "not_found") return c.json({ ok: false, error: result.error }, 404);
+        if (result.error.startsWith("already_resolved:")) {
+          return c.json({ ok: false, error: result.error }, 409);
+        }
+        return c.json({ ok: false, error: result.error }, 500);
+      }
+      return c.json({ ok: true, request: result.request });
+    } catch (err) {
+      console.error("[admin/credits/top-up-requests/:id/reject] failed:", err);
+      return c.json({ ok: false, error: "reject_failed" }, 500);
+    }
   });
 
   return app;

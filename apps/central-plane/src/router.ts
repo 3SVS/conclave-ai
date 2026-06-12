@@ -34,6 +34,7 @@ import { createWorkspaceGitHubRoutes } from "./routes/workspace-github.js";
 import { createWorkspaceNotificationRoutes } from "./routes/workspace-notifications.js";
 import { createWorkspaceAdminStatsRoutes } from "./routes/workspace-admin-stats.js";
 import { createWorkspaceAdminCreditsRoutes } from "./routes/workspace-admin-credits.js";
+import { createWorkspaceCreditsRoutes } from "./routes/workspace-credits.js";
 import type { FetchLike } from "./github.js";
 
 /**
@@ -138,6 +139,8 @@ export function createApp(opts: { fetch?: FetchLike } = {}): Hono<{ Bindings: En
   app.route("/", createWorkspaceAdminStatsRoutes());
   // Stage 20 — Admin credit ledger (key-gated, manual grant + preview, no debit).
   app.route("/", createWorkspaceAdminCreditsRoutes());
+  // Stage 33 — User-facing credit balance + top-up request endpoints.
+  app.route("/", createWorkspaceCreditsRoutes());
   app.onError((err, c) => {
     console.error("central-plane error:", err);
     return c.json({ error: err.message || "internal error" }, 500);

@@ -11,6 +11,9 @@ import {
   fetchPendingLedger,
   markPendingFailed,
   grantCredits,
+  fetchAdminTopUpRequests,
+  fulfillAdminTopUpRequest,
+  rejectAdminTopUpRequest,
   type CreditBalance,
   type CreditType,
   type LedgerEntry,
@@ -24,6 +27,7 @@ import {
   type RolloutCheck,
   type PendingLedgerEntry,
   type AdminPendingCreditLedgerResponse,
+  type AdminTopUpRequest,
 } from "@/lib/workspace-admin-credits-api";
 
 const RANGE_LABELS: Record<UsageRange, string> = {
@@ -572,6 +576,12 @@ export default function AdminCreditsPage() {
   const [pendingAdminReason, setPendingAdminReason] = useState("");
   const [markFailedSuccess, setMarkFailedSuccess] = useState<string | null>(null);
 
+  // Stage 33: top-up requests
+  const [topUpRequests, setTopUpRequests] = useState<AdminTopUpRequest[] | null>(null);
+  const [topUpStatusFilter, setTopUpStatusFilter] = useState("requested");
+  const [topUpAdminNotes, setTopUpAdminNotes] = useState<Record<string, string>>({});
+  const [topUpActionSuccess, setTopUpActionSuccess] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [grantSuccess, setGrantSuccess] = useState<string | null>(null);
@@ -587,6 +597,8 @@ export default function AdminCreditsPage() {
     setError(null);
     setGrantSuccess(null);
     setMarkFailedSuccess(null);
+    setTopUpRequests(null);
+    setTopUpActionSuccess(null);
   }
 
   async function handleFetchConfig() {
@@ -761,6 +773,55 @@ export default function AdminCreditsPage() {
         olderThanMinutes: Number.isFinite(minutes) ? minutes : 15,
       });
       setPendingResult(updated);
+    } catch (e) {
+      handleKeyError(e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleFetchTopUpRequests() {
+    if (!adminKey.trim()) { setError("Admin key를 입력해주세요."); return; }
+    setLoading(true);
+    setError(null);
+    setTopUpActionSuccess(null);
+    try {
+      const result = await fetchAdminTopUpRequests(adminKey.trim(), topUpStatusFilter || undefined);
+      setTopUpRequests(result);
+    } catch (e) {
+      handleKeyError(e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleFulfillTopUp(id: string) {
+    if (!adminKey.trim()) { setError("Admin key를 입력해주세요."); return; }
+    setLoading(true);
+    setError(null);
+    try {
+      const adminNote = topUpAdminNotes[id]?.trim();
+      const result = await fulfillAdminTopUpRequest(adminKey.trim(), id, adminNote);
+      setTopUpActionSuccess(`지급 완료: ${result.request.userKey} +${result.request.requestedAmount} → 잔액 ${result.newBalance}`);
+      const updated = await fetchAdminTopUpRequests(adminKey.trim(), topUpStatusFilter || undefined);
+      setTopUpRequests(updated);
+    } catch (e) {
+      handleKeyError(e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRejectTopUp(id: string) {
+    if (!adminKey.trim()) { setError("Admin key를 입력해주세요."); return; }
+    setLoading(true);
+    setError(null);
+    try {
+      const adminNote = topUpAdminNotes[id]?.trim();
+      await rejectAdminTopUpRequest(adminKey.trim(), id, adminNote);
+      setTopUpActionSuccess(`거절 처리됨: ${id}`);
+      const updated = await fetchAdminTopUpRequests(adminKey.trim(), topUpStatusFilter || undefined);
+      setTopUpRequests(updated);
     } catch (e) {
       handleKeyError(e);
     } finally {
@@ -1126,6 +1187,104 @@ export default function AdminCreditsPage() {
               같은 Idempotency-Key 재시도 대신, 새 PR review를 실행하여 새 Idempotency-Key를 생성해야 합니다.
             </p>
           </div>
+        </div>
+      </SectionCard>
+
+      {/* Stage 33: Top-up request management */}
+      <SectionCard title="Credit 충전 요청 관리 (Stage 33)">
+        <div className="space-y-3">
+          <p className="text-xs text-gray-500">
+            사용자가 보낸 credit 충전 요청을 확인하고 수동으로 지급(fulfill)하거나 거절합니다.
+          </p>
+          <div className="flex gap-2 items-center">
+            <select
+              value={topUpStatusFilter}
+              onChange={(e) => setTopUpStatusFilter(e.target.value)}
+              className="border border-gray-300 rounded px-2 py-1.5 text-sm"
+            >
+              <option value="requested">요청됨 (requested)</option>
+              <option value="fulfilled">지급됨 (fulfilled)</option>
+              <option value="rejected">거절됨 (rejected)</option>
+              <option value="">전체</option>
+            </select>
+            <button
+              onClick={handleFetchTopUpRequests}
+              disabled={loading}
+              className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+            >
+              요청 목록 조회
+            </button>
+          </div>
+          {topUpActionSuccess && (
+            <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2">
+              {topUpActionSuccess}
+            </p>
+          )}
+          {topUpRequests !== null && (
+            topUpRequests.length === 0 ? (
+              <p className="text-sm text-gray-500">해당 조건의 충전 요청이 없어요.</p>
+            ) : (
+              <div className="space-y-3 mt-2">
+                {topUpRequests.map((req) => (
+                  <div key={req.id} className="border border-gray-200 rounded-lg p-3 bg-white">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2 text-sm">
+                          <span className="font-mono text-gray-700">{req.userKey}</span>
+                          <span className="font-bold text-blue-700">+{req.requestedAmount}</span>
+                          <span className="text-gray-500 text-xs">{req.creditType}</span>
+                          <span className={`text-xs px-1.5 py-0.5 rounded border ${
+                            req.status === "requested"
+                              ? "text-amber-700 bg-amber-50 border-amber-200"
+                              : req.status === "fulfilled"
+                              ? "text-green-700 bg-green-50 border-green-200"
+                              : "text-red-600 bg-red-50 border-red-200"
+                          }`}>
+                            {req.status === "requested" ? "요청됨" : req.status === "fulfilled" ? "지급됨" : "거절됨"}
+                          </span>
+                        </div>
+                        {req.note && (
+                          <p className="text-xs text-gray-500 mt-1">메모: {req.note}</p>
+                        )}
+                        {req.adminNote && (
+                          <p className="text-xs text-blue-600 mt-0.5">관리자 메모: {req.adminNote}</p>
+                        )}
+                        <p className="text-xs text-gray-400 mt-1">
+                          요청일: {req.createdAt.slice(0, 10)}
+                          {req.resolvedAt && ` · 처리일: ${req.resolvedAt.slice(0, 10)}`}
+                        </p>
+                      </div>
+                    </div>
+                    {req.status === "requested" && (
+                      <div className="mt-2 flex gap-2 items-center">
+                        <input
+                          type="text"
+                          placeholder="관리자 메모 (선택)"
+                          value={topUpAdminNotes[req.id] ?? ""}
+                          onChange={(e) => setTopUpAdminNotes((prev) => ({ ...prev, [req.id]: e.target.value }))}
+                          className="flex-1 border border-gray-300 rounded px-2 py-1 text-xs"
+                        />
+                        <button
+                          onClick={() => handleFulfillTopUp(req.id)}
+                          disabled={loading}
+                          className="bg-green-600 text-white px-3 py-1.5 rounded text-xs hover:bg-green-700 disabled:opacity-50"
+                        >
+                          지급
+                        </button>
+                        <button
+                          onClick={() => handleRejectTopUp(req.id)}
+                          disabled={loading}
+                          className="bg-red-500 text-white px-3 py-1.5 rounded text-xs hover:bg-red-600 disabled:opacity-50"
+                        >
+                          거절
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )
+          )}
         </div>
       </SectionCard>
 

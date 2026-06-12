@@ -371,3 +371,92 @@ export async function fetchMonthlyCreditPreview(
   }
   return res.json() as Promise<MonthlyCreditPreviewResult>;
 }
+
+// ─── Stage 33: Admin top-up request types + helpers ──────────────────────────
+
+export type TopUpStatus = "requested" | "fulfilled" | "rejected";
+
+export type AdminTopUpRequest = {
+  id: string;
+  userKey: string;
+  creditType: CreditType;
+  requestedAmount: number;
+  status: TopUpStatus;
+  note?: string;
+  adminNote?: string;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt?: string;
+};
+
+export type AdminTopUpRequestsResponse = {
+  ok: true;
+  requests: AdminTopUpRequest[];
+};
+
+export type FulfillTopUpResponse = {
+  ok: true;
+  request: AdminTopUpRequest;
+  newBalance: number;
+};
+
+export type RejectTopUpResponse = {
+  ok: true;
+  request: AdminTopUpRequest;
+};
+
+export async function fetchAdminTopUpRequests(
+  adminKey: string,
+  status?: string,
+): Promise<AdminTopUpRequest[]> {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  const url = `${BASE_URL}/admin/credits/top-up-requests${params.size > 0 ? `?${params}` : ""}`;
+  const res = await fetch(url, { headers: headers(adminKey) });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
+  }
+  const body = (await res.json()) as AdminTopUpRequestsResponse;
+  return body.requests;
+}
+
+export async function fulfillAdminTopUpRequest(
+  adminKey: string,
+  id: string,
+  adminNote?: string,
+): Promise<FulfillTopUpResponse> {
+  const res = await fetch(
+    `${BASE_URL}/admin/credits/top-up-requests/${encodeURIComponent(id)}/fulfill`,
+    {
+      method: "POST",
+      headers: headers(adminKey),
+      body: JSON.stringify({ adminNote }),
+    },
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<FulfillTopUpResponse>;
+}
+
+export async function rejectAdminTopUpRequest(
+  adminKey: string,
+  id: string,
+  adminNote?: string,
+): Promise<RejectTopUpResponse> {
+  const res = await fetch(
+    `${BASE_URL}/admin/credits/top-up-requests/${encodeURIComponent(id)}/reject`,
+    {
+      method: "POST",
+      headers: headers(adminKey),
+      body: JSON.stringify({ adminNote }),
+    },
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<RejectTopUpResponse>;
+}
