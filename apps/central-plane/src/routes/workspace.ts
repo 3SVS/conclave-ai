@@ -37,6 +37,7 @@ import {
   isValidOutcome,
   isValidTarget,
 } from "../workspace/outcomes.js";
+import { insertUsageEvent } from "../workspace/usage-events-db.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -225,6 +226,15 @@ export function createWorkspaceRoutes(): Hono<{ Bindings: Env }> {
 
     // Increment rate-limit counter after successful generation (non-fatal)
     await incrementRateLimitCount(c.env.DB, ipHash, hourUtc);
+
+    // Record usage event (non-fatal)
+    await insertUsageEvent(c.env, {
+      userKey: typeof (body as Record<string, unknown>)["userKey"] === "string"
+        ? String((body as Record<string, unknown>)["userKey"])
+        : "anonymous",
+      eventType: "workspace_idea_to_spec_generated",
+      metadata: { source: result.source },
+    });
 
     return new Response(JSON.stringify(result), {
       status: 200,

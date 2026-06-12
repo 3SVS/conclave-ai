@@ -1,0 +1,219 @@
+/**
+ * workspace-admin-stats.ts
+ *
+ * GET /admin/usage-stats?range=24h|7d|30d
+ *
+ * Auth: x-admin-key header must match ADMIN_USAGE_STATS_KEY env secret.
+ * Returns 503 when ADMIN_USAGE_STATS_KEY is unset.
+ * Returns 401 on key mismatch.
+ *
+ * No billing, no credit deduction — read-only analytics.
+ */
+import { Hono } from "hono";
+import type { Env } from "../env.js";
+
+// ─── Label map ────────────────────────────────────────────────────────────────
+
+const EVENT_LABELS: Record<string, string> = {
+  workspace_idea_to_spec_generated: "제품 설명서 생성",
+  workspace_pr_review_run: "PR 코드 확인",
+  workspace_pr_comment_posted: "PR 코멘트 작성",
+  workspace_pr_comment_updated: "PR 코멘트 수정",
+  workspace_fix_pack_exported: "수정 지시서 내보내기",
+  workspace_telegram_notification_sent: "Telegram 알림 전송",
+  workspace_telegram_notification_error: "Telegram 알림 실패",
+};
+
+// ─── Range helpers ────────────────────────────────────────────────────────────
+
+type Range = "24h" | "7d" | "30d";
+
+function rangeToSeconds(range: Range): number {
+  if (range === "24h") return 86400;
+  if (range === "7d") return 86400 * 7;
+  return 86400 * 30;
+}
+
+function cutoffIso(range: Range): string {
+  const ms = Date.now() - rangeToSeconds(range) * 1000;
+  return new Date(ms).toISOString();
+}
+
+// ─── DB aggregation ───────────────────────────────────────────────────────────
+
+type EventCountRow = { event_type: string; count: number };
+type ActiveUserRow = { user_key: string; count: number };
+type DailyBucketRow = { day_bucket: string; count: number };
+
+async function countByEventType(db: D1Database, cutoff: string): Promise<EventCountRow[]> {
+  const result = await db
+    .prepare(
+      `SELECT event_type, COUNT(*) as count
+       FROM workspace_usage_events
+       WHERE created_at >= ?
+       GROUP BY event_type
+       ORDER BY count DESC`,
+    )
+    .bind(cutoff)
+    .all<EventCountRow>();
+  return result.results ?? [];
+}
+
+async function countActiveUsers(db: D1Database, cutoff: string): Promise<number> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(DISTINCT user_key) as count
+       FROM workspace_usage_events
+       WHERE created_at >= ?`,
+    )
+    .bind(cutoff)
+    .first<{ count: number }>();
+  return row?.count ?? 0;
+}
+
+async function topActiveUsers(db: D1Database, cutoff: string, limit = 10): Promise<ActiveUserRow[]> {
+  const result = await db
+    .prepare(
+      `SELECT user_key, COUNT(*) as count
+       FROM workspace_usage_events
+       WHERE created_at >= ?
+       GROUP BY user_key
+       ORDER BY count DESC
+       LIMIT ?`,
+    )
+    .bind(cutoff, limit)
+    .all<ActiveUserRow>();
+  return result.results ?? [];
+}
+
+async function dailyBuckets(db: D1Database, cutoff: string): Promise<DailyBucketRow[]> {
+  const result = await db
+    .prepare(
+      `SELECT substr(created_at, 1, 10) as day_bucket, COUNT(*) as count
+       FROM workspace_usage_events
+       WHERE created_at >= ?
+       GROUP BY day_bucket
+       ORDER BY day_bucket ASC`,
+    )
+    .bind(cutoff)
+    .all<DailyBucketRow>();
+  return result.results ?? [];
+}
+
+async function notificationErrorRate(db: D1Database, cutoff: string): Promise<number> {
+  const [sentRow, errRow] = await Promise.all([
+    db
+      .prepare(`SELECT COUNT(*) as count FROM workspace_usage_events WHERE event_type = 'workspace_telegram_notification_sent' AND created_at >= ?`)
+      .bind(cutoff)
+      .first<{ count: number }>(),
+    db
+      .prepare(`SELECT COUNT(*) as count FROM workspace_usage_events WHERE event_type = 'workspace_telegram_notification_error' AND created_at >= ?`)
+      .bind(cutoff)
+      .first<{ count: number }>(),
+  ]);
+  const sent = sentRow?.count ?? 0;
+  const err = errRow?.count ?? 0;
+  const total = sent + err;
+  if (total === 0) return 0;
+  return Math.round((err / total) * 10000) / 100; // percentage, 2 decimal places
+}
+
+async function llmFallbackRate(db: D1Database, cutoff: string): Promise<number> {
+  // We don't have a dedicated event for LLM fallback, so we rely on the
+  // pr_review_run metadata field. As a proxy: count total review runs vs those
+  // with source="mock-fallback" stored in metadata_json.
+  const totalRow = await db
+    .prepare(
+      `SELECT COUNT(*) as count FROM workspace_usage_events
+       WHERE event_type = 'workspace_pr_review_run' AND created_at >= ?`,
+    )
+    .bind(cutoff)
+    .first<{ count: number }>();
+  const fallbackRow = await db
+    .prepare(
+      `SELECT COUNT(*) as count FROM workspace_usage_events
+       WHERE event_type = 'workspace_pr_review_run'
+         AND metadata_json LIKE '%mock-fallback%'
+         AND created_at >= ?`,
+    )
+    .bind(cutoff)
+    .first<{ count: number }>();
+  const total = totalRow?.count ?? 0;
+  const fallback = fallbackRow?.count ?? 0;
+  if (total === 0) return 0;
+  return Math.round((fallback / total) * 10000) / 100;
+}
+
+// ─── Route factory ────────────────────────────────────────────────────────────
+
+export function createWorkspaceAdminStatsRoutes(): Hono<{ Bindings: Env }> {
+  const app = new Hono<{ Bindings: Env }>();
+
+  /**
+   * GET /admin/usage-stats?range=24h|7d|30d
+   *
+   * x-admin-key header required.
+   * 503 when ADMIN_USAGE_STATS_KEY not configured.
+   * 401 on key mismatch.
+   */
+  app.get("/admin/usage-stats", async (c) => {
+    // Guard: key not configured
+    if (!c.env.ADMIN_USAGE_STATS_KEY) {
+      return c.json({ ok: false, error: "disabled", message: "ADMIN_USAGE_STATS_KEY가 설정되지 않았습니다." }, 503);
+    }
+
+    // Auth
+    const provided = c.req.header("x-admin-key") ?? "";
+    if (provided !== c.env.ADMIN_USAGE_STATS_KEY) {
+      return c.json({ ok: false, error: "unauthorized" }, 401);
+    }
+
+    // Range param
+    const rawRange = c.req.query("range") ?? "7d";
+    const range: Range = (["24h", "7d", "30d"] as const).includes(rawRange as Range)
+      ? (rawRange as Range)
+      : "7d";
+
+    const cutoff = cutoffIso(range);
+
+    try {
+      const [eventCounts, activeUserCount, topUsers, buckets, tgErrorRate, llmRate] =
+        await Promise.all([
+          countByEventType(c.env.DB, cutoff),
+          countActiveUsers(c.env.DB, cutoff),
+          topActiveUsers(c.env.DB, cutoff),
+          dailyBuckets(c.env.DB, cutoff),
+          notificationErrorRate(c.env.DB, cutoff),
+          llmFallbackRate(c.env.DB, cutoff),
+        ]);
+
+      const total = eventCounts.reduce((s, r) => s + r.count, 0);
+
+      const byEventType = eventCounts.map((r) => ({
+        eventType: r.event_type,
+        label: EVENT_LABELS[r.event_type] ?? r.event_type,
+        count: r.count,
+      }));
+
+      return c.json({
+        ok: true,
+        range,
+        cutoff,
+        summary: {
+          totalEvents: total,
+          activeUsers: activeUserCount,
+          telegramErrorRate: tgErrorRate,
+          llmFallbackRate: llmRate,
+        },
+        byEventType,
+        topUsers: topUsers.map((r) => ({ userKey: r.user_key, count: r.count })),
+        dailyActivity: buckets.map((r) => ({ date: r.day_bucket, count: r.count })),
+      });
+    } catch (err) {
+      console.error("[admin/usage-stats] query failed:", err);
+      return c.json({ ok: false, error: "query_failed" }, 500);
+    }
+  });
+
+  return app;
+}

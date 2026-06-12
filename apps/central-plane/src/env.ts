@@ -124,6 +124,11 @@ export interface Env {
    */
   DASHBOARD_BASE_URL?: string;
   /**
+   * Stage 18 — Admin usage stats key. Set via `wrangler secret put ADMIN_USAGE_STATS_KEY`.
+   * Required for GET /admin/usage-stats. Returns 503 when unset, 401 on key mismatch.
+   */
+  ADMIN_USAGE_STATS_KEY?: string;
+  /**
    * Stage 4 — hourly request cap for POST /workspace/idea-to-spec-draft.
    * Parsed as integer; defaults to 20 when unset or non-numeric.
    * Set via wrangler.toml [vars] or `wrangler secret put`.

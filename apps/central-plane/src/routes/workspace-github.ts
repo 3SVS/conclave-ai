@@ -663,6 +663,14 @@ export function createWorkspaceGitHubRoutes(
       resultJson: JSON.stringify(reviewResult),
     });
 
+    // 9b. Record review run usage event (non-fatal)
+    await insertUsageEvent(c.env, {
+      userKey,
+      projectId,
+      eventType: "workspace_pr_review_run",
+      metadata: { source: reviewResult.source, prNumber, repoFullName: repo.repoFullName, ...reviewResult.summary },
+    });
+
     // 10. Telegram notification (non-blocking: failure must not fail the review response)
     await (async () => {
       try {

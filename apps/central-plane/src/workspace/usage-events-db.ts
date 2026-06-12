@@ -7,10 +7,13 @@
 import type { Env } from "../env.js";
 
 export type UsageEventType =
+  | "workspace_idea_to_spec_generated"
   | "workspace_pr_review_run"
   | "workspace_pr_comment_posted"
   | "workspace_pr_comment_updated"
-  | "workspace_fix_pack_exported";
+  | "workspace_fix_pack_exported"
+  | "workspace_telegram_notification_sent"
+  | "workspace_telegram_notification_error";
 
 function randId(): string {
   const ts = Date.now().toString(36).slice(-6);
