@@ -233,32 +233,39 @@ type CommentPreview = {
 };
 
 function CommentPanel({
-  projectId, prNumber, runId, userKey,
-}: { projectId: string; prNumber: number; runId: string; userKey: string }) {
+  projectId, prNumber, runId, userKey, rerunOfReviewRunId,
+}: { projectId: string; prNumber: number; runId: string; userKey: string; rerunOfReviewRunId?: string }) {
   const [phase, setPhase] = useState<"idle" | "previewing" | "ready" | "posting" | "posted" | "error">("idle");
   const [preview, setPreview] = useState<CommentPreview | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [postResult, setPostResult] = useState<{ url?: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [includeRerunComparison, setIncludeRerunComparison] = useState(Boolean(rerunOfReviewRunId));
 
   const generatePreview = useCallback(async () => {
     setPhase("previewing");
     setWarnings([]);
-    const res = await previewPRComment(projectId, prNumber, { userKey, reviewRunId: runId });
+    const res = await previewPRComment(projectId, prNumber, {
+      userKey, reviewRunId: runId,
+      includeRerunComparison: includeRerunComparison && Boolean(rerunOfReviewRunId),
+    });
     if (!res.ok) { setPhase("error"); return; }
     setPreview(res.comment as CommentPreview);
     setWarnings(res.warnings ?? []);
     setPhase("ready");
-  }, [projectId, prNumber, runId, userKey]);
+  }, [projectId, prNumber, runId, userKey, includeRerunComparison, rerunOfReviewRunId]);
 
   const post = useCallback(async () => {
     if (!preview) return;
     setPhase("posting");
-    const res = await postPRComment(projectId, prNumber, { userKey, reviewRunId: runId, mode: "new" });
+    const res = await postPRComment(projectId, prNumber, {
+      userKey, reviewRunId: runId, mode: "new",
+      includeRerunComparison: includeRerunComparison && Boolean(rerunOfReviewRunId),
+    });
     if (!res.ok) { setPhase("ready"); return; }
     setPostResult({ url: (res as { comment?: { githubCommentUrl?: string } }).comment?.githubCommentUrl });
     setPhase("posted");
-  }, [projectId, prNumber, runId, userKey, preview]);
+  }, [projectId, prNumber, runId, userKey, preview, includeRerunComparison, rerunOfReviewRunId]);
 
   const copyBody = () => {
     if (!preview) return;
@@ -267,12 +274,25 @@ function CommentPanel({
 
   if (phase === "idle") {
     return (
-      <button
-        onClick={generatePreview}
-        className="w-full bg-white border border-gray-200 text-gray-700 text-sm font-medium px-4 py-2.5 rounded-xl hover:bg-gray-50 transition-colors"
-      >
-        이 기록으로 PR comment 작성하기
-      </button>
+      <div className="space-y-2">
+        {rerunOfReviewRunId && (
+          <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-600">
+            <input
+              type="checkbox"
+              checked={includeRerunComparison}
+              onChange={(e) => setIncludeRerunComparison(e.target.checked)}
+              className="rounded border-gray-300"
+            />
+            이전 확인 기록과의 비교 포함
+          </label>
+        )}
+        <button
+          onClick={generatePreview}
+          className="w-full bg-white border border-gray-200 text-gray-700 text-sm font-medium px-4 py-2.5 rounded-xl hover:bg-gray-50 transition-colors"
+        >
+          이 기록으로 PR comment 작성하기
+        </button>
+      </div>
     );
   }
 
@@ -632,6 +652,21 @@ export default function RunDetailPage() {
         이 화면은 특정 확인 기록 기준입니다. 최신 PR 상태와 다를 수 있어요.
       </div>
 
+      {/* ── Lineage badge ── */}
+      {run.rerunOfReviewRunId && (
+        <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-2.5">
+          <span className="text-xs font-medium text-indigo-700 bg-indigo-100 border border-indigo-200 rounded-full px-2 py-0.5">
+            다시 확인한 기록
+          </span>
+          <Link
+            href={`/projects/${id}/github/history/${run.rerunOfReviewRunId}`}
+            className="text-xs text-indigo-600 hover:text-indigo-800"
+          >
+            이전 확인 기록 보기 →
+          </Link>
+        </div>
+      )}
+
       {/* ── Run meta ── */}
       <div className="bg-white rounded-xl border border-gray-200 px-4 py-3 text-xs text-gray-500 space-y-1.5">
         <div className="flex items-center justify-between">
@@ -683,7 +718,13 @@ export default function RunDetailPage() {
 
       {/* ── Run-specific Comment ── */}
       {hasResults && userKey && (
-        <CommentPanel projectId={id} prNumber={prNumber} runId={runId} userKey={userKey} />
+        <CommentPanel
+          projectId={id}
+          prNumber={prNumber}
+          runId={runId}
+          userKey={userKey}
+          rerunOfReviewRunId={run.rerunOfReviewRunId}
+        />
       )}
 
       {/* ── Item results ── */}

@@ -31,6 +31,7 @@ export type LoadedReviewRun = {
   id: string;
   status: string;
   createdAt: string;
+  rerunOfReviewRunId?: string;
   selectedItemIds: string[];
   results: LoadedRunResults[];
   summary: LoadedRunSummary;
@@ -98,6 +99,7 @@ export async function loadPRReviewRunForAction(opts: {
       id: dbRun.id,
       status: dbRun.status,
       createdAt: dbRun.createdAt,
+      rerunOfReviewRunId: dbRun.rerunOfReviewRunId,
       selectedItemIds: dbRun.selectedItemIds,
       results,
       summary,

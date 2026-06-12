@@ -693,7 +693,7 @@ export function createWorkspaceGitHubRoutes(
       console.warn("[workspace/pr-review] credit enforcement failed (non-fatal):", err);
     }
 
-    // 6. Insert run as running
+    // 6. Insert run as running (with rerun lineage if applicable)
     const run = await insertReviewRun(c.env, {
       projectId, userKey,
       repoFullName: repo.repoFullName,
@@ -701,6 +701,7 @@ export function createWorkspaceGitHubRoutes(
       linkedPrId: linkedPR?.id,
       selectedItemIds,
       status: "running",
+      rerunOfReviewRunId: rerunOfReviewRunId,
     }).catch(() => null);
     if (!run) return json({ ok: false, error: "run_create_failed" }, 500, origin);
 
@@ -844,6 +845,7 @@ export function createWorkspaceGitHubRoutes(
         repoFullName: repo.repoFullName,
         prNumber,
         selectedItemIds,
+        rerunOfReviewRunId: rerunOfReviewRunId ?? undefined,
         summary: reviewResult.summary,
         results: reviewResult.results,
         createdAt: run.createdAt,
@@ -1078,6 +1080,7 @@ export function createWorkspaceGitHubRoutes(
       : undefined;
     const includeFixBrief = b["includeFixBrief"] === true;
     const includeComparison = b["includeComparison"] === true;
+    const includeRerunComparison = b["includeRerunComparison"] === true;
     const reviewRunId = typeof b["reviewRunId"] === "string" ? b["reviewRunId"] : undefined;
 
     // 1. Get linked repo
@@ -1088,6 +1091,7 @@ export function createWorkspaceGitHubRoutes(
     let reviewResults: CommentResultItem[] = [];
     let runSelectedItemIds: string[];
     let runTimestamp: string | undefined;
+    let loadedRerunOfReviewRunId: string | undefined;
 
     const warnings: string[] = [];
 
@@ -1102,7 +1106,8 @@ export function createWorkspaceGitHubRoutes(
       reviewResults = loaded.run.results as CommentResultItem[];
       runSelectedItemIds = loaded.run.selectedItemIds;
       runTimestamp = loaded.run.createdAt;
-      // comparison is based on the latest two runs — meaningless for a specific historical run
+      loadedRerunOfReviewRunId = loaded.run.rerunOfReviewRunId;
+      // latest-two comparison is meaningless for a specific historical run
       if (includeComparison) warnings.push("comparison_not_available_for_specific_run");
     } else {
       const run = await getLatestReviewRun(c.env, projectId, repo.repoFullName, prNumber).catch(() => null);
@@ -1135,28 +1140,58 @@ export function createWorkspaceGitHubRoutes(
     const linkedPR = linkedPRs.find((p) => p.prNumber === prNumber);
     const prTitle = linkedPR?.prTitle ?? `PR #${prNumber}`;
 
-    // 5. Load comparison data if requested (only for latest run, not run-specific)
+    // 5a. Load rerun comparison if requested (takes priority over latest-two comparison)
+    let rerunComparisonData: SpecificRunComparison | undefined;
+    if (includeRerunComparison) {
+      if (!reviewRunId) {
+        warnings.push("rerun_comparison_requires_review_run_id");
+      } else if (!loadedRerunOfReviewRunId) {
+        warnings.push("rerun_source_not_available");
+      } else {
+        try {
+          const sourceRun = await getReviewRunById(c.env, loadedRerunOfReviewRunId);
+          if (!sourceRun) {
+            warnings.push("rerun_source_not_available");
+          } else {
+            const sourceResults = parseRunResults(sourceRun.resultJson);
+            rerunComparisonData = compareSpecificReviewRuns(
+              { id: loadedRerunOfReviewRunId, results: sourceResults },
+              { id: reviewRunId, results: reviewResults as Array<{ itemId: string; title: string; status: "passed" | "failed" | "inconclusive" | "needs_decision"; reason: string }> },
+            );
+            if (!rerunComparisonData.comparable) warnings.push("rerun_comparison_not_available");
+          }
+        } catch {
+          warnings.push("rerun_comparison_not_available");
+        }
+      }
+      if (includeComparison) warnings.push("latest_comparison_skipped_because_rerun_comparison_requested");
+    }
+
+    // 5b. Load latest-two comparison (only when rerun comparison NOT active)
     let comparisonData: ComparisonDataForComment | undefined;
-    if (includeComparison && !reviewRunId) {
+    if (includeComparison && !reviewRunId && !includeRerunComparison) {
       const comp = await loadComparisonForComment(c.env, projectId, repo.repoFullName, prNumber);
       if (comp.warning === "not_enough_runs") warnings.push("not_enough_runs");
       else if (comp.data) comparisonData = comp.data;
     }
 
     // 6. Build body
-    const { body: commentBody, truncated, comparisonIncluded } = buildCommentBody({
+    const { body: commentBody, truncated, comparisonIncluded, rerunComparisonIncluded } = buildCommentBody({
       repoFullName: repo.repoFullName,
       prNumber,
       prTitle,
       selectedItems,
       summary,
       includeFixBrief,
-      includeComparison: includeComparison && !reviewRunId,
+      includeComparison: includeComparison && !reviewRunId && !includeRerunComparison,
       comparisonData,
       runTimestamp,
+      includeRerunComparison,
+      rerunComparisonData,
     });
     if (truncated) warnings.push("코멘트가 너무 길어 일부 내용이 잘렸습니다.");
-    if (includeComparison && !reviewRunId && comparisonData && !comparisonIncluded) warnings.push("비교 섹션이 너무 길어 생략됐습니다.");
+    if (includeComparison && !reviewRunId && comparisonData && !comparisonIncluded && !includeRerunComparison) warnings.push("비교 섹션이 너무 길어 생략됐습니다.");
+    if (includeRerunComparison && rerunComparisonData && !rerunComparisonIncluded) warnings.push("rerun_comparison_section_omitted_due_to_length");
 
     return json({
       ok: true,
@@ -1189,6 +1224,7 @@ export function createWorkspaceGitHubRoutes(
     const customBody = typeof b["body"] === "string" ? b["body"] : undefined;
     const includeFixBrief = b["includeFixBrief"] === true;
     const includeComparison = b["includeComparison"] === true;
+    const includeRerunComparison = b["includeRerunComparison"] === true;
     const reviewRunId = typeof b["reviewRunId"] === "string" ? b["reviewRunId"] : undefined;
     // mode: "new" = always create new comment, "update_latest" = update most recent posted comment
     const mode: "new" | "update_latest" = b["mode"] === "update_latest" ? "update_latest" : "new";
@@ -1201,6 +1237,7 @@ export function createWorkspaceGitHubRoutes(
     let reviewResults: CommentResultItem[] = [];
     let runSelectedItemIds: string[];
     let runTimestamp: string | undefined;
+    let postLoadedRerunOfReviewRunId: string | undefined;
 
     if (reviewRunId) {
       const loaded = await loadPRReviewRunForAction({
@@ -1213,6 +1250,7 @@ export function createWorkspaceGitHubRoutes(
       reviewResults = loaded.run.results as CommentResultItem[];
       runSelectedItemIds = loaded.run.selectedItemIds;
       runTimestamp = loaded.run.createdAt;
+      postLoadedRerunOfReviewRunId = loaded.run.rerunOfReviewRunId;
     } else {
       const run = await getLatestReviewRun(c.env, projectId, repo.repoFullName, prNumber).catch(() => null);
       if (!run) return json({ ok: false, error: "no_review_run" }, 400, origin);
@@ -1264,15 +1302,35 @@ export function createWorkspaceGitHubRoutes(
         needsDecision: selectedItems.filter((r) => r.status === "needs_decision").length,
         passed: selectedItems.filter((r) => r.status === "passed").length,
       };
+
+      // Rerun comparison (takes priority over latest-two)
+      let postRerunComparisonData: SpecificRunComparison | undefined;
+      if (includeRerunComparison && reviewRunId && postLoadedRerunOfReviewRunId) {
+        try {
+          const sourceRun = await getReviewRunById(c.env, postLoadedRerunOfReviewRunId);
+          if (sourceRun) {
+            const sourceResults = parseRunResults(sourceRun.resultJson);
+            postRerunComparisonData = compareSpecificReviewRuns(
+              { id: postLoadedRerunOfReviewRunId, results: sourceResults },
+              { id: reviewRunId, results: reviewResults as Array<{ itemId: string; title: string; status: "passed" | "failed" | "inconclusive" | "needs_decision"; reason: string }> },
+            );
+          }
+        } catch { /* ignore — build without rerun comparison */ }
+      }
+
       let comparisonData: ComparisonDataForComment | undefined;
-      if (includeComparison && !reviewRunId) {
+      if (includeComparison && !reviewRunId && !includeRerunComparison) {
         const comp = await loadComparisonForComment(c.env, projectId, repo.repoFullName, prNumber);
         if (comp.data) comparisonData = comp.data;
       }
       const { body: built } = buildCommentBody({
         repoFullName: repo.repoFullName, prNumber, prTitle, selectedItems, summary,
-        includeFixBrief, includeComparison: includeComparison && !reviewRunId, comparisonData,
+        includeFixBrief,
+        includeComparison: includeComparison && !reviewRunId && !includeRerunComparison,
+        comparisonData,
         runTimestamp,
+        includeRerunComparison,
+        rerunComparisonData: postRerunComparisonData,
       });
       commentBody = built;
     }
@@ -1721,6 +1779,7 @@ export function createWorkspaceGitHubRoutes(
           selectedItemIds: run.selectedItemIds,
           selectedItemCount: run.selectedItemIds.length,
           errorMessage: run.errorMessage ?? undefined,
+          rerunOfReviewRunId: run.rerunOfReviewRunId ?? undefined,
           summary,
           results,
         },
@@ -1795,6 +1854,7 @@ export function createWorkspaceGitHubRoutes(
           selectedItemIds: run.selectedItemIds,
           selectedItemCount: run.selectedItemIds.length,
           errorMessage: run.errorMessage ?? undefined,
+          rerunOfReviewRunId: run.rerunOfReviewRunId ?? undefined,
           summary,
           results,
         },

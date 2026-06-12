@@ -8,6 +8,7 @@
  * as raw text and rendered markdown.
  */
 import type { FetchLike } from "../github.js";
+import type { SpecificRunComparison } from "./pr-review-compare.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -48,6 +49,9 @@ export type BuildCommentOptions = {
   comparisonData?: ComparisonDataForComment;
   /** ISO timestamp of the specific review run this comment is based on. */
   runTimestamp?: string;
+  /** Stage 38: include source-vs-new run rerun comparison section */
+  includeRerunComparison?: boolean;
+  rerunComparisonData?: SpecificRunComparison;
 };
 
 export type PostCommentInput = {
@@ -209,6 +213,59 @@ function buildCompDetailPart(data: ComparisonDataForComment): string {
   return lines.join("\n");
 }
 
+function buildRerunComparisonPart(data: SpecificRunComparison): string {
+  if (!data.comparable) return "";
+
+  const lines: string[] = [
+    "",
+    "## 다시 확인 결과 비교",
+    "",
+    "이 비교는 선택한 이전 확인 기록과 다시 확인한 결과를 비교한 것입니다. 연결된 PR의 변경 내용 기준이며, 전체 저장소나 배포된 서비스 전체를 확인한 것은 아닙니다.",
+    "",
+    "### 요약",
+    "",
+    `- 좋아진 항목: ${data.improved.length}개`,
+    `- 아직 남은 항목: ${data.stillOpen.length}개`,
+    `- 새로 생긴 문제: ${data.newlyProblematic.length}개`,
+    `- 변화 없음: ${data.unchanged.length}개`,
+    "",
+  ];
+
+  if (data.improved.length > 0) {
+    lines.push(`### 좋아진 항목 (${data.improved.length}개)`, "");
+    for (const item of data.improved) {
+      lines.push(`- ${item.title}: ${STATUS_KO_PLAIN[item.from] ?? item.from} → ${STATUS_KO_PLAIN[item.to] ?? item.to}`);
+    }
+    lines.push("");
+  }
+
+  if (data.stillOpen.length > 0) {
+    lines.push(`### 아직 남은 항목 (${data.stillOpen.length}개)`, "");
+    for (const item of data.stillOpen) {
+      lines.push(`- ${item.title} (${STATUS_KO_PLAIN[item.status] ?? item.status})`);
+    }
+    lines.push("");
+  }
+
+  if (data.newlyProblematic.length > 0) {
+    lines.push(`### 새로 생긴 문제 (${data.newlyProblematic.length}개)`, "");
+    for (const item of data.newlyProblematic) {
+      lines.push(`- ${item.title}: ${STATUS_KO_PLAIN[item.from] ?? item.from} → ${STATUS_KO_PLAIN[item.to] ?? item.to}`);
+    }
+    lines.push("");
+  }
+
+  if (data.unchanged.length > 0) {
+    lines.push(`### 변화 없음 (${data.unchanged.length}개)`, "");
+    for (const item of data.unchanged) {
+      lines.push(`- ${item.title}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
 function buildFixBriefPart(summary: string): string {
   return ["", "### 수정 제안 요약", "", summary, ""].join("\n");
 }
@@ -231,39 +288,52 @@ export function buildCommentBody(opts: BuildCommentOptions): {
   body: string;
   truncated: boolean;
   comparisonIncluded: boolean;
+  rerunComparisonIncluded: boolean;
 } {
   const TRUNCATION = "\n\n> ⚠️ 코멘트가 너무 길어 일부 내용이 잘렸습니다.";
 
   const required = buildRequiredPart(opts);
   const footer = buildFooterPart();
-  const hasComparison = opts.includeComparison === true && opts.comparisonData !== undefined;
-  const compSummary = hasComparison ? buildCompSummaryPart(opts.comparisonData!) : "";
-  const compDetail = hasComparison ? buildCompDetailPart(opts.comparisonData!) : "";
   const fixBrief =
     opts.includeFixBrief === true && opts.fixBriefSummary
       ? buildFixBriefPart(opts.fixBriefSummary)
       : "";
 
+  // Rerun comparison takes priority over latest-two comparison when both requested.
+  const hasRerunComparison = opts.includeRerunComparison === true && opts.rerunComparisonData?.comparable === true;
+  const rerunComp = hasRerunComparison ? buildRerunComparisonPart(opts.rerunComparisonData!) : "";
+
+  // Latest-two comparison only when rerun comparison is NOT included.
+  const hasComparison = !hasRerunComparison && opts.includeComparison === true && opts.comparisonData !== undefined;
+  const compSummary = hasComparison ? buildCompSummaryPart(opts.comparisonData!) : "";
+  const compDetail = hasComparison ? buildCompDetailPart(opts.comparisonData!) : "";
+
   const fits = (...parts: string[]) => parts.join("").length <= MAX_COMMENT_CHARS;
 
-  // Priority: required > compSummary > compDetail > fixBrief. Drop from lowest priority first.
-  if (fits(required, compSummary, compDetail, fixBrief, footer)) {
-    return { body: required + compSummary + compDetail + fixBrief + footer, truncated: false, comparisonIncluded: hasComparison };
+  // Priority: required > rerunComp > compSummary > compDetail > fixBrief > footer
+  if (fits(required, rerunComp, compSummary, compDetail, fixBrief, footer)) {
+    return {
+      body: required + rerunComp + compSummary + compDetail + fixBrief + footer,
+      truncated: false, comparisonIncluded: hasComparison, rerunComparisonIncluded: hasRerunComparison,
+    };
   }
-  if (fits(required, compSummary, compDetail, footer)) {
-    return { body: required + compSummary + compDetail + footer, truncated: false, comparisonIncluded: hasComparison };
+  if (fits(required, rerunComp, compSummary, compDetail, footer)) {
+    return { body: required + rerunComp + compSummary + compDetail + footer, truncated: false, comparisonIncluded: hasComparison, rerunComparisonIncluded: hasRerunComparison };
   }
-  if (fits(required, compSummary, footer)) {
-    return { body: required + compSummary + footer, truncated: false, comparisonIncluded: hasComparison };
+  if (fits(required, rerunComp, compSummary, footer)) {
+    return { body: required + rerunComp + compSummary + footer, truncated: false, comparisonIncluded: hasComparison, rerunComparisonIncluded: hasRerunComparison };
+  }
+  if (fits(required, rerunComp, footer)) {
+    return { body: required + rerunComp + footer, truncated: false, comparisonIncluded: false, rerunComparisonIncluded: hasRerunComparison };
   }
   if (fits(required, footer)) {
-    return { body: required + footer, truncated: false, comparisonIncluded: false };
+    return { body: required + footer, truncated: false, comparisonIncluded: false, rerunComparisonIncluded: false };
   }
 
   // Even the base is too long — truncate
   const base = required + footer;
   const cutAt = MAX_COMMENT_CHARS - TRUNCATION.length;
-  return { body: base.slice(0, cutAt) + TRUNCATION, truncated: true, comparisonIncluded: false };
+  return { body: base.slice(0, cutAt) + TRUNCATION, truncated: true, comparisonIncluded: false, rerunComparisonIncluded: false };
 }
 
 // ─── Preview helper ───────────────────────────────────────────────────────────

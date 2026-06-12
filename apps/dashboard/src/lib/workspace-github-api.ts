@@ -533,6 +533,7 @@ export async function previewPRComment(
     selectedItemIds?: string[];
     includeFixBrief?: boolean;
     includeComparison?: boolean;
+    includeRerunComparison?: boolean;
     reviewRunId?: string;
   },
 ): Promise<PreviewCommentResponse> {
@@ -562,6 +563,7 @@ export async function postPRComment(
     body?: string;
     includeFixBrief?: boolean;
     includeComparison?: boolean;
+    includeRerunComparison?: boolean;
     mode?: "new" | "update_latest";
     reviewRunId?: string;
   },
@@ -727,6 +729,7 @@ export type PRReviewRunDetail = {
   status: "queued" | "running" | "passed" | "failed" | "inconclusive" | "error";
   createdAt: string;
   updatedAt: string;
+  rerunOfReviewRunId?: string;
   selectedItemIds: string[];
   selectedItemCount: number;
   errorMessage?: string;

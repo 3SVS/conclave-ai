@@ -19,15 +19,60 @@ export type DbReviewRun = {
   status: ReviewRunStatus;
   resultJson?: string;
   errorMessage?: string;
+  rerunOfReviewRunId?: string;
   createdAt: string;
   updatedAt: string;
 };
+
+// ─── Shared column list ───────────────────────────────────────────────────────
+
+const COLS = `id, project_id, user_key, repo_full_name, pr_number, linked_pr_id,
+              selected_item_ids_json, status, result_json, error_message,
+              rerun_of_review_run_id, created_at, updated_at`;
+
+type RawRow = {
+  id: string;
+  project_id: string;
+  user_key: string;
+  repo_full_name: string;
+  pr_number: number;
+  linked_pr_id: string | null;
+  selected_item_ids_json: string;
+  status: string;
+  result_json: string | null;
+  error_message: string | null;
+  rerun_of_review_run_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+function mapRow(row: RawRow): DbReviewRun {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    userKey: row.user_key,
+    repoFullName: row.repo_full_name,
+    prNumber: row.pr_number,
+    linkedPrId: row.linked_pr_id ?? undefined,
+    selectedItemIds: (() => { try { return JSON.parse(row.selected_item_ids_json) as string[]; } catch { return []; } })(),
+    status: row.status as ReviewRunStatus,
+    resultJson: row.result_json ?? undefined,
+    errorMessage: row.error_message ?? undefined,
+    rerunOfReviewRunId: row.rerun_of_review_run_id ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+// ─── randId ───────────────────────────────────────────────────────────────────
 
 function randId(): string {
   const ts = Date.now().toString(36).slice(-6);
   const r = Math.random().toString(36).slice(2, 6);
   return `wprr_${ts}${r}`;
 }
+
+// ─── insertReviewRun ──────────────────────────────────────────────────────────
 
 export async function insertReviewRun(
   env: Env,
@@ -39,6 +84,7 @@ export async function insertReviewRun(
     linkedPrId?: string;
     selectedItemIds: string[];
     status: ReviewRunStatus;
+    rerunOfReviewRunId?: string;
   },
 ): Promise<DbReviewRun> {
   const now = new Date().toISOString();
@@ -47,13 +93,13 @@ export async function insertReviewRun(
   await env.DB.prepare(
     `INSERT INTO workspace_pr_review_runs
        (id, project_id, user_key, repo_full_name, pr_number, linked_pr_id,
-        selected_item_ids_json, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        selected_item_ids_json, status, rerun_of_review_run_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       id, input.projectId, input.userKey, input.repoFullName, input.prNumber,
       input.linkedPrId ?? null, JSON.stringify(input.selectedItemIds),
-      input.status, now, now,
+      input.status, input.rerunOfReviewRunId ?? null, now, now,
     )
     .run();
 
@@ -66,10 +112,13 @@ export async function insertReviewRun(
     linkedPrId: input.linkedPrId,
     selectedItemIds: input.selectedItemIds,
     status: input.status,
+    rerunOfReviewRunId: input.rerunOfReviewRunId,
     createdAt: now,
     updatedAt: now,
   };
 }
+
+// ─── updateReviewRun ──────────────────────────────────────────────────────────
 
 export async function updateReviewRun(
   env: Env,
@@ -90,6 +139,42 @@ export async function updateReviewRun(
     .run();
 }
 
+// ─── getReviewRunById ─────────────────────────────────────────────────────────
+
+export async function getReviewRunById(
+  env: Env,
+  runId: string,
+): Promise<DbReviewRun | null> {
+  const row = await env.DB.prepare(
+    `SELECT ${COLS} FROM workspace_pr_review_runs WHERE id = ?`,
+  )
+    .bind(runId)
+    .first<RawRow>();
+
+  return row ? mapRow(row) : null;
+}
+
+// ─── getLatestReviewRun ───────────────────────────────────────────────────────
+
+export async function getLatestReviewRun(
+  env: Env,
+  projectId: string,
+  repoFullName: string,
+  prNumber: number,
+): Promise<DbReviewRun | null> {
+  const row = await env.DB.prepare(
+    `SELECT ${COLS} FROM workspace_pr_review_runs
+     WHERE project_id = ? AND repo_full_name = ? AND pr_number = ?
+     ORDER BY updated_at DESC LIMIT 1`,
+  )
+    .bind(projectId, repoFullName, prNumber)
+    .first<RawRow>();
+
+  return row ? mapRow(row) : null;
+}
+
+// ─── getLatestTwoPrReviewRuns ─────────────────────────────────────────────────
+
 export async function getLatestTwoPrReviewRuns(
   env: Env,
   projectId: string,
@@ -97,38 +182,13 @@ export async function getLatestTwoPrReviewRuns(
   prNumber: number,
 ): Promise<[DbReviewRun | null, DbReviewRun | null]> {
   const rows = await env.DB.prepare(
-    `SELECT id, project_id, user_key, repo_full_name, pr_number, linked_pr_id,
-            selected_item_ids_json, status, result_json, error_message, created_at, updated_at
-     FROM workspace_pr_review_runs
+    `SELECT ${COLS} FROM workspace_pr_review_runs
      WHERE project_id = ? AND repo_full_name = ? AND pr_number = ?
        AND status NOT IN ('running', 'queued', 'error')
      ORDER BY updated_at DESC LIMIT 2`,
   )
     .bind(projectId, repoFullName, prNumber)
-    .all<{
-      id: string; project_id: string; user_key: string; repo_full_name: string;
-      pr_number: number; linked_pr_id: string | null;
-      selected_item_ids_json: string; status: string;
-      result_json: string | null; error_message: string | null;
-      created_at: string; updated_at: string;
-    }>();
-
-  function mapRow(row: typeof rows.results[number]): DbReviewRun {
-    return {
-      id: row.id,
-      projectId: row.project_id,
-      userKey: row.user_key,
-      repoFullName: row.repo_full_name,
-      prNumber: row.pr_number,
-      linkedPrId: row.linked_pr_id ?? undefined,
-      selectedItemIds: (() => { try { return JSON.parse(row.selected_item_ids_json) as string[]; } catch { return []; } })(),
-      status: row.status as ReviewRunStatus,
-      resultJson: row.result_json ?? undefined,
-      errorMessage: row.error_message ?? undefined,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
-  }
+    .all<RawRow>();
 
   const list = rows.results ?? [];
   const latest = list[0] ? mapRow(list[0]) : null;
@@ -136,41 +196,7 @@ export async function getLatestTwoPrReviewRuns(
   return [latest, previous];
 }
 
-export async function getReviewRunById(
-  env: Env,
-  runId: string,
-): Promise<DbReviewRun | null> {
-  const row = await env.DB.prepare(
-    `SELECT id, project_id, user_key, repo_full_name, pr_number, linked_pr_id,
-            selected_item_ids_json, status, result_json, error_message, created_at, updated_at
-     FROM workspace_pr_review_runs
-     WHERE id = ?`,
-  )
-    .bind(runId)
-    .first<{
-      id: string; project_id: string; user_key: string; repo_full_name: string;
-      pr_number: number; linked_pr_id: string | null;
-      selected_item_ids_json: string; status: string;
-      result_json: string | null; error_message: string | null;
-      created_at: string; updated_at: string;
-    }>();
-
-  if (!row) return null;
-  return {
-    id: row.id,
-    projectId: row.project_id,
-    userKey: row.user_key,
-    repoFullName: row.repo_full_name,
-    prNumber: row.pr_number,
-    linkedPrId: row.linked_pr_id ?? undefined,
-    selectedItemIds: (() => { try { return JSON.parse(row.selected_item_ids_json) as string[]; } catch { return []; } })(),
-    status: row.status as ReviewRunStatus,
-    resultJson: row.result_json ?? undefined,
-    errorMessage: row.error_message ?? undefined,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
+// ─── listPRReviewRuns ─────────────────────────────────────────────────────────
 
 export async function listPRReviewRuns(
   env: Env,
@@ -181,36 +207,17 @@ export async function listPRReviewRuns(
 ): Promise<DbReviewRun[]> {
   const limit = Math.min(opts.limit ?? 20, 100);
   const rows = await env.DB.prepare(
-    `SELECT id, project_id, user_key, repo_full_name, pr_number, linked_pr_id,
-            selected_item_ids_json, status, result_json, error_message, created_at, updated_at
-     FROM workspace_pr_review_runs
+    `SELECT ${COLS} FROM workspace_pr_review_runs
      WHERE project_id = ? AND repo_full_name = ? AND pr_number = ?
      ORDER BY created_at DESC LIMIT ?`,
   )
     .bind(projectId, repoFullName, prNumber, limit)
-    .all<{
-      id: string; project_id: string; user_key: string; repo_full_name: string;
-      pr_number: number; linked_pr_id: string | null;
-      selected_item_ids_json: string; status: string;
-      result_json: string | null; error_message: string | null;
-      created_at: string; updated_at: string;
-    }>();
+    .all<RawRow>();
 
-  return (rows.results ?? []).map((row) => ({
-    id: row.id,
-    projectId: row.project_id,
-    userKey: row.user_key,
-    repoFullName: row.repo_full_name,
-    prNumber: row.pr_number,
-    linkedPrId: row.linked_pr_id ?? undefined,
-    selectedItemIds: (() => { try { return JSON.parse(row.selected_item_ids_json) as string[]; } catch { return []; } })(),
-    status: row.status as ReviewRunStatus,
-    resultJson: row.result_json ?? undefined,
-    errorMessage: row.error_message ?? undefined,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
+  return (rows.results ?? []).map(mapRow);
 }
+
+// ─── listProjectReviewRuns ────────────────────────────────────────────────────
 
 export async function listProjectReviewRuns(
   env: Env,
@@ -219,72 +226,12 @@ export async function listProjectReviewRuns(
 ): Promise<DbReviewRun[]> {
   const limit = Math.min(opts.limit ?? 50, 200);
   const rows = await env.DB.prepare(
-    `SELECT id, project_id, user_key, repo_full_name, pr_number, linked_pr_id,
-            selected_item_ids_json, status, result_json, error_message, created_at, updated_at
-     FROM workspace_pr_review_runs
+    `SELECT ${COLS} FROM workspace_pr_review_runs
      WHERE project_id = ?
      ORDER BY created_at DESC LIMIT ?`,
   )
     .bind(projectId, limit)
-    .all<{
-      id: string; project_id: string; user_key: string; repo_full_name: string;
-      pr_number: number; linked_pr_id: string | null;
-      selected_item_ids_json: string; status: string;
-      result_json: string | null; error_message: string | null;
-      created_at: string; updated_at: string;
-    }>();
+    .all<RawRow>();
 
-  return (rows.results ?? []).map((row) => ({
-    id: row.id,
-    projectId: row.project_id,
-    userKey: row.user_key,
-    repoFullName: row.repo_full_name,
-    prNumber: row.pr_number,
-    linkedPrId: row.linked_pr_id ?? undefined,
-    selectedItemIds: (() => { try { return JSON.parse(row.selected_item_ids_json) as string[]; } catch { return []; } })(),
-    status: row.status as ReviewRunStatus,
-    resultJson: row.result_json ?? undefined,
-    errorMessage: row.error_message ?? undefined,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
-}
-
-export async function getLatestReviewRun(
-  env: Env,
-  projectId: string,
-  repoFullName: string,
-  prNumber: number,
-): Promise<DbReviewRun | null> {
-  const row = await env.DB.prepare(
-    `SELECT id, project_id, user_key, repo_full_name, pr_number, linked_pr_id,
-            selected_item_ids_json, status, result_json, error_message, created_at, updated_at
-     FROM workspace_pr_review_runs
-     WHERE project_id = ? AND repo_full_name = ? AND pr_number = ?
-     ORDER BY updated_at DESC LIMIT 1`,
-  )
-    .bind(projectId, repoFullName, prNumber)
-    .first<{
-      id: string; project_id: string; user_key: string; repo_full_name: string;
-      pr_number: number; linked_pr_id: string | null;
-      selected_item_ids_json: string; status: string;
-      result_json: string | null; error_message: string | null;
-      created_at: string; updated_at: string;
-    }>();
-
-  if (!row) return null;
-  return {
-    id: row.id,
-    projectId: row.project_id,
-    userKey: row.user_key,
-    repoFullName: row.repo_full_name,
-    prNumber: row.pr_number,
-    linkedPrId: row.linked_pr_id ?? undefined,
-    selectedItemIds: (() => { try { return JSON.parse(row.selected_item_ids_json) as string[]; } catch { return []; } })(),
-    status: row.status as ReviewRunStatus,
-    resultJson: row.result_json ?? undefined,
-    errorMessage: row.error_message ?? undefined,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
+  return (rows.results ?? []).map(mapRow);
 }
