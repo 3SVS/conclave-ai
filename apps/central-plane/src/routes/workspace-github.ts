@@ -41,6 +41,8 @@ import { fetchPRFiles } from "../workspace/github-pr.js";
 import { reviewPRAgainstItems, deriveRunStatus } from "../workspace/pr-review.js";
 import { getProject } from "../workspace/db.js";
 import type { CheckableItem, ProductSpecForCheck } from "../workspace/check.js";
+import { generatePRFixBrief } from "../workspace/pr-fix-brief.js";
+import type { FixBriefItem, FixBriefTarget } from "../workspace/pr-fix-brief.js";
 
 // ─── CORS helpers (shared with workspace.ts) ──────────────────────────────────
 
@@ -664,6 +666,121 @@ export function createWorkspaceGitHubRoutes(
       console.error("[workspace/github/pulls/review GET] failed:", err);
       return json({ ok: false, error: "fetch_failed" }, 500, origin);
     }
+  });
+
+  // ── POST /workspace/projects/:id/github/pulls/:number/fix-brief ─────────
+  // Generate a deterministic PR Fix Pack from an existing review run.
+  app.post("/workspace/projects/:id/github/pulls/:number/fix-brief", async (c) => {
+    const origin = c.req.header("origin") ?? null;
+    const projectId = c.req.param("id");
+    const prNumber = parseInt(c.req.param("number"), 10);
+    if (isNaN(prNumber) || prNumber < 1) {
+      return json({ ok: false, error: "invalid_pr_number" }, 400, origin);
+    }
+
+    let body: unknown;
+    try { body = await c.req.json(); } catch {
+      return json({ ok: false, error: "invalid_json" }, 400, origin);
+    }
+    const b = body as Record<string, unknown>;
+    const userKey = typeof b["userKey"] === "string" ? b["userKey"] : "";
+    if (!userKey) return json({ ok: false, error: "userKey_required" }, 400, origin);
+
+    const bodySelectedIds = Array.isArray(b["selectedItemIds"])
+      ? (b["selectedItemIds"] as unknown[]).filter((x): x is string => typeof x === "string")
+      : undefined;
+    const target: FixBriefTarget =
+      b["target"] === "claude_code" || b["target"] === "codex" ? b["target"] : "both";
+
+    // 1. Get linked repo
+    const repo = await getProjectRepo(c.env, projectId).catch(() => null);
+    if (!repo) return json({ ok: false, error: "no_repo_linked" }, 400, origin);
+
+    // 2. Get latest review run
+    const run = await getLatestReviewRun(c.env, projectId, repo.repoFullName, prNumber).catch(() => null);
+    if (!run) return json({ ok: false, error: "no_review_run" }, 400, origin);
+
+    // 3. Parse review results
+    let reviewResults: Array<{ itemId: string; title: string; status: string; reason: string; evidence: string[]; nextAction: string }> = [];
+    if (run.resultJson) {
+      try {
+        const parsed = JSON.parse(run.resultJson) as { results?: unknown[] };
+        if (Array.isArray(parsed.results)) reviewResults = parsed.results as typeof reviewResults;
+      } catch { /* ignored */ }
+    }
+    if (reviewResults.length === 0) {
+      return json({ ok: false, error: "no_review_results" }, 400, origin);
+    }
+
+    // 4. Determine selectedItemIds: body > linked PR run > all fixable
+    const fixableItemIds = reviewResults
+      .filter((r) => ["failed", "inconclusive", "needs_decision"].includes(r.status))
+      .map((r) => r.itemId);
+
+    const selectedItemIds = bodySelectedIds?.length
+      ? bodySelectedIds
+      : (run.selectedItemIds.length ? run.selectedItemIds.filter((id) => fixableItemIds.includes(id)) : fixableItemIds);
+
+    if (selectedItemIds.length === 0) {
+      return json({ ok: false, error: "no_fixable_items" }, 400, origin);
+    }
+
+    // 5. Load project for spec + items
+    const dbProj = await getProject(c.env, projectId).catch(() => null);
+    const bodySpec = b["productSpec"];
+    const bodyItems = b["items"];
+
+    const productSpec = (bodySpec && typeof bodySpec === "object"
+      ? bodySpec
+      : (dbProj?.productSpec ?? {})) as { productName?: string; oneLine?: string; included?: string[]; excluded?: string[]; openQuestions?: string[] };
+    const allItems = (Array.isArray(bodyItems) && bodyItems.length > 0
+      ? bodyItems
+      : (Array.isArray(dbProj?.items) ? (dbProj!.items as unknown[]) : [])) as FixBriefItem[];
+
+    // Need prMeta — get it from the linked PR or reconstruct from run
+    const linkedPRs = await getLinkedPRs(c.env, projectId).catch(() => []);
+    const linkedPR = linkedPRs.find((p) => p.prNumber === prNumber);
+
+    const prMeta = {
+      number: prNumber,
+      title: linkedPR?.prTitle ?? `PR #${prNumber}`,
+      state: linkedPR?.prState ?? "open",
+      headBranch: linkedPR?.prHeadBranch ?? "feature",
+      baseBranch: linkedPR?.prBaseBranch ?? "main",
+      headSha: "",
+      additions: 0,
+      deletions: 0,
+      changedFiles: 0,
+    };
+
+    // 6. Generate brief
+    const result = generatePRFixBrief({
+      projectId,
+      productSpec: {
+        productName: productSpec.productName ?? "제품",
+        oneLine: productSpec.oneLine,
+        included: productSpec.included,
+        excluded: productSpec.excluded,
+        openQuestions: productSpec.openQuestions,
+      },
+      allItems,
+      selectedItemIds,
+      reviewResults: reviewResults.map((r) => ({
+        itemId: r.itemId,
+        title: r.title,
+        status: r.status as "passed" | "failed" | "inconclusive" | "needs_decision",
+        userLabel: ({ passed: "통과", failed: "안 맞음", inconclusive: "확인 부족", needs_decision: "결정 필요" } as Record<string, "통과" | "안 맞음" | "확인 부족" | "결정 필요">)[r.status] ?? "확인 부족",
+        reason: r.reason,
+        evidence: r.evidence,
+        nextAction: r.nextAction,
+      })),
+      prMeta,
+      repoFullName: repo.repoFullName,
+      runId: run.id,
+      target,
+    });
+
+    return json(result, 200, origin);
   });
 
   return app;

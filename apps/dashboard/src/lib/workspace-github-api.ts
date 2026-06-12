@@ -318,3 +318,61 @@ export async function getLatestPRReview(
     return { ok: false, error: String(err) };
   }
 }
+
+// ─── PR Fix Brief ─────────────────────────────────────────────────────────────
+
+export type FixBriefFile = {
+  path: string;
+  content: string;
+};
+
+export type FixBriefResult = {
+  ok: true;
+  source: "deterministic";
+  projectId: string;
+  repoFullName: string;
+  prNumber: number;
+  runId: string;
+  selectedItemIds: string[];
+  brief: {
+    plainSummary: string;
+    claudeCodePrompt?: string;
+    codexPrompt?: string;
+    files: FixBriefFile[];
+  };
+  warnings?: string[];
+};
+
+export type FixBriefResponse =
+  | FixBriefResult
+  | { ok: false; error: string };
+
+export type FixBriefTarget = "claude_code" | "codex" | "both";
+
+export async function generatePRFixBrief(
+  projectId: string,
+  prNumber: number,
+  input: {
+    userKey: string;
+    selectedItemIds?: string[];
+    target?: FixBriefTarget;
+    items?: WorkspaceItem[];
+    productSpec?: ProductSpec;
+  },
+): Promise<FixBriefResponse> {
+  try {
+    const resp = await fetch(
+      `${CENTRAL_PLANE_URL}/workspace/projects/${encodeURIComponent(projectId)}/github/pulls/${prNumber}/fix-brief`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+        signal: AbortSignal.timeout(15000),
+      },
+    );
+    const data = await resp.json().catch(() => ({ ok: false, error: `HTTP ${resp.status}` })) as FixBriefResponse;
+    return data;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}

@@ -12,10 +12,14 @@ import {
   linkPullRequest,
   startPRReview,
   getLatestPRReview,
+  generatePRFixBrief,
   type GitHubPull,
   type LinkedPull,
   type LinkedRepo,
   type ReviewRun,
+  type FixBriefTarget,
+  type FixBriefResponse,
+  type FixBriefFile,
 } from "@/lib/workspace-github-api";
 import { StatusBadge } from "@/components/StatusBadge";
 import type { ItemStatus } from "@/lib/labels";
@@ -381,7 +385,26 @@ export default function GitHubPage() {
                         )}
 
                         {phase === "done" && run && (
-                          <ReviewResultPanel run={run} onRerun={() => handleStartReview(lp)} />
+                          <>
+                            <ReviewResultPanel run={run} onRerun={() => handleStartReview(lp)} />
+                            {run.results && run.results.some((r) => r.status !== "passed") && (
+                              <div className="mt-4 pt-4 border-t border-gray-100">
+                                <FixBriefPanel
+                                  run={run}
+                                  lp={lp}
+                                  projectId={id}
+                                  userKey={userKey}
+                                  items={(project?.requirements ?? []).map((r) => ({
+                                    id: r.id,
+                                    title: r.title,
+                                    status: r.status ?? "draft",
+                                    criteria: (r as { criteria?: string[] }).criteria ?? [],
+                                  }))}
+                                  productSpec={(loadExtendedProjectData(id)?.productSpec ?? {}) as Record<string, unknown>}
+                                />
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
@@ -391,6 +414,201 @@ export default function GitHubPage() {
             </div>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+// ─── FixBriefPanel ───────────────────────────────────────────────────────────
+
+type WorkspaceItemLocal = { id: string; title: string; status: string; criteria: string[] };
+
+function FixBriefPanel({
+  run,
+  lp,
+  projectId,
+  userKey,
+  items,
+  productSpec,
+}: {
+  run: ReviewRun;
+  lp: LinkedPull;
+  projectId: string;
+  userKey: string;
+  items: WorkspaceItemLocal[];
+  productSpec: Record<string, unknown>;
+}) {
+  const fixableItems = (run.results ?? []).filter(
+    (r) => r.status === "failed" || r.status === "inconclusive" || r.status === "needs_decision",
+  );
+  // Pre-select: failed first, up to 3
+  const defaultSelected = new Set(
+    [...fixableItems]
+      .sort((a, b) => (a.status === "failed" ? -1 : b.status === "failed" ? 1 : 0))
+      .slice(0, 3)
+      .map((r) => r.itemId),
+  );
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(defaultSelected);
+  const [target, setTarget] = useState<FixBriefTarget>("both");
+  const [phase, setPhase] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [result, setResult] = useState<FixBriefResponse | null>(null);
+  const [previewFile, setPreviewFile] = useState<string | null>(null);
+  const [copyMsg, setCopyMsg] = useState<string | null>(null);
+
+  function toggleId(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function handleGenerate() {
+    if (selectedIds.size === 0) return;
+    setPhase("loading");
+    const res = await generatePRFixBrief(projectId, lp.number, {
+      userKey,
+      selectedItemIds: Array.from(selectedIds),
+      target,
+      items,
+      productSpec,
+    });
+    setResult(res);
+    setPhase(res.ok ? "done" : "error");
+  }
+
+  async function handleCopy(file: FixBriefFile) {
+    await navigator.clipboard.writeText(file.content).catch(() => {});
+    setCopyMsg(file.path);
+    setTimeout(() => setCopyMsg(null), 2000);
+  }
+
+  async function handleZip() {
+    if (!result || !result.ok) return;
+    const { default: JSZip } = await import("jszip");
+    const zip = new JSZip();
+    for (const f of result.brief.files) zip.file(f.path, f.content);
+    const blob = await zip.generateAsync({ type: "blob" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `conclave-pr-fix-pack-${lp.number}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  if (fixableItems.length === 0) return null;
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <p className="text-sm font-semibold text-gray-800 mb-0.5">수정 지시서 만들기</p>
+        <p className="text-xs text-gray-400">
+          확인 결과에서 문제가 있는 항목을 선택하면, Claude Code나 Codex에게 넘길 수정 지시서를 만들 수 있어요.
+        </p>
+      </div>
+
+      {/* Item checkboxes */}
+      <div className="space-y-1">
+        {fixableItems.map((r) => (
+          <label
+            key={r.itemId}
+            className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-gray-50 cursor-pointer"
+          >
+            <input
+              type="checkbox"
+              checked={selectedIds.has(r.itemId)}
+              onChange={() => toggleId(r.itemId)}
+              className="w-4 h-4 rounded accent-indigo-600 cursor-pointer flex-shrink-0"
+            />
+            <span className={`text-xs font-medium border rounded-full px-2 py-0.5 flex-shrink-0 ${STATUS_COLORS[r.status] ?? ""}`}>
+              {r.userLabel}
+            </span>
+            <span className="text-sm text-gray-700 truncate">{r.title}</span>
+          </label>
+        ))}
+      </div>
+
+      {/* Target selector + generate button */}
+      <div className="flex items-center gap-3">
+        <select
+          value={target}
+          onChange={(e) => setTarget(e.target.value as FixBriefTarget)}
+          className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+        >
+          <option value="both">Claude Code + Codex</option>
+          <option value="claude_code">Claude Code 전용</option>
+          <option value="codex">Codex 전용</option>
+        </select>
+        <button
+          onClick={handleGenerate}
+          disabled={selectedIds.size === 0 || phase === "loading"}
+          className="text-sm px-4 py-2 rounded-xl font-medium bg-gray-900 text-white hover:bg-gray-800 disabled:opacity-40 transition-colors"
+        >
+          {phase === "loading" ? "만드는 중..." : "수정 지시서 만들기"}
+        </button>
+      </div>
+
+      {/* Error */}
+      {phase === "error" && result && !result.ok && (
+        <p className="text-xs text-red-500">{result.error}</p>
+      )}
+
+      {/* Result */}
+      {phase === "done" && result && result.ok && (
+        <div className="bg-gray-50 rounded-xl border border-gray-200 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-gray-800">
+              {result.brief.files.length}개 파일 생성됨
+            </p>
+            <div className="flex items-center gap-2">
+              {copyMsg && (
+                <span className="text-xs text-green-600">복사됨: {copyMsg}</span>
+              )}
+              <button
+                onClick={handleZip}
+                className="text-sm px-3 py-1.5 rounded-lg font-medium border border-gray-200 text-gray-700 hover:bg-white transition-colors"
+              >
+                ZIP 다운로드
+              </button>
+            </div>
+          </div>
+
+          {/* File list */}
+          <div className="space-y-1">
+            {result.brief.files.map((f) => (
+              <div key={f.path} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
+                <button
+                  onClick={() => setPreviewFile(previewFile === f.path ? null : f.path)}
+                  className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-gray-50 transition-colors"
+                >
+                  <span className="text-xs font-mono text-indigo-700 flex-1 truncate">{f.path}</span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleCopy(f); }}
+                    className="text-xs text-gray-400 hover:text-gray-600 px-2 py-0.5 rounded border border-gray-200 bg-white flex-shrink-0"
+                  >
+                    복사
+                  </button>
+                  <span className="text-gray-400 text-xs flex-shrink-0">
+                    {previewFile === f.path ? "▲" : "▼"}
+                  </span>
+                </button>
+                {previewFile === f.path && (
+                  <div className="border-t border-gray-100 px-3 py-3 max-h-64 overflow-y-auto">
+                    <pre className="text-xs text-gray-700 whitespace-pre-wrap font-mono leading-relaxed">
+                      {f.content}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <p className="text-xs text-gray-400">
+            ZIP을 다운받아 저장소 루트에 압축 해제하면 Claude Code나 Codex에서 바로 사용할 수 있어요.
+          </p>
+        </div>
       )}
     </div>
   );
@@ -444,7 +662,6 @@ function ReviewResultPanel({ run, onRerun }: { run: ReviewRun; onRerun: () => vo
       {/* Disclaimer */}
       <p className="text-xs text-gray-400">
         이 결과는 연결된 PR의 변경 내용 기준입니다. 전체 저장소나 배포된 서비스 전체를 확인한 것은 아니에요.
-        아직 고쳐보기는 다음 단계에서 제공됩니다.
       </p>
 
       {/* Error */}
