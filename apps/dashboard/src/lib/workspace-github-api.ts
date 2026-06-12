@@ -332,10 +332,28 @@ export type CreditEnforcementResult = {
   };
 };
 
+export type SpecificRunComparison = {
+  comparable: boolean;
+  sourceRunId: string;
+  newRunId: string;
+  improved: Array<{ itemId: string; title: string; from: string; to: string; reason: string }>;
+  stillOpen: Array<{ itemId: string; title: string; status: string; reason: string }>;
+  newlyProblematic: Array<{ itemId: string; title: string; from: string; to: string; reason: string }>;
+  unchanged: Array<{ itemId: string; title: string; status: string }>;
+  summaryText: string;
+};
+
+export type PRReviewRerunMeta = {
+  ofReviewRunId: string;
+  reusedSelectedItemIds: string[];
+};
+
 export type StartReviewResponse =
   | {
       ok: true;
       run: ReviewRun;
+      rerun?: PRReviewRerunMeta;
+      comparisonToSourceRun?: SpecificRunComparison;
       creditEnforcement?: CreditEnforcementResult | CreditEnforcementDryRun;
       /** @deprecated use creditEnforcement */
       creditDryRun?: CreditEnforcementDryRun;
@@ -359,6 +377,7 @@ export async function startPRReview(
     items?: WorkspaceItem[];
     productSpec?: ProductSpec;
     idempotencyKey?: string;
+    rerunOfReviewRunId?: string;
   },
 ): Promise<StartReviewResponse> {
   try {

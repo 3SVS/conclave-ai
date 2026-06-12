@@ -10,9 +10,11 @@ import {
   generatePRFixBrief,
   previewPRComment,
   postPRComment,
+  startPRReview,
   type PRReviewRunDetail,
   type ReviewResultItem,
   type FixBriefResult,
+  type SpecificRunComparison,
 } from "@/lib/workspace-github-api";
 
 // ─── Status config ────────────────────────────────────────────────────────────
@@ -347,6 +349,184 @@ function CommentPanel({
   );
 }
 
+// ─── Rerun Panel ─────────────────────────────────────────────────────────────
+
+const CMP_STATUS_COLORS: Record<string, string> = {
+  passed:         "text-green-600",
+  failed:         "text-red-600",
+  inconclusive:   "text-yellow-600",
+  needs_decision: "text-violet-600",
+};
+
+const STATUS_KO: Record<string, string> = {
+  passed: "통과", failed: "안 맞음", inconclusive: "확인 부족", needs_decision: "결정 필요",
+};
+
+function ComparisonPanel({ cmp, newRunId, projectId }: {
+  cmp: SpecificRunComparison;
+  newRunId: string;
+  projectId: string;
+}) {
+  if (!cmp.comparable) {
+    return (
+      <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-xs text-gray-500">
+        비교할 이전 확인 결과가 없어요.
+      </div>
+    );
+  }
+  return (
+    <div className="border border-gray-200 rounded-xl overflow-hidden">
+      <div className="bg-gray-50 border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold text-gray-800">이전/새 결과 비교</p>
+          <p className="text-xs text-gray-400 mt-0.5">{cmp.summaryText}</p>
+        </div>
+        <Link
+          href={`/projects/${projectId}/github/history/${newRunId}`}
+          className="text-xs text-indigo-600 font-medium hover:text-indigo-800 flex-shrink-0"
+        >
+          새 기록 보기 →
+        </Link>
+      </div>
+      <div className="divide-y divide-gray-100 bg-white">
+        {cmp.improved.length > 0 && (
+          <div className="px-4 py-3">
+            <p className="text-xs font-medium text-green-700 mb-2">좋아진 항목 ({cmp.improved.length}개)</p>
+            {cmp.improved.map((item) => (
+              <div key={item.itemId} className="text-xs text-gray-600 mb-1.5">
+                <span className="font-medium">{item.title}</span>
+                <span className="text-gray-400 mx-1">·</span>
+                <span className={CMP_STATUS_COLORS[item.from] ?? ""}>{STATUS_KO[item.from] ?? item.from}</span>
+                <span className="text-gray-400 mx-1">→</span>
+                <span className={CMP_STATUS_COLORS[item.to] ?? ""}>{STATUS_KO[item.to] ?? item.to}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {cmp.newlyProblematic.length > 0 && (
+          <div className="px-4 py-3">
+            <p className="text-xs font-medium text-red-700 mb-2">새로 생긴 문제 ({cmp.newlyProblematic.length}개)</p>
+            {cmp.newlyProblematic.map((item) => (
+              <div key={item.itemId} className="text-xs text-gray-600 mb-1.5">
+                <span className="font-medium">{item.title}</span>
+                <span className="text-gray-400 mx-1">·</span>
+                <span className={CMP_STATUS_COLORS[item.from] ?? ""}>{STATUS_KO[item.from] ?? item.from}</span>
+                <span className="text-gray-400 mx-1">→</span>
+                <span className={CMP_STATUS_COLORS[item.to] ?? ""}>{STATUS_KO[item.to] ?? item.to}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {cmp.stillOpen.length > 0 && (
+          <div className="px-4 py-3">
+            <p className="text-xs font-medium text-yellow-700 mb-2">아직 남은 항목 ({cmp.stillOpen.length}개)</p>
+            {cmp.stillOpen.map((item) => (
+              <div key={item.itemId} className="text-xs text-gray-600 mb-1.5">
+                <span className="font-medium">{item.title}</span>
+                <span className="text-gray-400 mx-1">·</span>
+                <span className={CMP_STATUS_COLORS[item.status] ?? ""}>{STATUS_KO[item.status] ?? item.status}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {cmp.unchanged.length > 0 && (
+          <div className="px-4 py-3">
+            <p className="text-xs font-medium text-gray-500 mb-2">변화 없음 ({cmp.unchanged.length}개)</p>
+            {cmp.unchanged.map((item) => (
+              <div key={item.itemId} className="text-xs text-gray-500 mb-1">
+                {item.title}
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="px-4 py-3 bg-gray-50 text-xs text-gray-400">
+          이 비교는 선택한 이전 확인 기록과 방금 다시 확인한 결과를 비교한 것입니다.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RerunPanel({
+  projectId, prNumber, runId, selectedItemIds, userKey,
+}: { projectId: string; prNumber: number; runId: string; selectedItemIds: string[]; userKey: string }) {
+  const [phase, setPhase] = useState<"idle" | "running" | "done" | "error">("idle");
+  const [newRunId, setNewRunId] = useState<string | null>(null);
+  const [comparison, setComparison] = useState<SpecificRunComparison | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string>("");
+
+  const run = useCallback(async () => {
+    setPhase("running");
+    setErrorMsg("");
+    const idempotencyKey = crypto.randomUUID();
+    const res = await startPRReview(projectId, prNumber, {
+      userKey,
+      rerunOfReviewRunId: runId,
+      selectedItemIds,
+      idempotencyKey,
+    });
+    if (!res.ok) {
+      setErrorMsg(res.error ?? "확인 실패");
+      setPhase("error");
+      return;
+    }
+    setNewRunId(res.run.id);
+    if (res.comparisonToSourceRun) setComparison(res.comparisonToSourceRun);
+    setPhase("done");
+  }, [projectId, prNumber, runId, selectedItemIds, userKey]);
+
+  if (phase === "idle") {
+    return (
+      <button
+        onClick={run}
+        className="w-full border border-gray-200 bg-white text-gray-700 text-sm font-medium px-4 py-2.5 rounded-xl hover:bg-gray-50 transition-colors"
+      >
+        이 기준으로 다시 확인하기
+      </button>
+    );
+  }
+
+  if (phase === "running") {
+    return (
+      <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
+        <div className="w-4 h-4 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin flex-shrink-0" />
+        확인 실행 중... (PR 크기에 따라 최대 30초 소요)
+      </div>
+    );
+  }
+
+  if (phase === "error") {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700 flex items-center justify-between">
+        <span>다시 확인 실패: {errorMsg}</span>
+        <button onClick={() => setPhase("idle")} className="text-xs text-red-600 underline ml-2">
+          닫기
+        </button>
+      </div>
+    );
+  }
+
+  // done
+  return (
+    <div className="space-y-3">
+      {comparison && newRunId && (
+        <ComparisonPanel cmp={comparison} newRunId={newRunId} projectId={projectId} />
+      )}
+      {newRunId && !comparison && (
+        <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700 flex items-center justify-between">
+          <span>확인이 완료됐어요.</span>
+          <Link
+            href={`/projects/${projectId}/github/history/${newRunId}`}
+            className="text-xs text-green-600 underline ml-2"
+          >
+            새 기록 보기 →
+          </Link>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function RunDetailPage() {
@@ -485,13 +665,16 @@ export default function RunDetailPage() {
         </div>
       )}
 
-      {/* ── Re-run ── */}
-      <Link
-        href={prPageUrl}
-        className="inline-flex items-center text-sm text-gray-500 hover:text-gray-700"
-      >
-        이 PR 다시 확인하기 →
-      </Link>
+      {/* ── Re-run (run-specific) ── */}
+      {hasResults && userKey && (
+        <RerunPanel
+          projectId={id}
+          prNumber={prNumber}
+          runId={runId}
+          selectedItemIds={run.selectedItemIds}
+          userKey={userKey}
+        />
+      )}
 
       {/* ── Run-specific Fix Pack ── */}
       {actionNeeded > 0 && userKey && (

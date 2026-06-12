@@ -40,7 +40,8 @@ import {
 } from "../workspace/pr-review-db.js";
 import { loadPRReviewRunForAction } from "../workspace/pr-review-run-loader.js";
 import {
-  compareRunResults, buildRunSummary, parseRunResults,
+  compareRunResults, buildRunSummary, parseRunResults, compareSpecificReviewRuns,
+  type SpecificRunComparison,
 } from "../workspace/pr-review-compare.js";
 import { fetchPRFiles } from "../workspace/github-pr.js";
 import { reviewPRAgainstItems, deriveRunStatus } from "../workspace/pr-review.js";
@@ -564,19 +565,43 @@ export function createWorkspaceGitHubRoutes(
     const bodySelectedIds = Array.isArray(b["selectedItemIds"])
       ? (b["selectedItemIds"] as unknown[]).filter((x): x is string => typeof x === "string")
       : undefined;
+    const rerunOfReviewRunId = typeof b["rerunOfReviewRunId"] === "string" ? b["rerunOfReviewRunId"] : undefined;
 
     // 1. Get linked repo
     const repo = await getProjectRepo(c.env, projectId).catch(() => null);
     if (!repo) return json({ ok: false, error: "no_repo_linked" }, 400, origin);
 
-    // 2. Get linked PR to inherit selectedItemIds if not in body
+    // 1b. Validate source run if rerunOfReviewRunId provided; inherit selectedItemIds
+    let sourceRunForRerun: Awaited<ReturnType<typeof getReviewRunById>> | null = null;
+    let sourceSelectedItemIds: string[] | undefined;
+    if (rerunOfReviewRunId) {
+      const dbSourceRun = await getReviewRunById(c.env, rerunOfReviewRunId).catch(() => null);
+      if (!dbSourceRun) {
+        return json({ ok: false, error: "rerun_source_not_found" }, 404, origin);
+      }
+      if (
+        dbSourceRun.projectId !== projectId ||
+        dbSourceRun.repoFullName !== repo.repoFullName ||
+        dbSourceRun.prNumber !== prNumber
+      ) {
+        return json({ ok: false, error: "rerun_source_mismatch" }, 404, origin);
+      }
+      sourceRunForRerun = dbSourceRun;
+      if (dbSourceRun.selectedItemIds.length > 0) {
+        sourceSelectedItemIds = dbSourceRun.selectedItemIds;
+      }
+    }
+
+    // 2. Get linked PR to inherit selectedItemIds if not in body/source run
     const linkedPRs = await getLinkedPRs(c.env, projectId).catch(() => []);
     const linkedPR = linkedPRs.find((p) => p.prNumber === prNumber);
 
-    // 3. Determine selectedItemIds: body > linked PR > error
+    // 3. Determine selectedItemIds: body > source run > linked PR > error
     const selectedItemIds = bodySelectedIds?.length
       ? bodySelectedIds
-      : (linkedPR?.selectedItemIds ?? []);
+      : (sourceSelectedItemIds?.length
+        ? sourceSelectedItemIds
+        : (linkedPR?.selectedItemIds ?? []));
     if (selectedItemIds.length === 0) {
       return json({ ok: false, error: "no_selected_items" }, 400, origin);
     }
@@ -793,6 +818,23 @@ export function createWorkspaceGitHubRoutes(
       }
     })();
 
+    // 11. Build rerun metadata + comparison if applicable
+    let rerunMeta: { ofReviewRunId: string; reusedSelectedItemIds: string[] } | undefined;
+    let comparisonToSourceRun: SpecificRunComparison | undefined;
+    if (rerunOfReviewRunId && sourceRunForRerun) {
+      const reusedFromSource = !bodySelectedIds?.length && Boolean(sourceSelectedItemIds?.length);
+      rerunMeta = {
+        ofReviewRunId: rerunOfReviewRunId,
+        reusedSelectedItemIds: reusedFromSource ? (sourceSelectedItemIds ?? []) : [],
+      };
+      const sourceResults = parseRunResults(sourceRunForRerun.resultJson);
+      const newResults = reviewResult.results as Array<{ itemId: string; title: string; status: "passed" | "failed" | "inconclusive" | "needs_decision"; reason: string }>;
+      comparisonToSourceRun = compareSpecificReviewRuns(
+        { id: rerunOfReviewRunId, results: sourceResults },
+        { id: run.id, results: newResults },
+      );
+    }
+
     return json({
       ok: true,
       run: {
@@ -807,6 +849,8 @@ export function createWorkspaceGitHubRoutes(
         createdAt: run.createdAt,
         updatedAt: new Date().toISOString(),
       },
+      rerun: rerunMeta,
+      comparisonToSourceRun,
       creditEnforcement,
       warnings: warnings.length ? warnings : undefined,
     }, 200, origin);

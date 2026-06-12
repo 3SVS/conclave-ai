@@ -249,6 +249,43 @@ export function compareRunResults(
   return { improved, stillOpen, newlyProblematic, unchanged, summaryText };
 }
 
+// ─── Source-vs-new run comparison ────────────────────────────────────────────
+
+export type SpecificRunComparison = {
+  comparable: boolean;
+  sourceRunId: string;
+  newRunId: string;
+  improved: ImprovedItem[];
+  stillOpen: StillOpenItem[];
+  newlyProblematic: NewlyProblematicItem[];
+  unchanged: UnchangedItem[];
+  summaryText: string;
+};
+
+/**
+ * Compare a specific source run against a newly completed run.
+ * Wraps compareRunResults; returns comparable=false if either side has no results.
+ */
+export function compareSpecificReviewRuns(
+  source: { id: string; results: ReviewResultItem[] },
+  newRun: { id: string; results: ReviewResultItem[] },
+): SpecificRunComparison {
+  if (source.results.length === 0 || newRun.results.length === 0) {
+    return {
+      comparable: false,
+      sourceRunId: source.id,
+      newRunId: newRun.id,
+      improved: [],
+      stillOpen: [],
+      newlyProblematic: [],
+      unchanged: [],
+      summaryText: "비교할 결과가 없어요.",
+    };
+  }
+  const cmp = compareRunResults(source.results, newRun.results);
+  return { comparable: true, sourceRunId: source.id, newRunId: newRun.id, ...cmp };
+}
+
 // ─── Parse results from run ───────────────────────────────────────────────────
 
 export function parseRunResults(resultJson: string | undefined): ReviewResultItem[] {
