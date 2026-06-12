@@ -151,7 +151,7 @@ export type MonthlyCreditPreviewResult = {
   projects: MonthlyProjectSummary[];
 };
 
-// Stage 24: credit execution config
+// Stage 24/31: credit execution config
 export type CreditExecutionConfigResult = {
   ok: true;
   actualDebitsEnabled: boolean;
@@ -159,6 +159,12 @@ export type CreditExecutionConfigResult = {
   envFlags: {
     ENABLE_ACTUAL_CREDIT_DEBITS: string;
     ENABLE_CREDIT_BLOCKING: string;
+    ACTUAL_DEBIT_ALLOWED_USER_KEYS?: string;
+  };
+  limitedRollout?: {
+    enabled: boolean;
+    allowedUserKeyCount: number;
+    allowedUserKeysPreview: string[];
   };
 };
 

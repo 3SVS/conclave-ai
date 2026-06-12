@@ -4,6 +4,7 @@
  * Stage 24–29: credit-config.ts + debitCredits() + checkCreditEnforcement() + config endpoint
  *              + idempotency (Stage 26) + idempotency key validation + SHA-256 sourceEventId (Stage 27)
  *              + reservation-first debit (Stage 28) + rollout checklist endpoint (Stage 29)
+ * Stage 31:    limited actual debit rollout guard (ACTUAL_DEBIT_ALLOWED_USER_KEYS allowlist)
  *
  * Tests:
  *  01. getCreditExecutionConfig: both flags false when env unset
@@ -35,12 +36,15 @@
  *  66–68. grant default status, checkCreditEnforcement ledgerStatus propagation
  *  69–70. concurrent same sourceEventId: single balance debit + single ledger entry
  *  71–78. GET /admin/credits/rollout-checklist: structure, safeForProductionDefault, auth
- *  79–90. Stage 30 pending ledger: query, filter, mark-failed, balance invariant
+ *  79–92. Stage 30 pending ledger: query, filter, mark-failed, balance invariant
+ *  93–109. Stage 31 limited rollout: allowlist parsing, isActualDebitAllowedForUser,
+ *          checkCreditEnforcement allowlist guard, config endpoint limitedRollout,
+ *          rollout checklist actual-debit-allowlist-configured check
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-const { getCreditExecutionConfig } = await import("../dist/workspace/credit-config.js");
+const { getCreditExecutionConfig, isActualDebitAllowedForUser } = await import("../dist/workspace/credit-config.js");
 const { debitCredits, validateIdempotencyKey, buildPrReviewDebitSourceEventId, listPendingCreditLedgerEntries, markPendingCreditLedgerFailed } = await import("../dist/workspace/credits.js");
 const { checkCreditEnforcement } = await import("../dist/workspace/credit-enforcement.js");
 const { createApp } = await import("../dist/router.js");
@@ -172,7 +176,7 @@ function makeDb(opts = {}) {
 }
 
 function makeEnv(opts = {}) {
-  const { balances = new Map(), usageEvents = [], changesOnUpdate = 1, actualDebits = undefined, blocking = undefined } = opts;
+  const { balances = new Map(), usageEvents = [], changesOnUpdate = 1, actualDebits = undefined, blocking = undefined, allowedUserKeys = undefined } = opts;
   const env = {
     ENVIRONMENT: "test",
     ADMIN_USAGE_STATS_KEY: ADMIN_KEY,
@@ -180,6 +184,7 @@ function makeEnv(opts = {}) {
   };
   if (actualDebits !== undefined) env.ENABLE_ACTUAL_CREDIT_DEBITS = actualDebits;
   if (blocking !== undefined) env.ENABLE_CREDIT_BLOCKING = blocking;
+  if (allowedUserKeys !== undefined) env.ACTUAL_DEBIT_ALLOWED_USER_KEYS = allowedUserKeys;
   return env;
 }
 
@@ -332,6 +337,7 @@ describe("checkCreditEnforcement", () => {
       usageEvents: makeReviewEvents("u1", 5),
       actualDebits: "true",
       blocking: "true",
+      allowedUserKeys: "u1",
     });
     const result = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
     assert.equal(result.blocked, true);
@@ -345,6 +351,7 @@ describe("checkCreditEnforcement", () => {
       usageEvents: makeReviewEvents("u1", 5),
       actualDebits: "true",
       changesOnUpdate: 1,
+      allowedUserKeys: "u1",
     });
     const result = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
     assert.equal(result.actualDebitsEnabled, true);
@@ -432,6 +439,7 @@ describe("PR review credit blocking", () => {
       usageEvents: makeReviewEvents("u1", 5),
       actualDebits: "true",
       blocking: "true",
+      allowedUserKeys: "u1",
     });
     const result = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
     assert.equal(result.blocked, true, "should be blocked when both flags on and balance=0");
@@ -495,6 +503,7 @@ describe("Stage 25 — Scenario C: allowance exhausted + balance sufficient", ()
       usageEvents: makeReviewEvents("u1", 5),
       actualDebits: "true",
       changesOnUpdate: 1,
+      allowedUserKeys: "u1",
     });
     const result = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
     assert.equal(result.actualDebitsEnabled, true);
@@ -505,7 +514,7 @@ describe("Stage 25 — Scenario C: allowance exhausted + balance sufficient", ()
 
   it("26 — balance decremented by exactly 1 credit after debit", async () => {
     const balances = balanceMap("u1", "review", 3);
-    const env = makeEnv({ balances, usageEvents: makeReviewEvents("u1", 5), actualDebits: "true", changesOnUpdate: 1 });
+    const env = makeEnv({ balances, usageEvents: makeReviewEvents("u1", 5), actualDebits: "true", changesOnUpdate: 1, allowedUserKeys: "u1" });
     const result = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
     assert.equal(result.debit?.applied, true);
     const row = balances.get("u1:review");
@@ -514,7 +523,7 @@ describe("Stage 25 — Scenario C: allowance exhausted + balance sufficient", ()
 
   it("27 — exactly one ledger entry inserted per debit", async () => {
     const balances = balanceMap("u1", "review", 5);
-    const env = makeEnv({ balances, usageEvents: makeReviewEvents("u1", 5), actualDebits: "true", changesOnUpdate: 1 });
+    const env = makeEnv({ balances, usageEvents: makeReviewEvents("u1", 5), actualDebits: "true", changesOnUpdate: 1, allowedUserKeys: "u1" });
     await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
     assert.equal(env.DB._writeCount.ledger, 1);
   });
@@ -542,7 +551,7 @@ describe("Stage 25 — Scenario D: insufficient balance, blocking off", () => {
 
 describe("Stage 25 — Scenario E: insufficient balance, blocking on", () => {
   it("30 — blocked=true when both flags true + allowance exhausted + balance=0", async () => {
-    const env = makeEnv({ usageEvents: makeReviewEvents("u1", 5), actualDebits: "true", blocking: "true" });
+    const env = makeEnv({ usageEvents: makeReviewEvents("u1", 5), actualDebits: "true", blocking: "true", allowedUserKeys: "u1" });
     const result = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
     assert.equal(result.blocked, true);
     assert.equal(result.wouldBlock, true);
@@ -550,7 +559,7 @@ describe("Stage 25 — Scenario E: insufficient balance, blocking on", () => {
   });
 
   it("31 — debit absent when blocked=true (debit never called for blocked requests)", async () => {
-    const env = makeEnv({ usageEvents: makeReviewEvents("u1", 5), actualDebits: "true", blocking: "true" });
+    const env = makeEnv({ usageEvents: makeReviewEvents("u1", 5), actualDebits: "true", blocking: "true", allowedUserKeys: "u1" });
     const result = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
     assert.equal(result.debit, undefined, "debit must not fire when request is blocked");
   });
@@ -561,7 +570,7 @@ describe("Stage 25 — Scenario E: insufficient balance, blocking on", () => {
 describe("Stage 26 — Idempotency: same sourceEventId → single debit", () => {
   it("32 — second call with same sourceEventId returns duplicate=true", async () => {
     const balances = balanceMap("u1", "review", 2);
-    const env = makeEnv({ balances, usageEvents: makeReviewEvents("u1", 5), actualDebits: "true", changesOnUpdate: 1 });
+    const env = makeEnv({ balances, usageEvents: makeReviewEvents("u1", 5), actualDebits: "true", changesOnUpdate: 1, allowedUserKeys: "u1" });
     const r1 = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run", sourceEventId: "prr_idem1" });
     const r2 = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run", sourceEventId: "prr_idem1" });
     assert.equal(r1.debit?.applied, true, "first call applies debit");
@@ -571,7 +580,7 @@ describe("Stage 26 — Idempotency: same sourceEventId → single debit", () => 
 
   it("33 — balance=1 after two calls with same sourceEventId (only one debit applied)", async () => {
     const balances = balanceMap("u1", "review", 2);
-    const env = makeEnv({ balances, usageEvents: makeReviewEvents("u1", 5), actualDebits: "true", changesOnUpdate: 1 });
+    const env = makeEnv({ balances, usageEvents: makeReviewEvents("u1", 5), actualDebits: "true", changesOnUpdate: 1, allowedUserKeys: "u1" });
     await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run", sourceEventId: "prr_idem2" });
     await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run", sourceEventId: "prr_idem2" });
     const row = balances.get("u1:review");
@@ -654,6 +663,7 @@ describe("Stage 26 — checkCreditEnforcement idempotency", () => {
       usageEvents: makeReviewEvents("u1", 5),
       actualDebits: "true",
       changesOnUpdate: 1,
+      allowedUserKeys: "u1",
     });
     const result = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run", sourceEventId: "prr_s40" });
     assert.equal(result.debit?.attempted, true);
@@ -667,6 +677,7 @@ describe("Stage 26 — checkCreditEnforcement idempotency", () => {
       usageEvents: makeReviewEvents("u1", 5),
       actualDebits: "true",
       changesOnUpdate: 1,
+      allowedUserKeys: "u1",
     });
     await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run", sourceEventId: "prr_s41" });
     const r2 = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run", sourceEventId: "prr_s41" });
@@ -677,7 +688,7 @@ describe("Stage 26 — checkCreditEnforcement idempotency", () => {
 
   it("42 — balance decremented only once after two enforcement calls with same sourceEventId", async () => {
     const balances = balanceMap("u1", "review", 5);
-    const env = makeEnv({ balances, usageEvents: makeReviewEvents("u1", 5), actualDebits: "true", changesOnUpdate: 1 });
+    const env = makeEnv({ balances, usageEvents: makeReviewEvents("u1", 5), actualDebits: "true", changesOnUpdate: 1, allowedUserKeys: "u1" });
     await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run", sourceEventId: "prr_s42" });
     await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run", sourceEventId: "prr_s42" });
     assert.equal(balances.get("u1:review")?.balance, 4, "balance: 5-1=4, NOT 5-2=3");
@@ -893,6 +904,7 @@ describe("Stage 28 — reservation-first debit: ledger status lifecycle", () => 
       usageEvents: makeReviewEvents("u1", 5),
       actualDebits: "true",
       changesOnUpdate: 1,
+      allowedUserKeys: "u1",
     });
     const result = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run", sourceEventId: "prr_s67" });
     assert.equal(result.debit?.ledgerStatus, "applied");
@@ -904,6 +916,7 @@ describe("Stage 28 — reservation-first debit: ledger status lifecycle", () => 
       usageEvents: makeReviewEvents("u1", 5),
       actualDebits: "true",
       changesOnUpdate: 1,
+      allowedUserKeys: "u1",
     });
     await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run", sourceEventId: "prr_s68" });
     const r2 = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run", sourceEventId: "prr_s68" });
@@ -1284,5 +1297,211 @@ describe("Stage 30 — markPendingCreditLedgerFailed", () => {
     assert.equal(meta.cleanup?.markedFailedBy, "admin");
     assert.equal(meta.cleanup?.reason, "intentional timeout cleanup");
     assert.ok(meta.cleanup?.at, "cleanup.at timestamp must be set");
+  });
+});
+
+// ─── Tests: Stage 31 — getCreditExecutionConfig allowlist parsing ─────────────
+
+describe("Stage 31 — getCreditExecutionConfig allowlist", () => {
+  it("93 — actualDebitAllowedUserKeys is empty array when env unset", () => {
+    const config = getCreditExecutionConfig({ ENVIRONMENT: "test" });
+    assert.deepEqual(config.actualDebitAllowedUserKeys, []);
+  });
+
+  it("94 — actualDebitAllowedUserKeys is empty array when env is empty string", () => {
+    const config = getCreditExecutionConfig({ ENVIRONMENT: "test", ACTUAL_DEBIT_ALLOWED_USER_KEYS: "" });
+    assert.deepEqual(config.actualDebitAllowedUserKeys, []);
+  });
+
+  it("95 — actualDebitAllowedUserKeys parses comma-separated values and trims whitespace", () => {
+    const config = getCreditExecutionConfig({
+      ENVIRONMENT: "test",
+      ACTUAL_DEBIT_ALLOWED_USER_KEYS: "gh:alice, gh:bob ,gh:carol",
+    });
+    assert.deepEqual(config.actualDebitAllowedUserKeys, ["gh:alice", "gh:bob", "gh:carol"]);
+  });
+});
+
+// ─── Tests: Stage 31 — isActualDebitAllowedForUser ───────────────────────────
+
+describe("Stage 31 — isActualDebitAllowedForUser", () => {
+  it("96 — returns false when actualDebitsEnabled=false regardless of allowlist", () => {
+    const config = getCreditExecutionConfig({
+      ENVIRONMENT: "test",
+      ENABLE_ACTUAL_CREDIT_DEBITS: "false",
+      ACTUAL_DEBIT_ALLOWED_USER_KEYS: "gh:alice",
+    });
+    assert.equal(isActualDebitAllowedForUser(config, "gh:alice"), false);
+  });
+
+  it("97 — returns true when actualDebitsEnabled=true and user is in allowlist", () => {
+    const config = getCreditExecutionConfig({
+      ENVIRONMENT: "test",
+      ENABLE_ACTUAL_CREDIT_DEBITS: "true",
+      ACTUAL_DEBIT_ALLOWED_USER_KEYS: "gh:alice,gh:bob",
+    });
+    assert.equal(isActualDebitAllowedForUser(config, "gh:alice"), true);
+  });
+
+  it("98 — returns false when actualDebitsEnabled=true but user is NOT in allowlist", () => {
+    const config = getCreditExecutionConfig({
+      ENVIRONMENT: "test",
+      ENABLE_ACTUAL_CREDIT_DEBITS: "true",
+      ACTUAL_DEBIT_ALLOWED_USER_KEYS: "gh:alice",
+    });
+    assert.equal(isActualDebitAllowedForUser(config, "gh:bob"), false);
+  });
+
+  it("99 — returns false when actualDebitsEnabled=true but allowlist is empty", () => {
+    const config = getCreditExecutionConfig({
+      ENVIRONMENT: "test",
+      ENABLE_ACTUAL_CREDIT_DEBITS: "true",
+      ACTUAL_DEBIT_ALLOWED_USER_KEYS: "",
+    });
+    assert.equal(isActualDebitAllowedForUser(config, "gh:alice"), false);
+  });
+});
+
+// ─── Tests: Stage 31 — checkCreditEnforcement allowlist guard ────────────────
+
+describe("Stage 31 — checkCreditEnforcement allowlist guard", () => {
+  it("100 — debit NOT performed when flag=true but user not in allowlist", async () => {
+    const usageEvents = makeReviewEvents("u100", 10); // exhaust allowance
+    const balances = balanceMap("u100", "review", 5);
+    const env = makeEnv({
+      actualDebits: "true",
+      allowedUserKeys: "",  // empty → no one allowed
+      balances, usageEvents,
+    });
+    const result = await checkCreditEnforcement({
+      env, userKey: "u100", eventType: "workspace_pr_review_run",
+    });
+    assert.equal(result.actualDebitsEnabled, true, "flag is on");
+    assert.equal(result.debit, undefined, "debit must NOT happen for non-allowlisted user");
+    assert.equal(result.rollout?.reason, "not_allowlisted");
+  });
+
+  it("101 — blocked=false when flag+blocking=true but user NOT in allowlist (even if wouldBlock=true)", async () => {
+    const usageEvents = makeReviewEvents("u101", 10); // exhaust allowance
+    // balance=0 → wouldBlock=true
+    const env = makeEnv({
+      actualDebits: "true",
+      blocking: "true",
+      allowedUserKeys: "gh:other-user",  // u101 not in list
+      usageEvents,
+    });
+    const result = await checkCreditEnforcement({
+      env, userKey: "u101", eventType: "workspace_pr_review_run",
+    });
+    assert.equal(result.wouldBlock, true, "balance insufficient");
+    assert.equal(result.blocked, false, "must NOT block non-allowlisted users");
+    assert.equal(result.rollout?.reason, "not_allowlisted");
+  });
+
+  it("102 — rollout.reason=flag_off when actualDebitsEnabled=false", async () => {
+    const env = makeEnv({ actualDebits: "false", allowedUserKeys: "gh:alice" });
+    const result = await checkCreditEnforcement({
+      env, userKey: "gh:alice", eventType: "workspace_pr_review_run",
+    });
+    assert.equal(result.rollout?.reason, "flag_off");
+    assert.equal(result.rollout?.limitedRolloutEnabled, false);
+    assert.equal(result.actualDebitAllowedForUser, false);
+  });
+
+  it("103 — rollout.reason=not_allowlisted when flag=true but user absent from list", async () => {
+    const env = makeEnv({
+      actualDebits: "true",
+      allowedUserKeys: "gh:alice,gh:bob",
+    });
+    const result = await checkCreditEnforcement({
+      env, userKey: "gh:charlie", eventType: "workspace_pr_review_run",
+    });
+    assert.equal(result.rollout?.reason, "not_allowlisted");
+    assert.equal(result.rollout?.limitedRolloutEnabled, true);
+    assert.equal(result.actualDebitAllowedForUser, false);
+  });
+
+  it("104 — rollout.reason=allowlisted + debit performed for allowlisted user", async () => {
+    const usageEvents = makeReviewEvents("gh:allowed", 10); // exhaust allowance
+    const balances = balanceMap("gh:allowed", "review", 5);
+    const env = makeEnv({
+      actualDebits: "true",
+      allowedUserKeys: "gh:allowed",
+      balances, usageEvents,
+    });
+    const result = await checkCreditEnforcement({
+      env, userKey: "gh:allowed", eventType: "workspace_pr_review_run",
+      sourceEventId: "prr_st31_test104_aabbccdd1234567890",
+    });
+    assert.equal(result.rollout?.reason, "allowlisted");
+    assert.equal(result.actualDebitAllowedForUser, true);
+    assert.equal(result.debit?.attempted, true, "debit must be attempted for allowlisted user");
+  });
+});
+
+// ─── Tests: Stage 31 — GET /admin/credits/config limitedRollout ──────────────
+
+describe("Stage 31 — GET /admin/credits/config limitedRollout", () => {
+  it("105 — response includes limitedRollout section with empty allowlist", async () => {
+    const env = makeEnv({ allowedUserKeys: "" });
+    const res = await req(env, "GET", "/admin/credits/config", null);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.ok(body.limitedRollout, "limitedRollout must be present");
+    assert.equal(body.limitedRollout.enabled, false);
+    assert.equal(body.limitedRollout.allowedUserKeyCount, 0);
+    assert.deepEqual(body.limitedRollout.allowedUserKeysPreview, []);
+  });
+
+  it("106 — limitedRollout.enabled=true only when flag=true AND list non-empty", async () => {
+    const env = makeEnv({ actualDebits: "true", allowedUserKeys: "gh:alice,gh:bob" });
+    const res = await req(env, "GET", "/admin/credits/config", null);
+    const body = await res.json();
+    assert.equal(body.limitedRollout.enabled, true);
+    assert.equal(body.limitedRollout.allowedUserKeyCount, 2);
+    assert.deepEqual(body.limitedRollout.allowedUserKeysPreview, ["gh:alice", "gh:bob"]);
+  });
+
+  it("107 — limitedRollout preview capped at 5 entries", async () => {
+    const env = makeEnv({
+      actualDebits: "true",
+      allowedUserKeys: "u1,u2,u3,u4,u5,u6,u7",
+    });
+    const res = await req(env, "GET", "/admin/credits/config", null);
+    const body = await res.json();
+    assert.equal(body.limitedRollout.allowedUserKeyCount, 7);
+    assert.equal(body.limitedRollout.allowedUserKeysPreview.length, 5);
+  });
+});
+
+// ─── Tests: Stage 31 — rollout checklist actual-debit-allowlist-configured ───
+
+describe("Stage 31 — rollout checklist actual-debit-allowlist-configured", () => {
+  it("108 — status=manual when actualDebitsEnabled=false (flag not yet on)", async () => {
+    const env = makeEnv({ actualDebits: "false" });
+    const res = await req(env, "GET", "/admin/credits/rollout-checklist", null);
+    const body = await res.json();
+    const check = body.requiredChecks.find(c => c.id === "actual-debit-allowlist-configured");
+    assert.ok(check, "check must exist");
+    assert.equal(check.status, "manual");
+  });
+
+  it("109 — status=blocked when flag=true but allowlist is empty", async () => {
+    const env = makeEnv({ actualDebits: "true", allowedUserKeys: "" });
+    const res = await req(env, "GET", "/admin/credits/rollout-checklist", null);
+    const body = await res.json();
+    const check = body.requiredChecks.find(c => c.id === "actual-debit-allowlist-configured");
+    assert.ok(check, "check must exist");
+    assert.equal(check.status, "blocked",
+      "must be blocked: flag is on but no users would receive actual debits");
+  });
+
+  it("110 — status=passed when flag=true and allowlist has at least one entry", async () => {
+    const env = makeEnv({ actualDebits: "true", allowedUserKeys: "gh:testuser" });
+    const res = await req(env, "GET", "/admin/credits/rollout-checklist", null);
+    const body = await res.json();
+    const check = body.requiredChecks.find(c => c.id === "actual-debit-allowlist-configured");
+    assert.ok(check, "check must exist");
+    assert.equal(check.status, "passed");
   });
 });

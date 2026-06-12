@@ -287,9 +287,10 @@ export type CreditEnforcementDryRun = {
   };
 };
 
-// Stage 24/26/27 — extends CreditEnforcementDryRun with actual debit + idempotency fields
+// Stage 24/26/27/31 — extends CreditEnforcementDryRun with actual debit + idempotency + rollout fields
 export type CreditEnforcementResult = {
   actualDebitsEnabled: boolean;
+  actualDebitAllowedForUser?: boolean;
   blocked: boolean;
   wouldBlock: boolean;
   billingStatus: string;
@@ -323,6 +324,11 @@ export type CreditEnforcementResult = {
     remainingIncludedRuns: number;
     coveredByAllowance: boolean;
     billableUnitsAfterAllowance: number;
+  };
+  rollout?: {
+    limitedRolloutEnabled: boolean;
+    userAllowed: boolean;
+    reason: "flag_off" | "allowlisted" | "not_allowlisted";
   };
 };
 

@@ -38,6 +38,12 @@ WORKSPACE_GH_DASHBOARD_URL = "https://dashboard.conclave-ai.dev"
 ENABLE_ACTUAL_CREDIT_DEBITS = "false"
 ENABLE_CREDIT_BLOCKING = "false"
 
+# Stage 31 — Limited rollout allowlist (comma-separated userKeys).
+# Even when ENABLE_ACTUAL_CREDIT_DEBITS="true", only users in this list
+# receive actual debits. Empty = no actual debits for anyone.
+# "*" wildcard is NOT supported.
+ACTUAL_DEBIT_ALLOWED_USER_KEYS = ""
+
 # Observability. Logs retained 3 days on free tier, sufficient for v0.4-alpha.
 [observability]
 enabled = true

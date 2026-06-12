@@ -1244,12 +1244,29 @@ function CreditDryRunBanner({ dryRun }: { dryRun: CreditEnforcementResult | Cred
   const isWouldBlock = dryRun.wouldBlock;
   const enforcement = dryRun as CreditEnforcementResult;
   const actualDebitsEnabled = enforcement.actualDebitsEnabled === true;
+
+  // Stage 31 — allowlist rollout status
+  const rolloutReason = enforcement.rollout?.reason;
+  const notAllowlisted = actualDebitsEnabled && rolloutReason === "not_allowlisted";
+  const allowlisted = actualDebitsEnabled && rolloutReason === "allowlisted";
+
   // Stage 26 — debit shape uses attempted/applied/duplicate instead of ok
-  const debitOk = actualDebitsEnabled && enforcement.debit?.attempted === true && enforcement.debit?.applied === true && !enforcement.debit?.duplicate;
-  const debitDuplicate = actualDebitsEnabled && enforcement.debit?.duplicate === true;
-  const debitFailed = actualDebitsEnabled && enforcement.debit?.attempted === true && enforcement.debit?.applied === false && !enforcement.debit?.duplicate;
+  const debitOk =
+    actualDebitsEnabled &&
+    allowlisted &&
+    enforcement.debit?.attempted === true &&
+    enforcement.debit?.applied === true &&
+    !enforcement.debit?.duplicate;
+  const debitDuplicate =
+    actualDebitsEnabled && allowlisted && enforcement.debit?.duplicate === true;
+  const debitFailed =
+    actualDebitsEnabled &&
+    allowlisted &&
+    enforcement.debit?.attempted === true &&
+    enforcement.debit?.applied === false &&
+    !enforcement.debit?.duplicate;
   const blocked = actualDebitsEnabled && enforcement.blocked === true;
-  const insufficientButAllowed = actualDebitsEnabled && isWouldBlock && !blocked;
+  const insufficientButAllowed = actualDebitsEnabled && allowlisted && isWouldBlock && !blocked;
 
   const borderColor = blocked
     ? "border-red-200 bg-red-50"
@@ -1293,13 +1310,21 @@ function CreditDryRunBanner({ dryRun }: { dryRun: CreditEnforcementResult | Cred
     ? "월 무료 제공량 안에 포함"
     : "예상 credit 확인";
 
+  // Stage 31 — failed pending retry copy
+  const debitFailedIsLedgerFailed =
+    debitFailed && enforcement.debit?.ledgerStatus === "failed";
+
   const footerNote = blocked
     ? `현재 잔액: ${enforcement.currentBalance} review credit · 필요: ${enforcement.requiredCredits}`
     : actualDebitsEnabled
-    ? (debitDuplicate
+    ? (notAllowlisted
+        ? "현재 계정은 실제 credit 차감 대상이 아니어서 dry-run으로만 확인됩니다."
+        : debitDuplicate
         ? "이미 처리된 credit 차감 요청이라 추가 차감은 하지 않았어요."
         : debitOk
-        ? `잔액: ${enforcement.debit?.newBalance ?? enforcement.remainingAfter} review credit`
+        ? `잔액: ${enforcement.debit?.newBalance ?? enforcement.remainingAfter} review credit${allowlisted ? " · 제한적 rollout 적용" : ""}`
+        : debitFailedIsLedgerFailed
+        ? "이전 credit 처리 요청이 실패 처리되었습니다. 새로 다시 실행해주세요."
         : debitFailed
         ? `차감 오류: ${enforcement.debit?.error ?? "알 수 없음"}`
         : insufficientButAllowed
@@ -1318,6 +1343,9 @@ function CreditDryRunBanner({ dryRun }: { dryRun: CreditEnforcementResult | Cred
             ? ` · 남은 무료 ${dryRun.allowance.remainingIncludedRuns}회`
             : ""}
         </p>
+      )}
+      {allowlisted && !debitOk && !debitFailed && !debitDuplicate && (
+        <p className="text-xs text-blue-500 mt-1">현재 계정은 제한적 actual debit 테스트 대상입니다.</p>
       )}
       <p className="text-xs text-gray-400 mt-1">{footerNote}</p>
     </div>

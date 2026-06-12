@@ -172,7 +172,14 @@ export interface Env {
    * ENABLE_CREDIT_BLOCKING:      when "true", PR review returns HTTP 402
    *   if the user has insufficient credit after allowance is exhausted.
    *   Has no effect when ENABLE_ACTUAL_CREDIT_DEBITS is false.
+   *
+   * Stage 31 — limited rollout allowlist.
+   * ACTUAL_DEBIT_ALLOWED_USER_KEYS: comma-separated list of userKeys
+   *   eligible for actual debits when ENABLE_ACTUAL_CREDIT_DEBITS=true.
+   *   Empty (default) → no user receives actual debits even when flag is on.
+   *   "*" wildcard is NOT supported.
    */
   ENABLE_ACTUAL_CREDIT_DEBITS?: string;
   ENABLE_CREDIT_BLOCKING?: string;
+  ACTUAL_DEBIT_ALLOWED_USER_KEYS?: string;
 }

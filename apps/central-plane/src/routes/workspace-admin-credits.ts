@@ -232,6 +232,7 @@ export function createWorkspaceAdminCreditsRoutes(): Hono<{ Bindings: Env }> {
     }
 
     const config = getCreditExecutionConfig(c.env);
+    const allowlistPreview = config.actualDebitAllowedUserKeys.slice(0, 5);
     return c.json({
       ok: true,
       actualDebitsEnabled: config.actualDebitsEnabled,
@@ -239,6 +240,17 @@ export function createWorkspaceAdminCreditsRoutes(): Hono<{ Bindings: Env }> {
       envFlags: {
         ENABLE_ACTUAL_CREDIT_DEBITS: c.env.ENABLE_ACTUAL_CREDIT_DEBITS ?? "(unset)",
         ENABLE_CREDIT_BLOCKING: c.env.ENABLE_CREDIT_BLOCKING ?? "(unset)",
+        ACTUAL_DEBIT_ALLOWED_USER_KEYS:
+          c.env.ACTUAL_DEBIT_ALLOWED_USER_KEYS !== undefined
+            ? c.env.ACTUAL_DEBIT_ALLOWED_USER_KEYS === ""
+              ? "(empty)"
+              : `(${config.actualDebitAllowedUserKeys.length} entries, set)`
+            : "(unset)",
+      },
+      limitedRollout: {
+        enabled: config.actualDebitsEnabled && config.actualDebitAllowedUserKeys.length > 0,
+        allowedUserKeyCount: config.actualDebitAllowedUserKeys.length,
+        allowedUserKeysPreview: allowlistPreview,
       },
     });
   });
@@ -540,6 +552,17 @@ export function createWorkspaceAdminCreditsRoutes(): Hono<{ Bindings: Env }> {
         description:
           "GET /admin/credits/pending + POST .../mark-failed 엔드포인트가 정상 동작하는지 확인됨. Balance 변경 없이 수동 정리 가능.",
       },
+      {
+        id: "actual-debit-allowlist-configured",
+        label: "Actual debit allowlist 설정",
+        status: (!config.actualDebitsEnabled
+          ? ("manual" as const)
+          : config.actualDebitAllowedUserKeys.length > 0
+          ? ("passed" as const)
+          : ("blocked" as const)),
+        description:
+          "ACTUAL_DEBIT_ALLOWED_USER_KEYS에 허용된 userKey가 최소 1개 이상 설정되어야 합니다. 비어 있으면 actualDebitsEnabled=true여도 실제 차감이 수행되지 않습니다.",
+      },
     ];
 
     const recommendedScenarios = [
@@ -574,6 +597,7 @@ export function createWorkspaceAdminCreditsRoutes(): Hono<{ Bindings: Env }> {
       "ENABLE_CREDIT_BLOCKING은 ENABLE_ACTUAL_CREDIT_DEBITS 활성 + 크레딧 충전 UX 완성 후에만 활성화",
       "status=pending 장부 항목 장기 잔류 모니터링 방법 수립",
       "오래된 pending ledger를 /admin/credits/pending 에서 조회하고 mark-failed로 수동 정리할 수 있어야 한다",
+      "ACTUAL_DEBIT_ALLOWED_USER_KEYS에 테스트 대상 userKey 등록 후 ENABLE_ACTUAL_CREDIT_DEBITS 활성화",
     ];
 
     return c.json({

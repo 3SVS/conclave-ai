@@ -17,7 +17,7 @@ import type { CreditType } from "./credits.js";
 import type { BillingStatus } from "./billing-rules.js";
 import { getAllowanceDryRun } from "./allowance-usage.js";
 import type { AllowanceDryRun } from "./allowance-usage.js";
-import { getCreditExecutionConfig } from "./credit-config.js";
+import { getCreditExecutionConfig, isActualDebitAllowedForUser } from "./credit-config.js";
 
 export type CreditEnforcementDryRun = {
   actualDebitsEnabled: false;
@@ -70,8 +70,10 @@ function buildMessage(
 // for backwards compatibility with existing callers.
 // Stage 26 — debit field extended with idempotency fields.
 // Stage 27 — idempotency? field added (set by PR review endpoint, not by checkCreditEnforcement).
+// Stage 31 — rollout + actualDebitAllowedForUser fields for allowlist guard.
 export type CreditEnforcementResult = {
   actualDebitsEnabled: boolean;
+  actualDebitAllowedForUser?: boolean;
   blocked: boolean;
   wouldBlock: boolean;
   billingStatus: BillingStatus;
@@ -106,6 +108,11 @@ export type CreditEnforcementResult = {
     coveredByAllowance: boolean;
     billableUnitsAfterAllowance: number;
   };
+  rollout?: {
+    limitedRolloutEnabled: boolean;
+    userAllowed: boolean;
+    reason: "flag_off" | "allowlisted" | "not_allowlisted";
+  };
 };
 
 /**
@@ -133,9 +140,21 @@ export async function checkCreditEnforcement({
   const config = getCreditExecutionConfig(env);
   const rule = getBillingRule(eventType);
 
+  // Stage 31 — compute allowlist state once; used for debit + blocking decisions
+  const userAllowedForDebit = isActualDebitAllowedForUser(config, userKey);
+  const limitedRolloutEnabled =
+    config.actualDebitsEnabled && config.actualDebitAllowedUserKeys.length > 0;
+  const rolloutReason: "flag_off" | "allowlisted" | "not_allowlisted" = !config.actualDebitsEnabled
+    ? "flag_off"
+    : userAllowedForDebit
+    ? "allowlisted"
+    : "not_allowlisted";
+  const rollout = { limitedRolloutEnabled, userAllowed: userAllowedForDebit, reason: rolloutReason };
+
   if (rule.billingStatus !== "billable_candidate" || !rule.creditType || rule.creditCost <= 0) {
     return {
       actualDebitsEnabled: config.actualDebitsEnabled,
+      actualDebitAllowedForUser: userAllowedForDebit,
       blocked: false,
       wouldBlock: false,
       billingStatus: rule.billingStatus,
@@ -145,6 +164,7 @@ export async function checkCreditEnforcement({
       currentBalance: 0,
       remainingAfter: 0,
       message: buildMessage(rule.billingStatus, false, 0, rule.creditType as CreditType | undefined, null),
+      rollout,
     };
   }
 
@@ -170,12 +190,14 @@ export async function checkCreditEnforcement({
   const wouldBlock = allowance?.coveredByAllowance ? false : currentBalance < requiredCredits;
   const remainingAfter = Math.max(0, currentBalance - requiredCredits);
 
-  // Blocking: only when both flags are true
-  const blocked = config.actualDebitsEnabled && config.blockingEnabled && wouldBlock;
+  // Stage 31 — blocking only when BOTH flags are true AND user is in the allowlist
+  const blocked =
+    config.actualDebitsEnabled && config.blockingEnabled && userAllowedForDebit && wouldBlock;
 
   let debit: CreditEnforcementResult["debit"];
 
-  if (config.actualDebitsEnabled && requiredCredits > 0 && !wouldBlock) {
+  // Stage 31 — debit only when flag on AND user is allowlisted
+  if (config.actualDebitsEnabled && userAllowedForDebit && requiredCredits > 0 && !wouldBlock) {
     // Use caller-provided sourceEventId for idempotency; generate a fallback if absent
     const effectiveSourceEventId = sourceEventId ?? generateDebitId();
     const result = await debitCredits(env, {
@@ -207,6 +229,7 @@ export async function checkCreditEnforcement({
 
   return {
     actualDebitsEnabled: config.actualDebitsEnabled,
+    actualDebitAllowedForUser: userAllowedForDebit,
     blocked,
     wouldBlock,
     billingStatus: rule.billingStatus,
@@ -218,6 +241,7 @@ export async function checkCreditEnforcement({
     message: buildMessage(rule.billingStatus, wouldBlock, requiredCredits, creditType, allowance),
     ...(debit ? { debit } : {}),
     ...(allowance ? { allowance } : {}),
+    rollout,
   };
 }
 

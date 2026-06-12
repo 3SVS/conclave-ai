@@ -807,8 +807,8 @@ export default function AdminCreditsPage() {
         </div>
       </SectionCard>
 
-      {/* Stage 24: Credit Execution Config */}
-      <SectionCard title="Credit 실행 설정 (Stage 24)">
+      {/* Stage 24/31: Credit Execution Config */}
+      <SectionCard title="Credit 실행 설정 (Stage 24/31)">
         <div className="space-y-3">
           <button
             onClick={handleFetchConfig}
@@ -831,6 +831,26 @@ export default function AdminCreditsPage() {
                   {" "}→ blockingEnabled: {String(creditConfig.blockingEnabled)}
                 </span>
               </div>
+              {/* Stage 31: limited rollout allowlist */}
+              {creditConfig.limitedRollout !== undefined && (
+                <div className={`text-xs font-mono px-2 py-1 rounded ${creditConfig.limitedRollout.allowedUserKeyCount > 0 ? "bg-blue-50 text-blue-700" : "bg-gray-100 text-gray-600"}`}>
+                  <div>
+                    ACTUAL_DEBIT_ALLOWED_USER_KEYS: {creditConfig.envFlags.ACTUAL_DEBIT_ALLOWED_USER_KEYS ?? "(unset)"}
+                    {" "}→ {creditConfig.limitedRollout.allowedUserKeyCount}명 등록
+                  </div>
+                  {creditConfig.limitedRollout.allowedUserKeysPreview.length > 0 && (
+                    <div className="mt-1 text-blue-600">
+                      미리보기: {creditConfig.limitedRollout.allowedUserKeysPreview.join(", ")}
+                      {creditConfig.limitedRollout.allowedUserKeyCount > 5 ? " ..." : ""}
+                    </div>
+                  )}
+                  {creditConfig.limitedRollout.enabled ? (
+                    <div className="mt-1 text-blue-700 font-semibold">제한적 actual debit 활성 (allowlist 한정)</div>
+                  ) : creditConfig.actualDebitsEnabled && creditConfig.limitedRollout.allowedUserKeyCount === 0 ? (
+                    <div className="mt-1 text-amber-600 font-semibold">경고: actualDebitsEnabled=true지만 allowlist가 비어 있어 실제 차감 없음</div>
+                  ) : null}
+                </div>
+              )}
               {!creditConfig.actualDebitsEnabled && (
                 <p className="text-xs text-gray-500">현재 dry-run 모드: 실제 차감 없음, 실행 차단 없음</p>
               )}
