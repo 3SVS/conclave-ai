@@ -1,0 +1,267 @@
+/**
+ * workspace/pr-review-compare.ts
+ *
+ * Deterministic (no LLM) before/after comparison between two PR review runs.
+ * Compares item-level status changes to identify:
+ *   - improved items (좋아진 항목)
+ *   - still-open items (아직 남은 항목)
+ *   - newly problematic items (새로 생긴 문제)
+ *   - unchanged items (변화 없음)
+ */
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export type ReviewResultItem = {
+  itemId: string;
+  title: string;
+  status: "passed" | "failed" | "inconclusive" | "needs_decision";
+  reason: string;
+};
+
+export type RunSummary = {
+  id: string;
+  status: string;
+  updatedAt: string;
+  summary: {
+    passed: number;
+    failed: number;
+    inconclusive: number;
+    needsDecision: number;
+  };
+};
+
+export type ImprovedItem = {
+  itemId: string;
+  title: string;
+  from: string;
+  to: string;
+  reason: string;
+};
+
+export type StillOpenItem = {
+  itemId: string;
+  title: string;
+  status: string;
+  reason: string;
+};
+
+export type NewlyProblematicItem = {
+  itemId: string;
+  title: string;
+  from: string;
+  to: string;
+  reason: string;
+};
+
+export type UnchangedItem = {
+  itemId: string;
+  title: string;
+  status: string;
+};
+
+export type ComparisonResult = {
+  improved: ImprovedItem[];
+  stillOpen: StillOpenItem[];
+  newlyProblematic: NewlyProblematicItem[];
+  unchanged: UnchangedItem[];
+  summaryText: string;
+};
+
+export type PrReviewComparisonResponse =
+  | {
+      ok: true;
+      comparable: false;
+      reason: "not_enough_runs";
+    }
+  | {
+      ok: true;
+      comparable: true;
+      previousRun: RunSummary;
+      latestRun: RunSummary;
+      comparison: ComparisonResult;
+    };
+
+// ─── Status score ─────────────────────────────────────────────────────────────
+
+const STATUS_SCORE: Record<string, number> = {
+  passed: 4,
+  needs_decision: 2,
+  inconclusive: 1,
+  failed: 0,
+};
+
+const STATUS_KO: Record<string, string> = {
+  passed: "통과",
+  failed: "안 맞음",
+  inconclusive: "확인 부족",
+  needs_decision: "결정 필요",
+};
+
+function scoreOf(status: string): number {
+  return STATUS_SCORE[status] ?? 0;
+}
+
+function label(status: string): string {
+  return STATUS_KO[status] ?? status;
+}
+
+// ─── Change description ───────────────────────────────────────────────────────
+
+function describeImprovement(from: string, to: string): string {
+  if (to === "passed") {
+    return `${label(from)}에서 통과로 개선됐어요.`;
+  }
+  if (from === "failed" && to === "needs_decision") {
+    return `안 맞음에서 결정 필요로 전환됐어요. 기술 검토는 됐지만 결정이 필요해요.`;
+  }
+  if (from === "inconclusive" && to === "needs_decision") {
+    return `확인 부족에서 결정 필요로 명확해졌어요.`;
+  }
+  if (from === "failed" && to === "inconclusive") {
+    return `안 맞음에서 확인 부족으로 일부 개선됐어요.`;
+  }
+  return `${label(from)}에서 ${label(to)}으로 개선됐어요.`;
+}
+
+function describeRegression(from: string, to: string): string {
+  if (from === "passed") {
+    return `통과였지만 ${label(to)}으로 바뀌었어요. 이번 변경에서 문제가 생겼어요.`;
+  }
+  if (from === "needs_decision" && to === "failed") {
+    return `결정 필요에서 안 맞음으로 악화됐어요.`;
+  }
+  return `${label(from)}에서 ${label(to)}으로 악화됐어요.`;
+}
+
+// ─── Run summary helper ───────────────────────────────────────────────────────
+
+export function buildRunSummary(run: {
+  id: string;
+  status: string;
+  updatedAt: string;
+  resultJson?: string;
+}): RunSummary {
+  let passed = 0, failed = 0, inconclusive = 0, needsDecision = 0;
+
+  if (run.resultJson) {
+    try {
+      const parsed = JSON.parse(run.resultJson) as {
+        summary?: { passed?: number; failed?: number; inconclusive?: number; needsDecision?: number };
+        results?: Array<{ status: string }>;
+      };
+      if (parsed.summary) {
+        passed = parsed.summary.passed ?? 0;
+        failed = parsed.summary.failed ?? 0;
+        inconclusive = parsed.summary.inconclusive ?? 0;
+        needsDecision = parsed.summary.needsDecision ?? 0;
+      } else if (Array.isArray(parsed.results)) {
+        for (const r of parsed.results) {
+          if (r.status === "passed") passed++;
+          else if (r.status === "failed") failed++;
+          else if (r.status === "inconclusive") inconclusive++;
+          else if (r.status === "needs_decision") needsDecision++;
+        }
+      }
+    } catch { /* ignored */ }
+  }
+
+  return {
+    id: run.id,
+    status: run.status,
+    updatedAt: run.updatedAt,
+    summary: { passed, failed, inconclusive, needsDecision },
+  };
+}
+
+// ─── Core comparison ──────────────────────────────────────────────────────────
+
+export function compareRunResults(
+  previousResults: ReviewResultItem[],
+  latestResults: ReviewResultItem[],
+): ComparisonResult {
+  const previousMap = new Map(previousResults.map((r) => [r.itemId, r]));
+  const latestMap = new Map(latestResults.map((r) => [r.itemId, r]));
+
+  // Union of all itemIds
+  const allIds = new Set([...previousMap.keys(), ...latestMap.keys()]);
+
+  const improved: ImprovedItem[] = [];
+  const stillOpen: StillOpenItem[] = [];
+  const newlyProblematic: NewlyProblematicItem[] = [];
+  const unchanged: UnchangedItem[] = [];
+
+  for (const itemId of allIds) {
+    const prev = previousMap.get(itemId);
+    const latest = latestMap.get(itemId);
+
+    if (!prev || !latest) {
+      // Item only in one run — treat as unchanged in the run that has it
+      if (latest) {
+        if (latest.status === "passed") {
+          unchanged.push({ itemId, title: latest.title, status: latest.status });
+        } else {
+          stillOpen.push({ itemId, title: latest.title, status: latest.status, reason: latest.reason });
+        }
+      }
+      continue;
+    }
+
+    const prevScore = scoreOf(prev.status);
+    const latestScore = scoreOf(latest.status);
+
+    if (latestScore > prevScore) {
+      improved.push({
+        itemId,
+        title: latest.title,
+        from: prev.status,
+        to: latest.status,
+        reason: describeImprovement(prev.status, latest.status),
+      });
+    } else if (latestScore < prevScore) {
+      newlyProblematic.push({
+        itemId,
+        title: latest.title,
+        from: prev.status,
+        to: latest.status,
+        reason: describeRegression(prev.status, latest.status),
+      });
+    } else {
+      // Same score
+      if (latest.status === "passed") {
+        unchanged.push({ itemId, title: latest.title, status: latest.status });
+      } else {
+        stillOpen.push({ itemId, title: latest.title, status: latest.status, reason: latest.reason });
+      }
+    }
+  }
+
+  // Build summary text
+  const parts: string[] = [];
+  if (improved.length > 0) parts.push(`좋아진 항목 ${improved.length}개`);
+  if (newlyProblematic.length > 0) parts.push(`새로 생긴 문제 ${newlyProblematic.length}개`);
+  if (stillOpen.length > 0) parts.push(`아직 남은 항목 ${stillOpen.length}개`);
+  if (unchanged.length > 0) parts.push(`변화 없음 ${unchanged.length}개`);
+
+  const summaryText = parts.length > 0
+    ? parts.join(", ") + "."
+    : "모든 항목이 변화 없어요.";
+
+  return { improved, stillOpen, newlyProblematic, unchanged, summaryText };
+}
+
+// ─── Parse results from run ───────────────────────────────────────────────────
+
+export function parseRunResults(resultJson: string | undefined): ReviewResultItem[] {
+  if (!resultJson) return [];
+  try {
+    const parsed = JSON.parse(resultJson) as { results?: unknown[] };
+    if (!Array.isArray(parsed.results)) return [];
+    return parsed.results.filter(
+      (r): r is ReviewResultItem =>
+        typeof r === "object" && r !== null &&
+        "itemId" in r && "title" in r && "status" in r && "reason" in r,
+    );
+  } catch {
+    return [];
+  }
+}

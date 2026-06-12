@@ -35,8 +35,11 @@ import {
 } from "../workspace/github-oauth.js";
 import { upsertProjectPR, getLinkedPRs } from "../workspace/pr-db.js";
 import {
-  insertReviewRun, updateReviewRun, getLatestReviewRun,
+  insertReviewRun, updateReviewRun, getLatestReviewRun, getLatestTwoPrReviewRuns,
 } from "../workspace/pr-review-db.js";
+import {
+  compareRunResults, buildRunSummary, parseRunResults,
+} from "../workspace/pr-review-compare.js";
 import { fetchPRFiles } from "../workspace/github-pr.js";
 import { reviewPRAgainstItems, deriveRunStatus } from "../workspace/pr-review.js";
 import { getProject } from "../workspace/db.js";
@@ -1132,6 +1135,71 @@ export function createWorkspaceGitHubRoutes(
       }, 200, origin);
     } catch (err) {
       console.error("[workspace/github/pulls/comments GET] failed:", err);
+      return json({ ok: false, error: "fetch_failed" }, 500, origin);
+    }
+  });
+
+  // ── GET /workspace/projects/:id/github/pulls/:number/review/compare ─────────
+  // Deterministic before/after comparison of the latest two completed review runs.
+  app.get("/workspace/projects/:id/github/pulls/:number/review/compare", async (c) => {
+    const origin = c.req.header("origin") ?? null;
+    const projectId = c.req.param("id");
+    const prNumber = parseInt(c.req.param("number"), 10);
+    if (isNaN(prNumber) || prNumber < 1) {
+      return json({ ok: false, error: "invalid_pr_number" }, 400, origin);
+    }
+
+    const repo = await getProjectRepo(c.env, projectId).catch(() => null);
+    if (!repo) return json({ ok: false, error: "no_repo_linked" }, 400, origin);
+
+    try {
+      const [latest, previous] = await getLatestTwoPrReviewRuns(
+        c.env, projectId, repo.repoFullName, prNumber,
+      );
+
+      // Not enough completed runs
+      if (!latest || !previous) {
+        return json({ ok: true, comparable: false, reason: "not_enough_runs" }, 200, origin);
+      }
+
+      // Build summaries
+      const latestSummary = buildRunSummary(latest);
+      const previousSummary = buildRunSummary(previous);
+
+      // Parse item-level results
+      const latestResults = parseRunResults(latest.resultJson);
+      const previousResults = parseRunResults(previous.resultJson);
+
+      // Compute comparison
+      const comparison = compareRunResults(previousResults, latestResults);
+
+      // Record usage event (non-fatal)
+      const userKey = c.req.query("userKey") ?? "";
+      if (userKey) {
+        await insertUsageEvent(c.env, {
+          userKey,
+          projectId,
+          eventType: "workspace_pr_review_compared",
+          metadata: {
+            latestRunId: latest.id,
+            previousRunId: previous.id,
+            repoFullName: repo.repoFullName,
+            prNumber,
+            improvedCount: comparison.improved.length,
+            newlyProblematicCount: comparison.newlyProblematic.length,
+          },
+        });
+      }
+
+      return json({
+        ok: true,
+        comparable: true,
+        previousRun: previousSummary,
+        latestRun: latestSummary,
+        comparison,
+      }, 200, origin);
+    } catch (err) {
+      console.error("[workspace/github/pulls/review/compare] failed:", err);
       return json({ ok: false, error: "fetch_failed" }, 500, origin);
     }
   });

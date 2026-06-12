@@ -17,6 +17,7 @@ import {
   postPRComment,
   updatePRComment,
   listPRComments,
+  getPRReviewComparison,
   type GitHubPull,
   type LinkedPull,
   type LinkedRepo,
@@ -26,6 +27,7 @@ import {
   type FixBriefFile,
   type ListedComment,
   type LatestPostedCommentSummary,
+  type PrReviewComparisonResponse,
 } from "@/lib/workspace-github-api";
 import { StatusBadge } from "@/components/StatusBadge";
 import type { ItemStatus } from "@/lib/labels";
@@ -393,6 +395,13 @@ export default function GitHubPage() {
                         {phase === "done" && run && (
                           <>
                             <ReviewResultPanel run={run} onRerun={() => handleStartReview(lp)} />
+                            <div className="mt-4 pt-4 border-t border-gray-100">
+                              <ComparisonPanel
+                                projectId={id}
+                                prNumber={lp.number}
+                                userKey={userKey}
+                              />
+                            </div>
                             {run.results && run.results.some((r) => r.status !== "passed") && (
                               <div className="mt-4 pt-4 border-t border-gray-100">
                                 <FixBriefPanel
@@ -417,6 +426,7 @@ export default function GitHubPage() {
                                   lp={lp}
                                   projectId={id}
                                   userKey={userKey}
+                                  hasComparison={true}
                                 />
                               </div>
                             )}
@@ -435,6 +445,155 @@ export default function GitHubPage() {
   );
 }
 
+// ─── ComparisonPanel ─────────────────────────────────────────────────────────
+
+const STATUS_KO_COMPARE: Record<string, string> = {
+  passed: "통과",
+  failed: "안 맞음",
+  inconclusive: "확인 부족",
+  needs_decision: "결정 필요",
+};
+
+function ComparisonPanel({
+  projectId,
+  prNumber,
+  userKey,
+}: {
+  projectId: string;
+  prNumber: number;
+  userKey: string;
+}) {
+  const [data, setData] = useState<PrReviewComparisonResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    getPRReviewComparison(projectId, prNumber, userKey).then((res) => {
+      if (!cancelled) { setData(res); setLoading(false); }
+    });
+    return () => { cancelled = true; };
+  }, [projectId, prNumber, userKey]);
+
+  if (loading) return null; // silent while loading
+
+  if (!data || !data.ok) return null;
+
+  if (!data.comparable) {
+    return (
+      <p className="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2.5 border border-gray-100">
+        한 번 더 PR을 확인하면 이전 결과와 비교할 수 있어요.
+      </p>
+    );
+  }
+
+  const { previousRun, latestRun, comparison } = data;
+  const prevSumm = previousRun.summary;
+  const latSumm = latestRun.summary;
+
+  function DeltaBadge({ prev, latest }: { prev: number; latest: number }) {
+    const delta = latest - prev;
+    if (delta === 0) return <span className="text-gray-400">{latest}</span>;
+    if (delta > 0) return <span className="text-green-600">{prev} → {latest} (+{delta})</span>;
+    return <span className="text-red-600">{prev} → {latest} ({delta})</span>;
+  }
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <p className="text-sm font-semibold text-gray-800 mb-0.5">비교 결과</p>
+        <p className="text-xs text-gray-400">
+          수정 후 다시 확인한 결과를 이전 결과와 비교했어요.
+          이 비교는 연결된 PR의 변경 내용 기준입니다.
+        </p>
+      </div>
+
+      {/* Summary delta */}
+      <div className="bg-gray-50 rounded-xl border border-gray-100 px-4 py-3 space-y-1.5 text-xs">
+        <div className="flex gap-2 items-center">
+          <span className="text-gray-500 w-16">안 맞음</span>
+          <DeltaBadge prev={prevSumm.failed} latest={latSumm.failed} />
+        </div>
+        <div className="flex gap-2 items-center">
+          <span className="text-gray-500 w-16">확인 부족</span>
+          <DeltaBadge prev={prevSumm.inconclusive} latest={latSumm.inconclusive} />
+        </div>
+        <div className="flex gap-2 items-center">
+          <span className="text-gray-500 w-16">결정 필요</span>
+          <DeltaBadge prev={prevSumm.needsDecision} latest={latSumm.needsDecision} />
+        </div>
+        <div className="flex gap-2 items-center">
+          <span className="text-gray-500 w-16">통과</span>
+          <DeltaBadge prev={prevSumm.passed} latest={latSumm.passed} />
+        </div>
+      </div>
+
+      {/* Improved items */}
+      {comparison.improved.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium text-green-700">✅ 좋아진 항목 ({comparison.improved.length})</p>
+          {comparison.improved.map((item) => (
+            <div key={item.itemId} className="bg-green-50 border border-green-100 rounded-lg px-3 py-2.5">
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="text-xs font-medium text-green-800">{item.title}</span>
+                <span className="text-xs text-green-600">{STATUS_KO_COMPARE[item.from] ?? item.from} → {STATUS_KO_COMPARE[item.to] ?? item.to}</span>
+              </div>
+              <p className="text-xs text-green-700">{item.reason}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Still open items */}
+      {comparison.stillOpen.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium text-amber-700">⚠️ 아직 남은 항목 ({comparison.stillOpen.length})</p>
+          {comparison.stillOpen.map((item) => (
+            <div key={item.itemId} className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2.5">
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="text-xs font-medium text-amber-800">{item.title}</span>
+                <span className="text-xs text-amber-600">{STATUS_KO_COMPARE[item.status] ?? item.status}</span>
+              </div>
+              <p className="text-xs text-amber-700">{item.reason}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Newly problematic */}
+      {comparison.newlyProblematic.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium text-red-700">🔴 새로 생긴 문제 ({comparison.newlyProblematic.length})</p>
+          {comparison.newlyProblematic.map((item) => (
+            <div key={item.itemId} className="bg-red-50 border border-red-100 rounded-lg px-3 py-2.5">
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="text-xs font-medium text-red-800">{item.title}</span>
+                <span className="text-xs text-red-600">{STATUS_KO_COMPARE[item.from] ?? item.from} → {STATUS_KO_COMPARE[item.to] ?? item.to}</span>
+              </div>
+              <p className="text-xs text-red-700">{item.reason}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Unchanged */}
+      {comparison.unchanged.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-gray-500 mb-1">변화 없음 ({comparison.unchanged.length})</p>
+          <div className="flex flex-wrap gap-1.5">
+            {comparison.unchanged.map((item) => (
+              <span key={item.itemId} className="text-xs text-gray-500 bg-gray-100 border border-gray-200 rounded-full px-2.5 py-0.5">
+                {item.title}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <p className="text-xs text-gray-400 italic">{comparison.summaryText}</p>
+    </div>
+  );
+}
+
 // ─── PRCommentPanel ──────────────────────────────────────────────────────────
 
 function PRCommentPanel({
@@ -442,11 +601,13 @@ function PRCommentPanel({
   lp,
   projectId,
   userKey,
+  hasComparison = false,
 }: {
   run: ReviewRun;
   lp: LinkedPull;
   projectId: string;
   userKey: string;
+  hasComparison?: boolean;
 }) {
   const allResults = run.results ?? [];
   const fixable = allResults.filter(
@@ -557,6 +718,13 @@ function PRCommentPanel({
       <p className="text-xs text-blue-600 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
         현재는 공개 저장소 PR에만 코멘트를 남길 수 있어요.
       </p>
+
+      {/* Comparison hint */}
+      {hasComparison && (
+        <p className="text-xs text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2">
+          최신 비교 결과를 바탕으로 코멘트를 업데이트할 수 있어요.
+        </p>
+      )}
 
       {/* Mode selector — only show after past comments loaded and existing comment exists */}
       {pastLoaded && hasExistingComment && postPhase !== "done" && (

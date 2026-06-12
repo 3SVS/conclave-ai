@@ -311,7 +311,7 @@ export default function ChecksPage() {
             )}
 
             {/* CTA */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               {prNeedsAction > 0 && (
                 <Link
                   href={`/projects/${id}/github`}
@@ -320,6 +320,12 @@ export default function ChecksPage() {
                   수정 지시서 만들기 →
                 </Link>
               )}
+              <Link
+                href={`/projects/${id}/github`}
+                className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
+              >
+                GitHub 탭에서 비교 결과 보기 →
+              </Link>
               <Link
                 href={`/projects/${id}/github`}
                 className="text-sm text-gray-400 hover:text-gray-600"

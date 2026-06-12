@@ -319,6 +319,56 @@ export async function getLatestPRReview(
   }
 }
 
+// ─── PR Review Comparison ────────────────────────────────────────────────────
+
+export type ReviewRunSummarySnapshot = {
+  id: string;
+  status: string;
+  updatedAt: string;
+  summary: { passed: number; failed: number; inconclusive: number; needsDecision: number };
+};
+
+export type ImprovedItem = { itemId: string; title: string; from: string; to: string; reason: string };
+export type StillOpenItem = { itemId: string; title: string; status: string; reason: string };
+export type NewlyProblematicItem = { itemId: string; title: string; from: string; to: string; reason: string };
+export type UnchangedItem = { itemId: string; title: string; status: string };
+
+export type ReviewComparison = {
+  improved: ImprovedItem[];
+  stillOpen: StillOpenItem[];
+  newlyProblematic: NewlyProblematicItem[];
+  unchanged: UnchangedItem[];
+  summaryText: string;
+};
+
+export type PrReviewComparisonResponse =
+  | { ok: true; comparable: false; reason: "not_enough_runs" }
+  | {
+      ok: true;
+      comparable: true;
+      previousRun: ReviewRunSummarySnapshot;
+      latestRun: ReviewRunSummarySnapshot;
+      comparison: ReviewComparison;
+    }
+  | { ok: false; error: string };
+
+export async function getPRReviewComparison(
+  projectId: string,
+  prNumber: number,
+  userKey: string,
+): Promise<PrReviewComparisonResponse> {
+  try {
+    const resp = await fetch(
+      `${CENTRAL_PLANE_URL}/workspace/projects/${encodeURIComponent(projectId)}/github/pulls/${prNumber}/review/compare?userKey=${encodeURIComponent(userKey)}`,
+      { signal: AbortSignal.timeout(10000) },
+    );
+    if (!resp.ok) return { ok: false, error: `HTTP ${resp.status}` };
+    return (await resp.json()) as PrReviewComparisonResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
 // ─── PR Comment ───────────────────────────────────────────────────────────────
 
 export type CommentSummary = {
