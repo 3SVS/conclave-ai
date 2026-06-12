@@ -45,11 +45,13 @@ import { generatePRFixBrief } from "../workspace/pr-fix-brief.js";
 import type { FixBriefItem, FixBriefTarget } from "../workspace/pr-fix-brief.js";
 import {
   insertPrComment, updatePrComment, getPrComments,
+  getLatestPostedComment, getPrCommentById,
 } from "../workspace/pr-comment-db.js";
 import {
-  buildCommentBody, bodyPreview, postGitHubComment, hasPrCommentScope,
+  buildCommentBody, bodyPreview, postGitHubComment, updateGitHubComment, hasPrCommentScope,
 } from "../workspace/pr-comment.js";
 import type { CommentResultItem } from "../workspace/pr-comment.js";
+import { insertUsageEvent } from "../workspace/usage-events-db.js";
 
 // ─── CORS helpers (shared with workspace.ts) ──────────────────────────────────
 
@@ -66,7 +68,7 @@ function corsHeaders(origin: string | null): Record<string, string> {
       : (ALLOWED_ORIGINS[0] as string);
   return {
     "Access-Control-Allow-Origin": allowed,
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Max-Age": "86400",
   };
@@ -98,6 +100,11 @@ export function createWorkspaceGitHubRoutes(
     return new Response(null, { status: 204, headers: corsHeaders(origin) });
   });
   app.options("/workspace/projects/:id/github/*", (c) => {
+    const origin = c.req.header("origin") ?? null;
+    return new Response(null, { status: 204, headers: corsHeaders(origin) });
+  });
+  // PATCH preflight for comment update
+  app.options("/workspace/projects/:id/github/pulls/:number/comment/:commentId", (c) => {
     const origin = c.req.header("origin") ?? null;
     return new Response(null, { status: 204, headers: corsHeaders(origin) });
   });
@@ -893,6 +900,8 @@ export function createWorkspaceGitHubRoutes(
       : undefined;
     const customBody = typeof b["body"] === "string" ? b["body"] : undefined;
     const includeFixBrief = b["includeFixBrief"] === true;
+    // mode: "new" = always create new comment, "update_latest" = update most recent posted comment
+    const mode: "new" | "update_latest" = b["mode"] === "update_latest" ? "update_latest" : "new";
 
     // 1. Get linked repo
     const repo = await getProjectRepo(c.env, projectId).catch(() => null);
@@ -956,8 +965,63 @@ export function createWorkspaceGitHubRoutes(
       commentBody = built;
     }
 
-    // 6. Insert draft record
     const preview = bodyPreview(commentBody);
+    const [owner, repoName] = repo.repoFullName.split("/");
+
+    // 6a. update_latest mode — find existing posted comment and PATCH it
+    if (mode === "update_latest") {
+      const latestPosted = await getLatestPostedComment(c.env, projectId, repo.repoFullName, prNumber).catch(() => null);
+      if (latestPosted?.githubCommentId) {
+        const updateResult = await updateGitHubComment(
+          { owner: owner ?? "", repo: repoName ?? "", githubCommentId: latestPosted.githubCommentId, body: commentBody, token },
+          fetchImpl,
+        );
+
+        if (!updateResult.ok) {
+          const errStatus = updateResult.status;
+          await updatePrComment(c.env, latestPosted.id, { status: "error", errorMessage: updateResult.error });
+
+          if (errStatus === 403) {
+            return json({ ok: false, error: "github_scope_required", message: "GitHub 권한이 부족하거나 접근할 수 없는 저장소예요." }, 403, origin);
+          }
+          if (errStatus === 404) {
+            return json({ ok: false, error: "comment_not_found", message: "업데이트할 코멘트를 GitHub에서 찾을 수 없어요. 이미 삭제됐거나 접근할 수 없는 코멘트예요." }, 404, origin);
+          }
+          return json({ ok: false, error: "github_update_failed", details: updateResult.error }, 502, origin);
+        }
+
+        await updatePrComment(c.env, latestPosted.id, {
+          status: "posted",
+          githubCommentId: updateResult.id,
+          githubCommentUrl: updateResult.url,
+          bodyPreview: preview,
+        });
+
+        // Record usage event (non-fatal)
+        await insertUsageEvent(c.env, {
+          userKey,
+          projectId,
+          eventType: "workspace_pr_comment_updated",
+          metadata: { commentId: latestPosted.id, githubCommentId: updateResult.id, repoFullName: repo.repoFullName, prNumber },
+        });
+
+        return json({
+          ok: true,
+          updated: true,
+          comment: {
+            id: latestPosted.id,
+            status: "posted",
+            githubCommentId: updateResult.id,
+            githubCommentUrl: updateResult.url,
+            bodyPreview: preview,
+            updatedAt: new Date().toISOString(),
+          },
+        }, 200, origin);
+      }
+      // No existing posted comment → fall through to create new one
+    }
+
+    // 6b. Insert draft record (new comment)
     const dbComment = await insertPrComment(c.env, {
       projectId, userKey,
       repoFullName: repo.repoFullName,
@@ -970,7 +1034,6 @@ export function createWorkspaceGitHubRoutes(
     if (!dbComment) return json({ ok: false, error: "comment_create_failed" }, 500, origin);
 
     // 7. Post to GitHub
-    const [owner, repoName] = repo.repoFullName.split("/");
     const postResult = await postGitHubComment(
       { owner: owner ?? "", repo: repoName ?? "", issueNumber: prNumber, body: commentBody, token },
       fetchImpl,
@@ -1007,8 +1070,17 @@ export function createWorkspaceGitHubRoutes(
       githubCommentUrl: postResult.url,
     });
 
+    // Record usage event (non-fatal)
+    await insertUsageEvent(c.env, {
+      userKey,
+      projectId,
+      eventType: "workspace_pr_comment_posted",
+      metadata: { commentId: dbComment.id, githubCommentId: postResult.id, repoFullName: repo.repoFullName, prNumber },
+    });
+
     return json({
       ok: true,
+      updated: false,
       comment: {
         id: dbComment.id,
         status: "posted",
@@ -1031,25 +1103,181 @@ export function createWorkspaceGitHubRoutes(
     }
 
     const repo = await getProjectRepo(c.env, projectId).catch(() => null);
-    if (!repo) return json({ ok: true, comments: [] }, 200, origin);
+    if (!repo) return json({ ok: true, comments: [], latestPostedComment: null }, 200, origin);
 
     try {
-      const comments = await getPrComments(c.env, projectId, repo.repoFullName, prNumber);
+      const [comments, latestPosted] = await Promise.all([
+        getPrComments(c.env, projectId, repo.repoFullName, prNumber),
+        getLatestPostedComment(c.env, projectId, repo.repoFullName, prNumber),
+      ]);
       return json({
         ok: true,
         comments: comments.map((c2) => ({
           id: c2.id,
           status: c2.status,
+          githubCommentId: c2.githubCommentId,
           githubCommentUrl: c2.githubCommentUrl,
           bodyPreview: c2.bodyPreview,
           errorMessage: c2.errorMessage,
           createdAt: c2.createdAt,
+          updatedAt: c2.updatedAt,
         })),
+        latestPostedComment: latestPosted ? {
+          id: latestPosted.id,
+          githubCommentId: latestPosted.githubCommentId,
+          githubCommentUrl: latestPosted.githubCommentUrl,
+          bodyPreview: latestPosted.bodyPreview,
+          updatedAt: latestPosted.updatedAt,
+        } : null,
       }, 200, origin);
     } catch (err) {
       console.error("[workspace/github/pulls/comments GET] failed:", err);
       return json({ ok: false, error: "fetch_failed" }, 500, origin);
     }
+  });
+
+  // ── PATCH /workspace/projects/:id/github/pulls/:number/comment/:commentId ──
+  // Update the body of an existing GitHub PR comment (re-generates or uses provided body).
+  app.patch("/workspace/projects/:id/github/pulls/:number/comment/:commentId", async (c) => {
+    const origin = c.req.header("origin") ?? null;
+    const projectId = c.req.param("id");
+    const prNumber = parseInt(c.req.param("number"), 10);
+    const commentId = c.req.param("commentId");
+
+    if (isNaN(prNumber) || prNumber < 1) {
+      return json({ ok: false, error: "invalid_pr_number" }, 400, origin);
+    }
+    if (!commentId) return json({ ok: false, error: "commentId_required" }, 400, origin);
+
+    let body: unknown;
+    try { body = await c.req.json(); } catch {
+      return json({ ok: false, error: "invalid_json" }, 400, origin);
+    }
+    const b = body as Record<string, unknown>;
+    const userKey = typeof b["userKey"] === "string" ? b["userKey"] : "";
+    if (!userKey) return json({ ok: false, error: "userKey_required" }, 400, origin);
+
+    const customBody = typeof b["body"] === "string" ? b["body"] : undefined;
+    const bodySelectedIds = Array.isArray(b["selectedItemIds"])
+      ? (b["selectedItemIds"] as unknown[]).filter((x): x is string => typeof x === "string")
+      : undefined;
+    const includeFixBrief = b["includeFixBrief"] === true;
+
+    // 1. Get existing comment record
+    const existingComment = await getPrCommentById(c.env, commentId).catch(() => null);
+    if (!existingComment) return json({ ok: false, error: "comment_not_found" }, 404, origin);
+    if (!existingComment.githubCommentId) {
+      return json({ ok: false, error: "comment_not_posted" }, 400, origin);
+    }
+
+    // 2. GitHub connection + scope check
+    if (!c.env.CONCLAVE_TOKEN_KEK) {
+      return json({ ok: false, error: "token_unavailable" }, 503, origin);
+    }
+    const conn = await getGitHubConnectionByUserKey(c.env, userKey).catch(() => null);
+    if (!conn) return json({ ok: false, error: "not_connected" }, 401, origin);
+
+    if (!hasPrCommentScope(conn.scopes)) {
+      return json({
+        ok: false,
+        error: "github_scope_required",
+        message: "GitHub PR에 코멘트를 남기려면 권한을 다시 연결해야 해요.",
+      }, 403, origin);
+    }
+
+    let token: string;
+    try {
+      token = await decryptToken(conn.accessTokenEnc, c.env.CONCLAVE_TOKEN_KEK);
+    } catch {
+      return json({ ok: false, error: "token_decrypt_failed" }, 503, origin);
+    }
+
+    // 3. Build updated body
+    const repo = await getProjectRepo(c.env, projectId).catch(() => null);
+    if (!repo) return json({ ok: false, error: "no_repo_linked" }, 400, origin);
+
+    let commentBody: string;
+    if (customBody) {
+      commentBody = customBody;
+    } else {
+      // Re-generate from latest review run
+      const run = await getLatestReviewRun(c.env, projectId, repo.repoFullName, prNumber).catch(() => null);
+      if (!run) return json({ ok: false, error: "no_review_run" }, 400, origin);
+
+      let reviewResults: CommentResultItem[] = [];
+      if (run.resultJson) {
+        try {
+          const parsed = JSON.parse(run.resultJson) as { results?: unknown[] };
+          if (Array.isArray(parsed.results)) reviewResults = parsed.results as CommentResultItem[];
+        } catch { /* ignored */ }
+      }
+
+      const selectedItemIds = bodySelectedIds?.length ? bodySelectedIds : existingComment.selectedItemIds;
+      const selectedItems = reviewResults.filter((r) => selectedItemIds.includes(r.itemId));
+
+      const linkedPRs = await getLinkedPRs(c.env, projectId).catch(() => []);
+      const linkedPR = linkedPRs.find((p) => p.prNumber === prNumber);
+      const prTitle = linkedPR?.prTitle ?? `PR #${prNumber}`;
+      const summary = {
+        failed: selectedItems.filter((r) => r.status === "failed").length,
+        inconclusive: selectedItems.filter((r) => r.status === "inconclusive").length,
+        needsDecision: selectedItems.filter((r) => r.status === "needs_decision").length,
+        passed: selectedItems.filter((r) => r.status === "passed").length,
+      };
+      const { body: built } = buildCommentBody({
+        repoFullName: repo.repoFullName, prNumber, prTitle, selectedItems, summary, includeFixBrief,
+      });
+      commentBody = built;
+    }
+
+    // 4. PATCH GitHub comment
+    const [owner, repoName] = repo.repoFullName.split("/");
+    const updateResult = await updateGitHubComment(
+      { owner: owner ?? "", repo: repoName ?? "", githubCommentId: existingComment.githubCommentId, body: commentBody, token },
+      fetchImpl,
+    );
+
+    const preview = bodyPreview(commentBody);
+
+    if (!updateResult.ok) {
+      await updatePrComment(c.env, commentId, { status: "error", errorMessage: updateResult.error, bodyPreview: preview });
+
+      if (updateResult.status === 403) {
+        return json({ ok: false, error: "github_scope_required", message: "GitHub 권한이 부족해요." }, 403, origin);
+      }
+      if (updateResult.status === 404) {
+        return json({ ok: false, error: "comment_not_found", message: "GitHub에서 코멘트를 찾을 수 없어요. 이미 삭제됐을 수 있어요." }, 404, origin);
+      }
+      return json({ ok: false, error: "github_update_failed", details: updateResult.error }, 502, origin);
+    }
+
+    // 5. Update D1 record
+    await updatePrComment(c.env, commentId, {
+      status: "posted",
+      githubCommentId: updateResult.id,
+      githubCommentUrl: updateResult.url,
+      bodyPreview: preview,
+    });
+
+    // Record usage event (non-fatal)
+    await insertUsageEvent(c.env, {
+      userKey,
+      projectId,
+      eventType: "workspace_pr_comment_updated",
+      metadata: { commentId, githubCommentId: updateResult.id, repoFullName: repo.repoFullName, prNumber },
+    });
+
+    return json({
+      ok: true,
+      comment: {
+        id: commentId,
+        status: "posted",
+        githubCommentId: updateResult.id,
+        githubCommentUrl: updateResult.url,
+        bodyPreview: preview,
+        updatedAt: new Date().toISOString(),
+      },
+    }, 200, origin);
   });
 
   return app;

@@ -55,9 +55,10 @@ function makeDb(extra = {}) {
                 comments.set(id, { id, project_id: projId, user_key: userKey, repo_full_name: repoFull, pr_number: prNum, review_run_id: runId, selected_item_ids_json: selJson, body_preview: bodyPrev, status, created_at: createdAt, updated_at: updatedAt, github_comment_id: null, github_comment_url: null, error_message: null });
               }
               if (sql.includes("UPDATE workspace_pr_comments")) {
-                const [status, ghId, ghUrl, errMsg, updatedAt, id] = args;
+                // Stage 14: args = [status, ghId, ghUrl, errMsg, bodyPrev, updatedAt, id]
+                const [status, ghId, ghUrl, errMsg, bodyPrev, updatedAt, id] = args;
                 const rec = comments.get(id);
-                if (rec) { rec.status = status; rec.github_comment_id = ghId; rec.github_comment_url = ghUrl; rec.error_message = errMsg; rec.updated_at = updatedAt; }
+                if (rec) { rec.status = status; rec.github_comment_id = ghId; rec.github_comment_url = ghUrl; rec.error_message = errMsg; if (bodyPrev !== null) rec.body_preview = bodyPrev; rec.updated_at = updatedAt; }
               }
               if (sql.includes("INSERT INTO workspace_pr_review_runs")) {
                 const [id, projId, userKey, repoFull, prNum, linkedPrId, selJson, status, createdAt, updatedAt] = args;

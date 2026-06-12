@@ -83,13 +83,14 @@ export async function updatePrComment(
     githubCommentId?: string;
     githubCommentUrl?: string;
     errorMessage?: string;
+    bodyPreview?: string;
   },
 ): Promise<void> {
   const now = new Date().toISOString();
   await env.DB.prepare(
     `UPDATE workspace_pr_comments
      SET status = ?, github_comment_id = ?, github_comment_url = ?,
-         error_message = ?, updated_at = ?
+         error_message = ?, body_preview = COALESCE(?, body_preview), updated_at = ?
      WHERE id = ?`,
   )
     .bind(
@@ -97,10 +98,95 @@ export async function updatePrComment(
       update.githubCommentId ?? null,
       update.githubCommentUrl ?? null,
       update.errorMessage ?? null,
+      update.bodyPreview ?? null,
       now,
       id,
     )
     .run();
+}
+
+export async function getPrCommentById(
+  env: Env,
+  id: string,
+): Promise<DbPrComment | null> {
+  const row = await env.DB.prepare(
+    `SELECT id, project_id, user_key, repo_full_name, pr_number, review_run_id,
+            selected_item_ids_json, github_comment_id, github_comment_url,
+            body_preview, status, error_message, created_at, updated_at
+     FROM workspace_pr_comments
+     WHERE id = ?`,
+  )
+    .bind(id)
+    .first<{
+      id: string; project_id: string; user_key: string; repo_full_name: string;
+      pr_number: number; review_run_id: string | null;
+      selected_item_ids_json: string; github_comment_id: string | null;
+      github_comment_url: string | null; body_preview: string;
+      status: string; error_message: string | null;
+      created_at: string; updated_at: string;
+    }>();
+
+  if (!row) return null;
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    userKey: row.user_key,
+    repoFullName: row.repo_full_name,
+    prNumber: row.pr_number,
+    reviewRunId: row.review_run_id ?? undefined,
+    selectedItemIds: (() => { try { return JSON.parse(row.selected_item_ids_json) as string[]; } catch { return []; } })(),
+    githubCommentId: row.github_comment_id ?? undefined,
+    githubCommentUrl: row.github_comment_url ?? undefined,
+    bodyPreview: row.body_preview,
+    status: row.status as PrCommentStatus,
+    errorMessage: row.error_message ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function getLatestPostedComment(
+  env: Env,
+  projectId: string,
+  repoFullName: string,
+  prNumber: number,
+): Promise<DbPrComment | null> {
+  const row = await env.DB.prepare(
+    `SELECT id, project_id, user_key, repo_full_name, pr_number, review_run_id,
+            selected_item_ids_json, github_comment_id, github_comment_url,
+            body_preview, status, error_message, created_at, updated_at
+     FROM workspace_pr_comments
+     WHERE project_id = ? AND repo_full_name = ? AND pr_number = ?
+       AND status = 'posted' AND github_comment_id IS NOT NULL
+     ORDER BY updated_at DESC LIMIT 1`,
+  )
+    .bind(projectId, repoFullName, prNumber)
+    .first<{
+      id: string; project_id: string; user_key: string; repo_full_name: string;
+      pr_number: number; review_run_id: string | null;
+      selected_item_ids_json: string; github_comment_id: string | null;
+      github_comment_url: string | null; body_preview: string;
+      status: string; error_message: string | null;
+      created_at: string; updated_at: string;
+    }>();
+
+  if (!row) return null;
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    userKey: row.user_key,
+    repoFullName: row.repo_full_name,
+    prNumber: row.pr_number,
+    reviewRunId: row.review_run_id ?? undefined,
+    selectedItemIds: (() => { try { return JSON.parse(row.selected_item_ids_json) as string[]; } catch { return []; } })(),
+    githubCommentId: row.github_comment_id ?? undefined,
+    githubCommentUrl: row.github_comment_url ?? undefined,
+    bodyPreview: row.body_preview,
+    status: row.status as PrCommentStatus,
+    errorMessage: row.error_message ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 export async function getPrComments(

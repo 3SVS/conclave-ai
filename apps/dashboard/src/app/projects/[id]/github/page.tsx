@@ -15,6 +15,7 @@ import {
   generatePRFixBrief,
   previewPRComment,
   postPRComment,
+  updatePRComment,
   listPRComments,
   type GitHubPull,
   type LinkedPull,
@@ -24,6 +25,7 @@ import {
   type FixBriefResponse,
   type FixBriefFile,
   type ListedComment,
+  type LatestPostedCommentSummary,
 } from "@/lib/workspace-github-api";
 import { StatusBadge } from "@/components/StatusBadge";
 import type { ItemStatus } from "@/lib/labels";
@@ -458,13 +460,16 @@ function PRCommentPanel({
   );
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(defaultSelected);
+  const [mode, setMode] = useState<"new" | "update_latest">("new");
   const [previewPhase, setPreviewPhase] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [previewBody, setPreviewBody] = useState<string | null>(null);
   const [postPhase, setPostPhase] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [postedUrl, setPostedUrl] = useState<string | null>(null);
+  const [postWasUpdate, setPostWasUpdate] = useState(false);
   const [scopeError, setScopeError] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [pastComments, setPastComments] = useState<ListedComment[]>([]);
+  const [latestPosted, setLatestPosted] = useState<LatestPostedCommentSummary | null>(null);
   const [pastLoaded, setPastLoaded] = useState(false);
 
   function toggleId(id: string) {
@@ -501,9 +506,11 @@ function PRCommentPanel({
       userKey,
       selectedItemIds: Array.from(selectedIds),
       body: previewBody ?? undefined,
+      mode,
     });
     if (res.ok) {
       setPostedUrl(res.comment.githubCommentUrl);
+      setPostWasUpdate(res.updated === true);
       setPostPhase("done");
     } else {
       setPostPhase("error");
@@ -518,10 +525,24 @@ function PRCommentPanel({
     if (pastLoaded) return;
     setPastLoaded(true);
     const res = await listPRComments(projectId, lp.number);
-    if (res.ok) setPastComments(res.comments);
+    if (res.ok) {
+      setPastComments(res.comments);
+      setLatestPosted(res.latestPostedComment);
+    }
+  }
+
+  function handleRecheck() {
+    setPostPhase("idle");
+    setPreviewPhase("idle");
+    setPreviewBody(null);
+    setPostedUrl(null);
+    setScopeError(false);
+    setErrorMsg(null);
+    setPostWasUpdate(false);
   }
 
   const canPost = selectedIds.size > 0;
+  const hasExistingComment = latestPosted !== null;
 
   return (
     <div className="space-y-3">
@@ -536,6 +557,25 @@ function PRCommentPanel({
       <p className="text-xs text-blue-600 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
         현재는 공개 저장소 PR에만 코멘트를 남길 수 있어요.
       </p>
+
+      {/* Mode selector — only show after past comments loaded and existing comment exists */}
+      {pastLoaded && hasExistingComment && postPhase !== "done" && (
+        <div className="flex gap-3">
+          {(["new", "update_latest"] as const).map((m) => (
+            <label key={m} className="flex items-center gap-1.5 cursor-pointer text-xs text-gray-600">
+              <input
+                type="radio"
+                name="comment-mode"
+                value={m}
+                checked={mode === m}
+                onChange={() => setMode(m)}
+                className="accent-indigo-600"
+              />
+              {m === "new" ? "새 코멘트 작성" : "기존 코멘트 업데이트"}
+            </label>
+          ))}
+        </div>
+      )}
 
       {/* Item selection */}
       <div className="space-y-1">
@@ -573,7 +613,11 @@ function PRCommentPanel({
             disabled={postPhase === "loading"}
             className="text-sm px-4 py-2 rounded-xl font-medium bg-gray-900 text-white hover:bg-gray-800 disabled:opacity-40 transition-colors"
           >
-            {postPhase === "loading" ? "GitHub에 남기는 중..." : "GitHub에 남기기"}
+            {postPhase === "loading"
+              ? "GitHub에 남기는 중..."
+              : mode === "update_latest" && hasExistingComment
+                ? "기존 코멘트 업데이트"
+                : "GitHub에 남기기"}
           </button>
         )}
       </div>
@@ -599,16 +643,26 @@ function PRCommentPanel({
 
       {/* Success */}
       {postPhase === "done" && postedUrl && (
-        <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex items-center justify-between">
-          <p className="text-sm text-green-800 font-medium">코멘트가 작성됐어요!</p>
-          <a
-            href={postedUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-green-700 font-medium underline hover:text-green-900 ml-3 flex-shrink-0"
+        <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-green-800 font-medium">
+              {postWasUpdate ? "코멘트가 업데이트됐어요!" : "코멘트가 작성됐어요!"}
+            </p>
+            <a
+              href={postedUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-green-700 font-medium underline hover:text-green-900 ml-3 flex-shrink-0"
+            >
+              GitHub에서 보기 →
+            </a>
+          </div>
+          <button
+            onClick={handleRecheck}
+            className="text-xs text-green-700 underline hover:text-green-900"
           >
-            작성된 코멘트 보기 →
-          </a>
+            다시 PR 확인하기
+          </button>
         </div>
       )}
 
@@ -634,6 +688,14 @@ function PRCommentPanel({
 
       {pastLoaded && pastComments.length > 0 && (
         <div className="space-y-1.5">
+          {latestPosted && (
+            <p className="text-xs text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-1.5">
+              가장 최근 코멘트: {latestPosted.updatedAt.slice(0, 10)}{" "}
+              {latestPosted.githubCommentUrl && (
+                <a href={latestPosted.githubCommentUrl} target="_blank" rel="noopener noreferrer" className="underline">GitHub에서 보기</a>
+              )}
+            </p>
+          )}
           {pastComments.map((c) => (
             <div key={c.id} className="flex items-center gap-2 text-xs text-gray-500">
               <span className={`rounded-full px-2 py-0.5 border flex-shrink-0 ${

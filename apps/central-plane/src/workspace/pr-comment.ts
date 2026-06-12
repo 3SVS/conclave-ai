@@ -187,6 +187,52 @@ export async function postGitHubComment(
   };
 }
 
+// ─── GitHub Issues Comments Update API ───────────────────────────────────────
+
+export type UpdateCommentInput = {
+  owner: string;
+  repo: string;
+  githubCommentId: string;
+  body: string;
+  token: string;
+};
+
+export async function updateGitHubComment(
+  input: UpdateCommentInput,
+  fetchImpl: FetchLike,
+): Promise<PostCommentResult> {
+  const url = `https://api.github.com/repos/${input.owner}/${input.repo}/issues/comments/${input.githubCommentId}`;
+  let resp: Response;
+  try {
+    resp = await fetchImpl(url, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${input.token}`,
+        "Content-Type": "application/json",
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "conclave-ai/1.0",
+      },
+      body: JSON.stringify({ body: input.body }),
+    });
+  } catch (err) {
+    return { ok: false, error: `network_error: ${(err as Error).message}`, status: 0 };
+  }
+
+  if (!resp.ok) {
+    const errBody = await resp.json().catch(() => ({})) as Record<string, unknown>;
+    const msg = typeof errBody["message"] === "string" ? errBody["message"] : `HTTP ${resp.status}`;
+    return { ok: false, error: msg, status: resp.status };
+  }
+
+  const data = await resp.json().catch(() => ({})) as { id?: number; html_url?: string };
+  return {
+    ok: true,
+    id: String(data.id ?? input.githubCommentId),
+    url: data.html_url ?? `https://github.com/${input.owner}/${input.repo}/issues/comments/${input.githubCommentId}`,
+  };
+}
+
 // ─── Scope check ─────────────────────────────────────────────────────────────
 
 export function hasPrCommentScope(scopes: string | undefined): boolean {

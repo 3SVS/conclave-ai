@@ -342,25 +342,40 @@ export type PostedComment = {
   githubCommentId: string;
   githubCommentUrl: string;
   bodyPreview: string;
-  createdAt: string;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type PostCommentResponse =
-  | { ok: true; comment: PostedComment }
+  | { ok: true; updated?: boolean; comment: PostedComment }
   | { ok: false; error: string; message?: string };
 
 export type ListedComment = {
   id: string;
   status: string;
+  githubCommentId?: string;
   githubCommentUrl?: string;
   bodyPreview: string;
   errorMessage?: string;
   createdAt: string;
+  updatedAt?: string;
+};
+
+export type LatestPostedCommentSummary = {
+  id: string;
+  githubCommentId?: string;
+  githubCommentUrl?: string;
+  bodyPreview: string;
+  updatedAt: string;
 };
 
 export type ListCommentsResponse =
-  | { ok: true; comments: ListedComment[] }
+  | { ok: true; comments: ListedComment[]; latestPostedComment: LatestPostedCommentSummary | null }
   | { ok: false; error: string };
+
+export type UpdateCommentResponse =
+  | { ok: true; comment: PostedComment }
+  | { ok: false; error: string; message?: string };
 
 export async function previewPRComment(
   projectId: string,
@@ -396,6 +411,7 @@ export async function postPRComment(
     selectedItemIds?: string[];
     body?: string;
     includeFixBrief?: boolean;
+    mode?: "new" | "update_latest";
   },
 ): Promise<PostCommentResponse> {
   try {
@@ -409,6 +425,34 @@ export async function postPRComment(
       },
     );
     const data = await resp.json().catch(() => ({ ok: false, error: `HTTP ${resp.status}` })) as PostCommentResponse;
+    return data;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+export async function updatePRComment(
+  projectId: string,
+  prNumber: number,
+  commentId: string,
+  input: {
+    userKey: string;
+    selectedItemIds?: string[];
+    body?: string;
+    includeFixBrief?: boolean;
+  },
+): Promise<UpdateCommentResponse> {
+  try {
+    const resp = await fetch(
+      `${CENTRAL_PLANE_URL}/workspace/projects/${encodeURIComponent(projectId)}/github/pulls/${prNumber}/comment/${encodeURIComponent(commentId)}`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+        signal: AbortSignal.timeout(20000),
+      },
+    );
+    const data = await resp.json().catch(() => ({ ok: false, error: `HTTP ${resp.status}` })) as UpdateCommentResponse;
     return data;
   } catch (err) {
     return { ok: false, error: String(err) };
