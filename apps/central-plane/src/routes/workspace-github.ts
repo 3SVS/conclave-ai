@@ -38,6 +38,7 @@ import {
   insertReviewRun, updateReviewRun, getLatestReviewRun, getLatestTwoPrReviewRuns,
   listPRReviewRuns, listProjectReviewRuns, getReviewRunById,
 } from "../workspace/pr-review-db.js";
+import { loadPRReviewRunForAction } from "../workspace/pr-review-run-loader.js";
 import {
   compareRunResults, buildRunSummary, parseRunResults,
 } from "../workspace/pr-review-compare.js";
@@ -877,23 +878,56 @@ export function createWorkspaceGitHubRoutes(
       : undefined;
     const target: FixBriefTarget =
       b["target"] === "claude_code" || b["target"] === "codex" ? b["target"] : "both";
+    const reviewRunId = typeof b["reviewRunId"] === "string" ? b["reviewRunId"] : undefined;
 
     // 1. Get linked repo
     const repo = await getProjectRepo(c.env, projectId).catch(() => null);
     if (!repo) return json({ ok: false, error: "no_repo_linked" }, 400, origin);
 
-    // 2. Get latest review run
-    const run = await getLatestReviewRun(c.env, projectId, repo.repoFullName, prNumber).catch(() => null);
-    if (!run) return json({ ok: false, error: "no_review_run" }, 400, origin);
-
-    // 3. Parse review results
+    // 2. Get review run — specific run if reviewRunId provided, else latest
     let reviewResults: Array<{ itemId: string; title: string; status: string; reason: string; evidence: string[]; nextAction: string }> = [];
-    if (run.resultJson) {
-      try {
-        const parsed = JSON.parse(run.resultJson) as { results?: unknown[] };
-        if (Array.isArray(parsed.results)) reviewResults = parsed.results as typeof reviewResults;
-      } catch { /* ignored */ }
+    let runId: string;
+    let runCreatedAt: string;
+    let runStatus: string;
+    let runSelectedItemIds: string[];
+    let runSummaryForSource: { passed: number; failed: number; inconclusive: number; needsDecision: number };
+
+    if (reviewRunId) {
+      const loaded = await loadPRReviewRunForAction({
+        env: c.env, projectId, repoFullName: repo.repoFullName, prNumber, reviewRunId,
+      });
+      if (!loaded.ok) {
+        const status = loaded.error === "review_run_not_found" || loaded.error === "review_run_mismatch" ? 404 : 400;
+        return json({ ok: false, error: loaded.error }, status, origin);
+      }
+      reviewResults = loaded.run.results as typeof reviewResults;
+      runId = loaded.run.id;
+      runCreatedAt = loaded.run.createdAt;
+      runStatus = loaded.run.status;
+      runSelectedItemIds = loaded.run.selectedItemIds;
+      runSummaryForSource = loaded.run.summary;
+    } else {
+      const run = await getLatestReviewRun(c.env, projectId, repo.repoFullName, prNumber).catch(() => null);
+      if (!run) return json({ ok: false, error: "no_review_run" }, 400, origin);
+      if (run.resultJson) {
+        try {
+          const parsed = JSON.parse(run.resultJson) as { results?: unknown[] };
+          if (Array.isArray(parsed.results)) reviewResults = parsed.results as typeof reviewResults;
+        } catch { /* ignored */ }
+      }
+      runId = run.id;
+      runCreatedAt = run.createdAt;
+      runStatus = run.status;
+      runSelectedItemIds = run.selectedItemIds;
+      const parsed2 = run.resultJson ? (() => { try { return JSON.parse(run.resultJson) as { summary?: { passed?: number; failed?: number; inconclusive?: number; needsDecision?: number } }; } catch { return {}; } })() : {};
+      runSummaryForSource = {
+        passed: Number(parsed2.summary?.passed ?? 0),
+        failed: Number(parsed2.summary?.failed ?? 0),
+        inconclusive: Number(parsed2.summary?.inconclusive ?? 0),
+        needsDecision: Number(parsed2.summary?.needsDecision ?? 0),
+      };
     }
+
     if (reviewResults.length === 0) {
       return json({ ok: false, error: "no_review_results" }, 400, origin);
     }
@@ -905,7 +939,7 @@ export function createWorkspaceGitHubRoutes(
 
     const selectedItemIds = bodySelectedIds?.length
       ? bodySelectedIds
-      : (run.selectedItemIds.length ? run.selectedItemIds.filter((id) => fixableItemIds.includes(id)) : fixableItemIds);
+      : (runSelectedItemIds.length ? runSelectedItemIds.filter((id) => fixableItemIds.includes(id)) : fixableItemIds);
 
     if (selectedItemIds.length === 0) {
       return json({ ok: false, error: "no_fixable_items" }, 400, origin);
@@ -962,11 +996,19 @@ export function createWorkspaceGitHubRoutes(
       })),
       prMeta,
       repoFullName: repo.repoFullName,
-      runId: run.id,
+      runId: runId,
       target,
     });
 
-    return json(result, 200, origin);
+    return json({
+      ...result,
+      sourceReviewRun: {
+        id: runId,
+        createdAt: runCreatedAt,
+        status: runStatus,
+        summary: runSummaryForSource,
+      },
+    }, 200, origin);
   });
 
   // ── POST /workspace/projects/:id/github/pulls/:number/comment/preview ────
@@ -992,32 +1034,50 @@ export function createWorkspaceGitHubRoutes(
       : undefined;
     const includeFixBrief = b["includeFixBrief"] === true;
     const includeComparison = b["includeComparison"] === true;
+    const reviewRunId = typeof b["reviewRunId"] === "string" ? b["reviewRunId"] : undefined;
 
     // 1. Get linked repo
     const repo = await getProjectRepo(c.env, projectId).catch(() => null);
     if (!repo) return json({ ok: false, error: "no_repo_linked" }, 400, origin);
 
-    // 2. Get latest review run
-    const run = await getLatestReviewRun(c.env, projectId, repo.repoFullName, prNumber).catch(() => null);
-    if (!run) return json({ ok: false, error: "no_review_run" }, 400, origin);
-
-    // 3. Parse review results
+    // 2. Get review run — specific run if reviewRunId provided, else latest
     let reviewResults: CommentResultItem[] = [];
-    if (run.resultJson) {
-      try {
-        const parsed = JSON.parse(run.resultJson) as { results?: unknown[] };
-        if (Array.isArray(parsed.results)) reviewResults = parsed.results as CommentResultItem[];
-      } catch { /* ignored */ }
+    let runSelectedItemIds: string[];
+    let runTimestamp: string | undefined;
+
+    const warnings: string[] = [];
+
+    if (reviewRunId) {
+      const loaded = await loadPRReviewRunForAction({
+        env: c.env, projectId, repoFullName: repo.repoFullName, prNumber, reviewRunId,
+      });
+      if (!loaded.ok) {
+        const status = loaded.error === "review_run_not_found" || loaded.error === "review_run_mismatch" ? 404 : 400;
+        return json({ ok: false, error: loaded.error }, status, origin);
+      }
+      reviewResults = loaded.run.results as CommentResultItem[];
+      runSelectedItemIds = loaded.run.selectedItemIds;
+      runTimestamp = loaded.run.createdAt;
+      // comparison is based on the latest two runs — meaningless for a specific historical run
+      if (includeComparison) warnings.push("comparison_not_available_for_specific_run");
+    } else {
+      const run = await getLatestReviewRun(c.env, projectId, repo.repoFullName, prNumber).catch(() => null);
+      if (!run) return json({ ok: false, error: "no_review_run" }, 400, origin);
+      if (run.resultJson) {
+        try {
+          const parsed = JSON.parse(run.resultJson) as { results?: unknown[] };
+          if (Array.isArray(parsed.results)) reviewResults = parsed.results as CommentResultItem[];
+        } catch { /* ignored */ }
+      }
+      runSelectedItemIds = run.selectedItemIds;
     }
+
     if (reviewResults.length === 0) {
       return json({ ok: false, error: "no_review_results" }, 400, origin);
     }
 
-    // 4. Determine selectedItemIds
-    const selectedItemIds = bodySelectedIds?.length
-      ? bodySelectedIds
-      : run.selectedItemIds;
-
+    // 3. Determine selectedItemIds
+    const selectedItemIds = bodySelectedIds?.length ? bodySelectedIds : runSelectedItemIds;
     const selectedItems = reviewResults.filter((r) => selectedItemIds.includes(r.itemId));
     const summary = {
       failed: selectedItems.filter((r) => r.status === "failed").length,
@@ -1026,21 +1086,20 @@ export function createWorkspaceGitHubRoutes(
       passed: selectedItems.filter((r) => r.status === "passed").length,
     };
 
-    // 5. Get PR title
+    // 4. Get PR title
     const linkedPRs = await getLinkedPRs(c.env, projectId).catch(() => []);
     const linkedPR = linkedPRs.find((p) => p.prNumber === prNumber);
     const prTitle = linkedPR?.prTitle ?? `PR #${prNumber}`;
 
-    // 6. Load comparison data if requested
-    const warnings: string[] = [];
+    // 5. Load comparison data if requested (only for latest run, not run-specific)
     let comparisonData: ComparisonDataForComment | undefined;
-    if (includeComparison) {
+    if (includeComparison && !reviewRunId) {
       const comp = await loadComparisonForComment(c.env, projectId, repo.repoFullName, prNumber);
       if (comp.warning === "not_enough_runs") warnings.push("not_enough_runs");
       else if (comp.data) comparisonData = comp.data;
     }
 
-    // 7. Build body
+    // 6. Build body
     const { body: commentBody, truncated, comparisonIncluded } = buildCommentBody({
       repoFullName: repo.repoFullName,
       prNumber,
@@ -1048,11 +1107,12 @@ export function createWorkspaceGitHubRoutes(
       selectedItems,
       summary,
       includeFixBrief,
-      includeComparison,
+      includeComparison: includeComparison && !reviewRunId,
       comparisonData,
+      runTimestamp,
     });
     if (truncated) warnings.push("코멘트가 너무 길어 일부 내용이 잘렸습니다.");
-    if (includeComparison && comparisonData && !comparisonIncluded) warnings.push("비교 섹션이 너무 길어 생략됐습니다.");
+    if (includeComparison && !reviewRunId && comparisonData && !comparisonIncluded) warnings.push("비교 섹션이 너무 길어 생략됐습니다.");
 
     return json({
       ok: true,
@@ -1085,6 +1145,7 @@ export function createWorkspaceGitHubRoutes(
     const customBody = typeof b["body"] === "string" ? b["body"] : undefined;
     const includeFixBrief = b["includeFixBrief"] === true;
     const includeComparison = b["includeComparison"] === true;
+    const reviewRunId = typeof b["reviewRunId"] === "string" ? b["reviewRunId"] : undefined;
     // mode: "new" = always create new comment, "update_latest" = update most recent posted comment
     const mode: "new" | "update_latest" = b["mode"] === "update_latest" ? "update_latest" : "new";
 
@@ -1092,7 +1153,35 @@ export function createWorkspaceGitHubRoutes(
     const repo = await getProjectRepo(c.env, projectId).catch(() => null);
     if (!repo) return json({ ok: false, error: "no_repo_linked" }, 400, origin);
 
-    // 2. GitHub connection + scope check
+    // 2. Get review run — validate before token ops so mismatch fails fast
+    let reviewResults: CommentResultItem[] = [];
+    let runSelectedItemIds: string[];
+    let runTimestamp: string | undefined;
+
+    if (reviewRunId) {
+      const loaded = await loadPRReviewRunForAction({
+        env: c.env, projectId, repoFullName: repo.repoFullName, prNumber, reviewRunId,
+      });
+      if (!loaded.ok) {
+        const status = loaded.error === "review_run_not_found" || loaded.error === "review_run_mismatch" ? 404 : 400;
+        return json({ ok: false, error: loaded.error }, status, origin);
+      }
+      reviewResults = loaded.run.results as CommentResultItem[];
+      runSelectedItemIds = loaded.run.selectedItemIds;
+      runTimestamp = loaded.run.createdAt;
+    } else {
+      const run = await getLatestReviewRun(c.env, projectId, repo.repoFullName, prNumber).catch(() => null);
+      if (!run) return json({ ok: false, error: "no_review_run" }, 400, origin);
+      if (run.resultJson) {
+        try {
+          const parsed = JSON.parse(run.resultJson) as { results?: unknown[] };
+          if (Array.isArray(parsed.results)) reviewResults = parsed.results as CommentResultItem[];
+        } catch { /* ignored */ }
+      }
+      runSelectedItemIds = run.selectedItemIds;
+    }
+
+    // 3. GitHub connection + scope check + token decryption
     if (!c.env.CONCLAVE_TOKEN_KEK) {
       return json({ ok: false, error: "token_unavailable" }, 503, origin);
     }
@@ -1114,21 +1203,8 @@ export function createWorkspaceGitHubRoutes(
       return json({ ok: false, error: "token_decrypt_failed" }, 503, origin);
     }
 
-    // 3. Get latest review run
-    const run = await getLatestReviewRun(c.env, projectId, repo.repoFullName, prNumber).catch(() => null);
-    if (!run) return json({ ok: false, error: "no_review_run" }, 400, origin);
-
-    // 4. Parse review results
-    let reviewResults: CommentResultItem[] = [];
-    if (run.resultJson) {
-      try {
-        const parsed = JSON.parse(run.resultJson) as { results?: unknown[] };
-        if (Array.isArray(parsed.results)) reviewResults = parsed.results as CommentResultItem[];
-      } catch { /* ignored */ }
-    }
-
-    // 5. Build or use provided body
-    const selectedItemIds = bodySelectedIds?.length ? bodySelectedIds : run.selectedItemIds;
+    // 4. Build or use provided body
+    const selectedItemIds = bodySelectedIds?.length ? bodySelectedIds : runSelectedItemIds;
     const selectedItems = reviewResults.filter((r) => selectedItemIds.includes(r.itemId));
 
     let commentBody: string;
@@ -1145,13 +1221,14 @@ export function createWorkspaceGitHubRoutes(
         passed: selectedItems.filter((r) => r.status === "passed").length,
       };
       let comparisonData: ComparisonDataForComment | undefined;
-      if (includeComparison) {
+      if (includeComparison && !reviewRunId) {
         const comp = await loadComparisonForComment(c.env, projectId, repo.repoFullName, prNumber);
         if (comp.data) comparisonData = comp.data;
       }
       const { body: built } = buildCommentBody({
         repoFullName: repo.repoFullName, prNumber, prTitle, selectedItems, summary,
-        includeFixBrief, includeComparison, comparisonData,
+        includeFixBrief, includeComparison: includeComparison && !reviewRunId, comparisonData,
+        runTimestamp,
       });
       commentBody = built;
     }
@@ -1217,7 +1294,7 @@ export function createWorkspaceGitHubRoutes(
       projectId, userKey,
       repoFullName: repo.repoFullName,
       prNumber,
-      reviewRunId: run.id,
+      reviewRunId: reviewRunId ?? undefined,
       selectedItemIds,
       bodyPreview: preview,
       status: "draft",

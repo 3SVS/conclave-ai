@@ -514,6 +514,7 @@ export async function previewPRComment(
     selectedItemIds?: string[];
     includeFixBrief?: boolean;
     includeComparison?: boolean;
+    reviewRunId?: string;
   },
 ): Promise<PreviewCommentResponse> {
   try {
@@ -543,6 +544,7 @@ export async function postPRComment(
     includeFixBrief?: boolean;
     includeComparison?: boolean;
     mode?: "new" | "update_latest";
+    reviewRunId?: string;
   },
 ): Promise<PostCommentResponse> {
   try {
@@ -629,6 +631,12 @@ export type FixBriefResult = {
     files: FixBriefFile[];
   };
   warnings?: string[];
+  sourceReviewRun?: {
+    id: string;
+    createdAt: string;
+    status: string;
+    summary: { passed: number; failed: number; inconclusive: number; needsDecision: number };
+  };
 };
 
 export type FixBriefResponse =
@@ -646,6 +654,7 @@ export async function generatePRFixBrief(
     target?: FixBriefTarget;
     items?: WorkspaceItem[];
     productSpec?: ProductSpec;
+    reviewRunId?: string;
   },
 ): Promise<FixBriefResponse> {
   try {

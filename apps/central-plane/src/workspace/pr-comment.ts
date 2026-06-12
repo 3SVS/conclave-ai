@@ -46,6 +46,8 @@ export type BuildCommentOptions = {
   fixBriefSummary?: string;
   includeComparison?: boolean;
   comparisonData?: ComparisonDataForComment;
+  /** ISO timestamp of the specific review run this comment is based on. */
+  runTimestamp?: string;
 };
 
 export type PostCommentInput = {
@@ -80,11 +82,24 @@ const STATUS_KO_PLAIN: Record<string, string> = {
 // ─── Section builders ─────────────────────────────────────────────────────────
 
 function buildRequiredPart(opts: BuildCommentOptions): string {
-  const { repoFullName, prNumber, prTitle, selectedItems, summary } = opts;
+  const { repoFullName, prNumber, prTitle, selectedItems, summary, runTimestamp } = opts;
 
   const fixable = selectedItems.filter(
     (i) => i.status === "failed" || i.status === "inconclusive" || i.status === "needs_decision",
   );
+
+  // Format run timestamp to a human-readable Korean string if provided
+  let runTimestampLine = "";
+  if (runTimestamp) {
+    try {
+      const d = new Date(runTimestamp);
+      const formatted = d.toLocaleString("ko-KR", {
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", timeZone: "Asia/Seoul",
+      });
+      runTimestampLine = `\n_이 코멘트는 ${formatted}에 실행된 PR 확인 기록 기준입니다._\n`;
+    } catch { /* ignored */ }
+  }
 
   const lines: string[] = [
     "## 🔍 Conclave PR 확인 결과",
@@ -94,6 +109,7 @@ function buildRequiredPart(opts: BuildCommentOptions): string {
     "",
     "> 이 코멘트는 연결된 제품 설명서와 선택된 항목 기준으로 생성되었습니다.  ",
     "> 전체 저장소나 배포된 서비스 전체를 확인한 것은 아닙니다.",
+    ...(runTimestampLine ? [runTimestampLine] : []),
     "",
     "### 요약",
     "",
