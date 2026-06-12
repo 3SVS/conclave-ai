@@ -24,11 +24,14 @@ export type CreditBalance = {
   updatedAt: string;
 };
 
+export type LedgerStatus = "pending" | "applied" | "failed";
+
 export type LedgerEntry = {
   id: string;
   creditType: CreditType;
   amount: number;
   direction: LedgerDirection;
+  status: LedgerStatus;
   reason: string;
   projectId?: string;
   sourceEventId?: string;

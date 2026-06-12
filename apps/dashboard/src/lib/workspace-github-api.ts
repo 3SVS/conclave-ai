@@ -305,6 +305,7 @@ export type CreditEnforcementResult = {
     duplicate?: boolean;
     sourceEventId?: string;
     ledgerEntryId?: string;
+    ledgerStatus?: "pending" | "applied" | "failed";
     newBalance?: number;
     error?: string;
   };

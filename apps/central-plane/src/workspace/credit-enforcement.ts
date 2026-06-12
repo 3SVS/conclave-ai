@@ -87,6 +87,7 @@ export type CreditEnforcementResult = {
     duplicate?: boolean;
     sourceEventId?: string;
     ledgerEntryId?: string;
+    ledgerStatus?: "pending" | "applied" | "failed";
     newBalance?: number;
     error?: string;
   };
@@ -192,6 +193,7 @@ export async function checkCreditEnforcement({
         ...(result.duplicate ? { duplicate: true } : {}),
         sourceEventId: result.sourceEventId,
         ledgerEntryId: result.ledgerEntryId,
+        ledgerStatus: result.ledgerStatus,
         newBalance: result.newBalance,
       };
     } else {

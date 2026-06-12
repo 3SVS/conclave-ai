@@ -39,6 +39,12 @@ const DIRECTION_LABELS: Record<string, string> = {
   preview_debit: "예상 차감",
 };
 
+const STATUS_LABELS: Record<string, string> = {
+  applied: "적용됨",
+  failed: "실패",
+  pending: "대기 중",
+};
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
@@ -95,6 +101,7 @@ function LedgerTable({ entries }: { entries: LedgerEntry[] }) {
         <tr className="border-b">
           <th className="text-left py-1 text-gray-500 font-medium">유형</th>
           <th className="text-left py-1 text-gray-500 font-medium">방향</th>
+          <th className="text-left py-1 text-gray-500 font-medium">상태</th>
           <th className="text-right py-1 text-gray-500 font-medium">금액</th>
           <th className="text-left py-1 text-gray-500 font-medium pl-3">사유</th>
           <th className="text-right py-1 text-gray-500 font-medium">날짜</th>
@@ -115,6 +122,21 @@ function LedgerTable({ entries }: { entries: LedgerEntry[] }) {
                 }
               >
                 {DIRECTION_LABELS[e.direction] ?? e.direction}
+              </span>
+            </td>
+            <td className="py-1">
+              <span
+                className={
+                  e.status === "applied"
+                    ? "text-green-700"
+                    : e.status === "failed"
+                    ? "text-red-500"
+                    : e.status === "pending"
+                    ? "text-amber-600"
+                    : "text-gray-400"
+                }
+              >
+                {STATUS_LABELS[e.status] ?? e.status ?? "—"}
               </span>
             </td>
             <td className="py-1 text-right font-mono">{e.amount}</td>

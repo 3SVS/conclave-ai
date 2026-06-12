@@ -14,6 +14,7 @@ import { getMonthlyAllowanceRule, getCurrentAllowancePeriod } from "./allowance-
 
 export type CreditType = "review" | "fix" | "workspace";
 export type LedgerDirection = "grant" | "debit" | "adjustment" | "preview";
+export type LedgerStatus = "pending" | "applied" | "failed";
 
 // ─── ID generator ────────────────────────────────────────────────────────────
 
@@ -76,6 +77,7 @@ type LedgerRow = {
   reason: string;
   source_event_id: string | null;
   metadata_json: string | null;
+  status: string;
   created_at: string;
 };
 
@@ -128,6 +130,7 @@ export type LedgerEntry = {
   creditType: CreditType;
   amount: number;
   direction: LedgerDirection;
+  status: LedgerStatus;
   reason: string;
   projectId?: string;
   sourceEventId?: string;
@@ -140,7 +143,7 @@ export async function listCreditLedger(
   limit = 50,
 ): Promise<LedgerEntry[]> {
   const result = await env.DB.prepare(
-    `SELECT id, credit_type, amount, direction, reason, project_id, source_event_id, created_at
+    `SELECT id, credit_type, amount, direction, status, reason, project_id, source_event_id, created_at
      FROM workspace_credit_ledger
      WHERE user_key = ?
      ORDER BY created_at DESC
@@ -153,6 +156,7 @@ export async function listCreditLedger(
     creditType: r.credit_type as CreditType,
     amount: r.amount,
     direction: r.direction as LedgerDirection,
+    status: (r.status ?? "applied") as LedgerStatus,
     reason: r.reason,
     ...(r.project_id ? { projectId: r.project_id } : {}),
     ...(r.source_event_id ? { sourceEventId: r.source_event_id } : {}),
@@ -205,11 +209,11 @@ export async function grantCredits(env: Env, input: GrantCreditsInput): Promise<
 
   const newBalance = balanceRow?.balance ?? input.amount;
 
-  // Insert ledger entry
+  // Insert ledger entry (grants are immediately applied)
   await env.DB.prepare(
     `INSERT INTO workspace_credit_ledger
-       (id, user_key, project_id, credit_type, amount, direction, reason, source_event_id, metadata_json, created_at)
-     VALUES (?, ?, ?, ?, ?, 'grant', ?, NULL, ?, ?)`,
+       (id, user_key, project_id, credit_type, amount, direction, reason, source_event_id, metadata_json, status, created_at)
+     VALUES (?, ?, ?, ?, ?, 'grant', ?, NULL, ?, 'applied', ?)`,
   )
     .bind(
       ledgerId,
@@ -228,6 +232,7 @@ export async function grantCredits(env: Env, input: GrantCreditsInput): Promise<
     creditType: input.creditType,
     amount: input.amount,
     direction: "grant",
+    status: "applied",
     reason: input.reason,
     ...(input.projectId ? { projectId: input.projectId } : {}),
     createdAt: now,
@@ -438,24 +443,25 @@ export type DebitCreditsInput = {
 };
 
 export type DebitCreditsResult =
-  | { ok: true; duplicate: false; newBalance: number; ledgerEntryId: string; sourceEventId: string }
-  | { ok: true; duplicate: true; newBalance: number; ledgerEntryId: string; sourceEventId: string }
-  | { ok: false; error: "missing_source_event_id" | "insufficient_credits" | "race_condition" | "db_error"; currentBalance: number };
+  | { ok: true; duplicate: false; newBalance: number; ledgerEntryId: string; sourceEventId: string; ledgerStatus: "applied" }
+  | { ok: true; duplicate: true; newBalance: number; ledgerEntryId: string; sourceEventId: string; ledgerStatus: LedgerStatus }
+  | { ok: false; error: "missing_source_event_id" | "insufficient_credits" | "db_error"; currentBalance: number };
 
 /**
- * Atomically debit credits from a user's balance with idempotency.
+ * Atomically debit credits from a user's balance using reservation-first ordering.
  *
- * Flow:
+ * Stage 28 flow — reservation-first prevents concurrent double-debit:
  *  1. Validate sourceEventId (required)
- *  2. Check for existing debit with same user_key + source_event_id → return duplicate
- *  3. SELECT current balance
- *  4. UPDATE balance WHERE balance >= amount (optimistic lock)
- *  5. INSERT OR IGNORE ledger debit — unique index prevents duplicate even in concurrent race
+ *  2. INSERT OR IGNORE ledger row (status='pending')
+ *     → unique index on (user_key, source_event_id) ensures only one request wins
+ *     → INSERT changes=0: another request already holds this reservation → return duplicate
+ *  3. INSERT winner: UPDATE balance WHERE balance >= amount
+ *     → changes=0 (insufficient): UPDATE ledger status='failed' → return insufficient_credits
+ *     → changes=1 (success): UPDATE ledger status='applied' → return ok
  *
- * Race caveat: two truly concurrent requests with the same sourceEventId may both
- * pass step 2 and both decrement balance. In practice this is prevented by the
- * caller holding a single stable sourceEventId per user interaction.
- * Never called when ENABLE_ACTUAL_CREDIT_DEBITS is false.
+ * Because the INSERT happens before the balance deduction, two concurrent requests
+ * with the same sourceEventId can never both reach step 3. The unique index is
+ * the distributed lock. Never called when ENABLE_ACTUAL_CREDIT_DEBITS is false.
  */
 export async function debitCredits(env: Env, input: DebitCreditsInput): Promise<DebitCreditsResult> {
   if (!Number.isInteger(input.amount) || input.amount <= 0) {
@@ -466,78 +472,17 @@ export async function debitCredits(env: Env, input: DebitCreditsInput): Promise<
     return { ok: false, error: "missing_source_event_id", currentBalance: 0 };
   }
 
-  // 2. Idempotency check: look for an existing debit with the same source_event_id
-  try {
-    const existing = await env.DB.prepare(
-      `SELECT id, amount FROM workspace_credit_ledger
-       WHERE user_key = ? AND source_event_id = ? AND direction = 'debit' LIMIT 1`,
-    )
-      .bind(input.userKey, input.sourceEventId)
-      .first<{ id: string; amount: number }>();
-
-    if (existing) {
-      const balanceRow = await env.DB.prepare(
-        `SELECT balance FROM workspace_credit_balances WHERE user_key = ? AND credit_type = ?`,
-      )
-        .bind(input.userKey, input.creditType)
-        .first<{ balance: number }>();
-      return {
-        ok: true,
-        duplicate: true,
-        newBalance: balanceRow?.balance ?? 0,
-        ledgerEntryId: existing.id,
-        sourceEventId: input.sourceEventId,
-      };
-    }
-  } catch {
-    // Idempotency check failure is non-fatal — fall through to normal debit flow
-  }
-
-  // 3. Read current balance
-  let currentBalance = 0;
-  try {
-    const row = await env.DB.prepare(
-      `SELECT balance FROM workspace_credit_balances WHERE user_key = ? AND credit_type = ?`,
-    )
-      .bind(input.userKey, input.creditType)
-      .first<{ balance: number }>();
-    currentBalance = row?.balance ?? 0;
-  } catch {
-    return { ok: false, error: "db_error", currentBalance: 0 };
-  }
-
-  if (currentBalance < input.amount) {
-    return { ok: false, error: "insufficient_credits", currentBalance };
-  }
-
   const now = new Date().toISOString();
-
-  // 4. Optimistic UPDATE: only succeeds when balance hasn't dropped below threshold
-  let updateResult: { meta: { changes: number } };
-  try {
-    updateResult = await env.DB.prepare(
-      `UPDATE workspace_credit_balances
-       SET balance = balance - ?, updated_at = ?
-       WHERE user_key = ? AND credit_type = ? AND balance >= ?`,
-    )
-      .bind(input.amount, now, input.userKey, input.creditType, input.amount)
-      .run() as { meta: { changes: number } };
-  } catch {
-    return { ok: false, error: "db_error", currentBalance };
-  }
-
-  if ((updateResult.meta?.changes ?? 0) === 0) {
-    return { ok: false, error: "race_condition", currentBalance };
-  }
-
-  // 5. INSERT OR IGNORE: unique index on (user_key, source_event_id) prevents duplicate ledger entries
   const ledgerId = randId("wcl");
+
+  // 1. Reservation INSERT: unique index acts as distributed lock.
+  //    Only one concurrent request per sourceEventId can win this insert.
   let insertChanges = 0;
   try {
     const insertResult = await env.DB.prepare(
       `INSERT OR IGNORE INTO workspace_credit_ledger
-         (id, user_key, project_id, credit_type, amount, direction, reason, source_event_id, metadata_json, created_at)
-       VALUES (?, ?, ?, ?, ?, 'debit', ?, ?, ?, ?)`,
+         (id, user_key, project_id, credit_type, amount, direction, reason, source_event_id, metadata_json, status, created_at)
+       VALUES (?, ?, ?, ?, ?, 'debit', ?, ?, ?, 'pending', ?)`,
     )
       .bind(
         ledgerId,
@@ -553,19 +498,18 @@ export async function debitCredits(env: Env, input: DebitCreditsInput): Promise<
       .run() as { meta: { changes: number } };
     insertChanges = insertResult.meta?.changes ?? 0;
   } catch {
-    console.error("[debitCredits] ledger insert failed after balance update", { userKey: input.userKey });
+    return { ok: false, error: "db_error", currentBalance: 0 };
   }
 
+  // 2. Duplicate: another request (or a prior retry) already owns this reservation.
   if (insertChanges === 0) {
-    // Concurrent race: another request won the ledger insert (balance was decremented — documented race caveat)
-    // Fetch the winning ledger entry and return as duplicate
     try {
-      const winner = await env.DB.prepare(
-        `SELECT id FROM workspace_credit_ledger
+      const existing = await env.DB.prepare(
+        `SELECT id, amount, status, reason, created_at FROM workspace_credit_ledger
          WHERE user_key = ? AND source_event_id = ? AND direction = 'debit' LIMIT 1`,
       )
         .bind(input.userKey, input.sourceEventId)
-        .first<{ id: string }>();
+        .first<{ id: string; amount: number; status: string; reason: string; created_at: string }>();
       const balanceRow = await env.DB.prepare(
         `SELECT balance FROM workspace_credit_balances WHERE user_key = ? AND credit_type = ?`,
       )
@@ -574,17 +518,62 @@ export async function debitCredits(env: Env, input: DebitCreditsInput): Promise<
       return {
         ok: true,
         duplicate: true,
-        newBalance: balanceRow?.balance ?? Math.max(0, currentBalance - input.amount),
-        ledgerEntryId: winner?.id ?? ledgerId,
+        newBalance: balanceRow?.balance ?? 0,
+        ledgerEntryId: existing?.id ?? ledgerId,
         sourceEventId: input.sourceEventId,
+        ledgerStatus: (existing?.status ?? "applied") as LedgerStatus,
       };
     } catch {
-      return { ok: false, error: "race_condition", currentBalance };
+      return { ok: false, error: "db_error", currentBalance: 0 };
     }
   }
 
-  const newBalance = Math.max(0, currentBalance - input.amount);
-  return { ok: true, duplicate: false, newBalance, ledgerEntryId: ledgerId, sourceEventId: input.sourceEventId };
+  // 3. We own the reservation — attempt balance deduction.
+  let updateChanges = 0;
+  try {
+    const updateResult = await env.DB.prepare(
+      `UPDATE workspace_credit_balances
+       SET balance = balance - ?, updated_at = ?
+       WHERE user_key = ? AND credit_type = ? AND balance >= ?`,
+    )
+      .bind(input.amount, now, input.userKey, input.creditType, input.amount)
+      .run() as { meta: { changes: number } };
+    updateChanges = updateResult.meta?.changes ?? 0;
+  } catch {
+    await env.DB.prepare(`UPDATE workspace_credit_ledger SET status = ? WHERE id = ?`)
+      .bind("failed", ledgerId).run().catch(() => {});
+    return { ok: false, error: "db_error", currentBalance: 0 };
+  }
+
+  if (updateChanges === 0) {
+    // Insufficient balance — finalize reservation as failed
+    await env.DB.prepare(`UPDATE workspace_credit_ledger SET status = ? WHERE id = ?`)
+      .bind("failed", ledgerId).run().catch(() => {});
+    let currentBalance = 0;
+    try {
+      const balRow = await env.DB.prepare(
+        `SELECT balance FROM workspace_credit_balances WHERE user_key = ? AND credit_type = ?`,
+      ).bind(input.userKey, input.creditType).first<{ balance: number }>();
+      currentBalance = balRow?.balance ?? 0;
+    } catch { /* non-fatal */ }
+    return { ok: false, error: "insufficient_credits", currentBalance };
+  }
+
+  // 4. Balance deducted — finalize reservation as applied
+  await env.DB.prepare(`UPDATE workspace_credit_ledger SET status = ? WHERE id = ?`)
+    .bind("applied", ledgerId).run().catch((e) => {
+      console.error("[debitCredits] failed to finalize ledger status=applied", e);
+    });
+
+  let newBalance = 0;
+  try {
+    const balRow = await env.DB.prepare(
+      `SELECT balance FROM workspace_credit_balances WHERE user_key = ? AND credit_type = ?`,
+    ).bind(input.userKey, input.creditType).first<{ balance: number }>();
+    newBalance = balRow?.balance ?? 0;
+  } catch { /* non-fatal */ }
+
+  return { ok: true, duplicate: false, newBalance, ledgerEntryId: ledgerId, sourceEventId: input.sourceEventId, ledgerStatus: "applied" };
 }
 
 // ─── Ledger preview (no DB writes) ────────────────────────────────────────────

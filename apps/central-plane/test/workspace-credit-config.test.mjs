@@ -29,6 +29,10 @@
  *  43–52. validateIdempotencyKey: length/charset validation
  *  53–58. buildPrReviewDebitSourceEventId: prefix, format, determinism, sensitivity
  *  59–60. idempotency round-trip: deterministic key prevents double-debit
+ *  61–62. ledger status lifecycle: applied on success, failed on insufficient
+ *  63–65. duplicate handling: applied/failed duplicate, no balance change on failed
+ *  66–68. grant default status, checkCreditEnforcement ledgerStatus propagation
+ *  69–70. concurrent same sourceEventId: single balance debit + single ledger entry
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -62,7 +66,8 @@ function makeDb(opts = {}) {
               // Stage 26: debit uses INSERT OR IGNORE; grant uses plain INSERT INTO
               if (sql.includes("workspace_credit_ledger") && sql.includes("INSERT")) {
                 if (sql.includes("OR IGNORE")) {
-                  // Debit path: args = [id, user_key, project_id, credit_type, amount, reason, source_event_id, metadata, created_at]
+                  // Debit reservation path (Stage 28: status='pending' initially)
+                  // args = [id, user_key, project_id, credit_type, amount, reason, source_event_id, metadata, created_at]
                   const id = args[0];
                   const user_key = args[1];
                   const source_event_id = args[6];
@@ -73,14 +78,21 @@ function makeDb(opts = {}) {
                     ledger.some(e => e.user_key === user_key && e.source_event_id === source_event_id && e.direction === "debit");
                   if (exists) return { meta: { changes: 0 } };
                   writeCount.ledger += 1;
-                  ledger.push({ id, user_key, source_event_id, direction: "debit", amount, reason });
+                  ledger.push({ id, user_key, source_event_id, direction: "debit", amount, reason, status: "pending" });
                   return { meta: { changes: 1 } };
                 } else {
-                  // Grant/adjustment path (no idempotency constraint)
+                  // Grant/adjustment path — status='applied' by default
                   writeCount.ledger += 1;
-                  ledger.push({ sql, args });
+                  ledger.push({ sql, args, status: "applied" });
                   return { meta: { changes: 1 } };
                 }
+              }
+              // Stage 28: UPDATE workspace_credit_ledger SET status = ? WHERE id = ?
+              if (sql.includes("UPDATE workspace_credit_ledger") && sql.includes("SET status")) {
+                const [newStatus, entryId] = args;
+                const entry = ledger.find(e => e.id === entryId);
+                if (entry) entry.status = newStatus;
+                return { meta: { changes: 1 } };
               }
               if (sql.includes("UPDATE workspace_credit_balances")) {
                 const [amount, , userKey, creditType, requiredBalance] = args;
@@ -95,13 +107,20 @@ function makeDb(opts = {}) {
               return { meta: { changes: 0 } };
             },
             async first() {
-              // Stage 26: idempotency check — SELECT from ledger WHERE source_event_id = ?
+              // Stage 26/28: duplicate check — SELECT from ledger WHERE source_event_id = ?
               if (sql.includes("FROM workspace_credit_ledger") && sql.includes("source_event_id")) {
                 const [userKey, sourceEventId] = args;
                 const existing = ledger.find(
                   e => e.user_key === userKey && e.source_event_id === sourceEventId && e.direction === "debit"
                 );
-                return existing ? { id: existing.id, amount: existing.amount, source_event_id: existing.source_event_id, created_at: "2026-01-01T00:00:00.000Z" } : null;
+                return existing ? {
+                  id: existing.id,
+                  amount: existing.amount,
+                  source_event_id: existing.source_event_id,
+                  status: existing.status ?? "applied",
+                  reason: existing.reason ?? "test",
+                  created_at: "2026-01-01T00:00:00.000Z",
+                } : null;
               }
               if (sql.includes("SELECT balance FROM workspace_credit_balances")) {
                 const [userKey, creditType] = args;
@@ -232,7 +251,7 @@ describe("debitCredits", () => {
     assert.equal(result.currentBalance, 0);
   });
 
-  it("06 — decrements balance and inserts ledger entry", async () => {
+  it("06 — decrements balance, inserts ledger entry, ledgerStatus=applied", async () => {
     const balances = balanceMap("u1", "review", 5);
     const env = makeEnv({ balances, changesOnUpdate: 1 });
     const result = await debitCredits(env, {
@@ -244,19 +263,20 @@ describe("debitCredits", () => {
       assert.equal(result.newBalance, 3); // 5 - 2 = 3
       assert.ok(result.ledgerEntryId.startsWith("wcl_"));
       assert.equal(result.sourceEventId, "prr_test06");
+      assert.equal(result.ledgerStatus, "applied");
     }
     assert.equal(env.DB._writeCount.ledger, 1);
   });
 
-  it("07 — returns race_condition when UPDATE changes=0", async () => {
+  it("07 — returns insufficient_credits when balance UPDATE returns changes=0", async () => {
     const balances = balanceMap("u1", "review", 5);
-    // changesOnUpdate=0 simulates another request winning the race
+    // changesOnUpdate=0 simulates balance insufficient (WHERE balance >= amount fails)
     const env = makeEnv({ balances, changesOnUpdate: 0 });
     const result = await debitCredits(env, {
-      userKey: "u1", creditType: "review", amount: 1, reason: "race test", sourceEventId: "prr_test07",
+      userKey: "u1", creditType: "review", amount: 1, reason: "insufficient test", sourceEventId: "prr_test07",
     });
     assert.equal(result.ok, false);
-    assert.equal(result.error, "race_condition");
+    assert.equal(result.error, "insufficient_credits");
   });
 
   it("08 — returns db_error on SELECT failure", async () => {
@@ -786,5 +806,133 @@ describe("Stage 27 — idempotency key round-trip: deterministic sourceEventId p
     await debitCredits(env, { userKey: "u1", creditType: "review", amount: 1, reason: "retry", sourceEventId });
     const row = balances.get("u1:review");
     assert.equal(row?.balance, 4, "balance: 5-1=4 (not 5-2=3)");
+  });
+});
+
+// ─── Tests: Stage 28 — reservation-first debit ────────────────────────────────
+
+describe("Stage 28 — reservation-first debit: ledger status lifecycle", () => {
+  it("61 — successful debit: ledger entry finalized as status=applied", async () => {
+    const balances = balanceMap("u1", "review", 5);
+    const env = makeEnv({ balances, changesOnUpdate: 1 });
+    const result = await debitCredits(env, {
+      userKey: "u1", creditType: "review", amount: 1, reason: "stage28", sourceEventId: "prr_s61",
+    });
+    assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.ledgerStatus, "applied");
+    // Ledger entry must have been updated to applied
+    const entry = env.DB._ledger.find(e => e.source_event_id === "prr_s61");
+    assert.ok(entry, "ledger entry must exist");
+    assert.equal(entry.status, "applied", "ledger status must be applied after success");
+  });
+
+  it("62 — insufficient balance: ledger entry finalized as status=failed", async () => {
+    const env = makeEnv({ changesOnUpdate: 0 }); // no balance row → UPDATE returns 0
+    const result = await debitCredits(env, {
+      userKey: "u1", creditType: "review", amount: 1, reason: "stage28", sourceEventId: "prr_s62",
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.error, "insufficient_credits");
+    const entry = env.DB._ledger.find(e => e.source_event_id === "prr_s62");
+    assert.ok(entry, "ledger entry must exist even on failure");
+    assert.equal(entry.status, "failed", "ledger status must be failed on insufficient balance");
+  });
+
+  it("63 — duplicate with applied ledger: returns ledgerStatus=applied", async () => {
+    const balances = balanceMap("u1", "review", 5);
+    const env = makeEnv({ balances, changesOnUpdate: 1 });
+    await debitCredits(env, { userKey: "u1", creditType: "review", amount: 1, reason: "first", sourceEventId: "prr_s63" });
+    const r2 = await debitCredits(env, { userKey: "u1", creditType: "review", amount: 1, reason: "retry", sourceEventId: "prr_s63" });
+    assert.equal(r2.ok, true);
+    if (r2.ok) {
+      assert.equal(r2.duplicate, true);
+      assert.equal(r2.ledgerStatus, "applied");
+    }
+  });
+
+  it("64 — duplicate with failed ledger: returns ledgerStatus=failed, no balance change", async () => {
+    const balances = balanceMap("u1", "review", 0);
+    const env = makeEnv({ balances, changesOnUpdate: 0 });
+    // First call fails (insufficient)
+    await debitCredits(env, { userKey: "u1", creditType: "review", amount: 1, reason: "first", sourceEventId: "prr_s64" });
+    // Second call with same sourceEventId → duplicate of the failed entry
+    const r2 = await debitCredits(env, { userKey: "u1", creditType: "review", amount: 1, reason: "retry", sourceEventId: "prr_s64" });
+    assert.equal(r2.ok, true);
+    if (r2.ok) {
+      assert.equal(r2.duplicate, true);
+      assert.equal(r2.ledgerStatus, "failed");
+    }
+  });
+
+  it("65 — failed ledger duplicate does not touch balance", async () => {
+    const balances = balanceMap("u1", "review", 0);
+    const env = makeEnv({ balances, changesOnUpdate: 0 });
+    await debitCredits(env, { userKey: "u1", creditType: "review", amount: 1, reason: "first", sourceEventId: "prr_s65" });
+    await debitCredits(env, { userKey: "u1", creditType: "review", amount: 1, reason: "retry", sourceEventId: "prr_s65" });
+    // Balance should still be 0 — never decremented
+    assert.equal(balances.get("u1:review")?.balance ?? 0, 0);
+    // Only one ledger entry
+    assert.equal(env.DB._writeCount.ledger, 1);
+  });
+
+  it("66 — grant ledger defaults to status=applied", async () => {
+    const balances = balanceMap("u1", "review", 0);
+    const env = makeEnv({ balances });
+    const { grantCredits } = await import("../dist/workspace/credits.js");
+    await grantCredits(env, { userKey: "u1", creditType: "review", amount: 5, reason: "grant test" });
+    const grantEntry = env.DB._ledger.find(e => e.status === "applied");
+    assert.ok(grantEntry, "grant entry must have status=applied");
+  });
+
+  it("67 — checkCreditEnforcement debit.ledgerStatus=applied on successful debit", async () => {
+    const env = makeEnv({
+      balances: balanceMap("u1", "review", 5),
+      usageEvents: makeReviewEvents("u1", 5),
+      actualDebits: "true",
+      changesOnUpdate: 1,
+    });
+    const result = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run", sourceEventId: "prr_s67" });
+    assert.equal(result.debit?.ledgerStatus, "applied");
+  });
+
+  it("68 — checkCreditEnforcement duplicate debit carries ledgerStatus from existing entry", async () => {
+    const env = makeEnv({
+      balances: balanceMap("u1", "review", 5),
+      usageEvents: makeReviewEvents("u1", 5),
+      actualDebits: "true",
+      changesOnUpdate: 1,
+    });
+    await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run", sourceEventId: "prr_s68" });
+    const r2 = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run", sourceEventId: "prr_s68" });
+    assert.equal(r2.debit?.duplicate, true);
+    assert.equal(r2.debit?.ledgerStatus, "applied");
+  });
+
+  it("69 — concurrent same sourceEventId: balance decremented exactly once", async () => {
+    const balances = balanceMap("u1", "review", 5);
+    const env = makeEnv({ balances, changesOnUpdate: 1 });
+    const sourceEventId = "prr_concurrent69";
+    const [r1, r2] = await Promise.all([
+      debitCredits(env, { userKey: "u1", creditType: "review", amount: 1, reason: "a", sourceEventId }),
+      debitCredits(env, { userKey: "u1", creditType: "review", amount: 1, reason: "b", sourceEventId }),
+    ]);
+    const finalBalance = balances.get("u1:review")?.balance;
+    assert.equal(finalBalance, 4, "balance must be 5-1=4, not 5-2=3");
+    const results = [r1, r2];
+    const successes = results.filter(r => r.ok && !r.duplicate);
+    const duplicates = results.filter(r => r.ok && r.duplicate);
+    assert.equal(successes.length, 1, "exactly one non-duplicate success");
+    assert.equal(duplicates.length, 1, "exactly one duplicate");
+  });
+
+  it("70 — concurrent same sourceEventId: exactly one ledger entry created", async () => {
+    const balances = balanceMap("u1", "review", 5);
+    const env = makeEnv({ balances, changesOnUpdate: 1 });
+    const sourceEventId = "prr_concurrent70";
+    await Promise.all([
+      debitCredits(env, { userKey: "u1", creditType: "review", amount: 1, reason: "a", sourceEventId }),
+      debitCredits(env, { userKey: "u1", creditType: "review", amount: 1, reason: "b", sourceEventId }),
+    ]);
+    assert.equal(env.DB._writeCount.ledger, 1, "unique index must allow only one ledger INSERT");
   });
 });
