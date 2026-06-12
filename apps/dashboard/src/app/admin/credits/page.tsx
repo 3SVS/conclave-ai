@@ -157,6 +157,7 @@ function PreviewTable({ preview }: { preview: PreviewResult }) {
               <th className="text-left py-1 text-gray-500 font-medium">크레딧 유형</th>
               <th className="text-right py-1 text-gray-500 font-medium">잔액</th>
               <th className="text-right py-1 text-gray-500 font-medium">예상 차감</th>
+              <th className="text-left py-1 text-gray-500 font-medium pl-3">무료 제공량</th>
               <th className="text-left py-1 text-gray-500 font-medium pl-3">부족 여부</th>
             </tr>
           </thead>
@@ -171,6 +172,21 @@ function PreviewTable({ preview }: { preview: PreviewResult }) {
                 </td>
                 <td className="py-1 text-right font-mono font-bold text-amber-700">
                   {e.estimatedAmount}
+                </td>
+                <td className="py-1 pl-3 text-xs">
+                  {e.allowance ? (
+                    e.allowance.coveredByAllowance ? (
+                      <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">
+                        무료 ({e.allowance.periodKey})
+                      </span>
+                    ) : (
+                      <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
+                        초과 ({e.allowance.usedBeforeThisEvent}/{e.allowance.includedRuns})
+                      </span>
+                    )
+                  ) : (
+                    <span className="text-gray-400">—</span>
+                  )}
                 </td>
                 <td className="py-1 pl-3">
                   {e.wouldBlockIfEnforced === true ? (

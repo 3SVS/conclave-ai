@@ -10,6 +10,7 @@
  */
 import type { Env } from "../env.js";
 import { getBillingRule } from "./billing-rules.js";
+import { getMonthlyAllowanceRule, getCurrentAllowancePeriod } from "./allowance-rules.js";
 
 export type CreditType = "review" | "fix" | "workspace";
 export type LedgerDirection = "grant" | "debit" | "adjustment" | "preview";
@@ -224,6 +225,12 @@ export type PreviewEntry = {
   estimatedAmount: number;
   currentBalance?: number;
   wouldBlockIfEnforced?: boolean;
+  allowance?: {
+    periodKey: string;
+    includedRuns: number;
+    usedBeforeThisEvent: number;
+    coveredByAllowance: boolean;
+  };
   reason: string;
   createdAt: string;
 };
@@ -262,22 +269,72 @@ export async function previewCreditDebitFromUsageEvents(
   const result = await stmt.all<UsageEventForPreview>();
   const rows = result.results ?? [];
 
-  // Build candidate entries first
+  // Build candidate entries (keep even if estimatedAmount=0 — allowance may cover them)
   const entries: PreviewEntry[] = [];
   for (const row of rows) {
     const rule = getBillingRule(row.event_type);
     if (rule.billingStatus !== "billable_candidate" || !rule.creditType) continue;
-    const estimatedAmount = rule.creditCost * row.count;
-    if (estimatedAmount <= 0) continue;
     entries.push({
       userKey: row.user_key,
       ...(row.project_id ? { projectId: row.project_id } : {}),
       eventType: row.event_type,
       creditType: rule.creditType as CreditType,
-      estimatedAmount,
+      estimatedAmount: rule.creditCost * row.count, // may be revised by allowance below
       reason: `${rule.label} × ${row.count}회 예상`,
       createdAt: row.sample_created_at,
     });
+  }
+
+  // Apply monthly allowance — query current-period counts per (userKey, eventType)
+  const { periodKey, periodStart, periodEnd } = getCurrentAllowancePeriod();
+  const allowancePairs = new Map<string, { userKey: string; eventType: string; count: number }>();
+  for (const e of entries) {
+    const aRule = getMonthlyAllowanceRule(e.eventType);
+    if (!aRule) continue;
+    const key = `${e.userKey}:${e.eventType}`;
+    if (!allowancePairs.has(key)) {
+      allowancePairs.set(key, { userKey: e.userKey, eventType: e.eventType, count: 0 });
+    }
+  }
+
+  // Batch-fetch current-period counts
+  const periodCountMap = new Map<string, number>();
+  await Promise.all(
+    Array.from(allowancePairs.values()).map(async ({ userKey, eventType }) => {
+      try {
+        const r = await env.DB.prepare(
+          `SELECT COUNT(*) as count FROM workspace_usage_events
+           WHERE user_key = ? AND event_type = ? AND created_at >= ? AND created_at < ?`,
+        )
+          .bind(userKey, eventType, periodStart, periodEnd)
+          .first<{ count: number }>();
+        periodCountMap.set(`${userKey}:${eventType}`, r?.count ?? 0);
+      } catch {
+        periodCountMap.set(`${userKey}:${eventType}`, 0);
+      }
+    }),
+  );
+
+  // Annotate entries with allowance and adjust estimatedAmount
+  for (const e of entries) {
+    const aRule = getMonthlyAllowanceRule(e.eventType);
+    if (aRule) {
+      const currentMonthCount = periodCountMap.get(`${e.userKey}:${e.eventType}`) ?? 0;
+      const billingRule = getBillingRule(e.eventType);
+      const eventCount = billingRule.creditCost > 0
+        ? Math.round(e.estimatedAmount / billingRule.creditCost)
+        : 0;
+      const usedBeforeThisEvent = Math.max(0, currentMonthCount - eventCount);
+      const coveredRuns = Math.max(0, Math.min(aRule.includedRuns - usedBeforeThisEvent, eventCount));
+      const billableRuns = Math.max(0, eventCount - coveredRuns);
+      e.estimatedAmount = billableRuns * billingRule.creditCost;
+      e.allowance = {
+        periodKey,
+        includedRuns: aRule.includedRuns,
+        usedBeforeThisEvent,
+        coveredByAllowance: coveredRuns > 0,
+      };
+    }
   }
 
   // Annotate with current balances — collect unique (userKey, creditType) pairs

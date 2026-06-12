@@ -1,28 +1,29 @@
 /**
  * workspace-credit-enforcement.test.mjs
  *
- * Stage 21: credit enforcement dry-run helper + PR review endpoint integration.
+ * Stage 22: credit enforcement dry-run with monthly allowance.
  *
  * Tests:
  *  01. included event: requiredCredits=0, wouldBlock=false
- *  02. workspace_pr_review_run: requiredCredits=1, creditType=review
- *  03. wouldBlock=false when balance is sufficient
- *  04. wouldBlock=true when balance is insufficient
- *  05. wouldBlock=false when balance is exactly equal to required
+ *  02. allowance exhausted: requiredCredits=1, creditType=review
+ *  03. wouldBlock=false when covered by allowance (even with 0 balance)
+ *  04. wouldBlock=true when allowance exhausted AND balance=0
+ *  05. wouldBlock=false when allowance exhausted but balance sufficient
  *  06. dry-run never writes to balance table
  *  07. dry-run never writes to ledger table
- *  08. message contains 실제 차감 when balance is sufficient
- *  09. message contains 막지 않습니다 when wouldBlock=true
+ *  08. message contains 실제 차감 when covered by allowance
+ *  09. message contains 막지 않습니다 when allowance exhausted and balance=0
  *  10. message contains 포함 기능 for included event
  *  11. actualDebitsEnabled is always false
  *  12. remainingAfter = max(0, balance - required)
  *  13. preview entries include currentBalance
- *  14. preview entries have wouldBlockIfEnforced=true when balance is 0
- *  15. preview entries have wouldBlockIfEnforced=false when balance is sufficient
+ *  14. preview entries have wouldBlockIfEnforced=true when allowance exhausted and balance=0
+ *  15. preview entries have wouldBlockIfEnforced=false when allowance exhausted and balance sufficient
  *  16. admin preview response includes enforcementPreview
  *  17. enforcementPreview.wouldBlockCount counts entries where wouldBlockIfEnforced=true
- *  18. PR review endpoint response includes creditDryRun field
- *  19. PR review still proceeds when creditDryRun.wouldBlock=true
+ *  18. allowance.coveredByAllowance=true when no prior events
+ *  19. allowance field absent for included event
+ *  20. allowance.periodKey is YYYY-MM format
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -65,6 +66,12 @@ function makeDb(opts = {}) {
               }
             },
             async first() {
+              // Allowance period count — SELECT COUNT(*) FROM workspace_usage_events (no GROUP BY)
+              if (sql.includes("SELECT COUNT(*)") && sql.includes("FROM workspace_usage_events") && !sql.includes("GROUP BY")) {
+                const [userKey, eventType] = args; // args[2]=periodStart, args[3]=periodEnd (ignored in mock)
+                const count = usageEvents.filter(e => e.user_key === userKey && e.event_type === eventType).length;
+                return { count };
+              }
               // getCreditBalance — SELECT credit_type, balance, updated_at
               if (sql.includes("SELECT credit_type, balance, updated_at") && !sql.includes("ORDER BY")) {
                 const [userKey, creditType] = args;
@@ -138,6 +145,13 @@ function makeEnv(balances = new Map(), usageEvents = []) {
   };
 }
 
+// helpers to build N exhausted-allowance events for a user
+function makeReviewEvents(userKey, count) {
+  return Array.from({ length: count }, (_, i) =>
+    makeUsageEvent(userKey, "workspace_pr_review_run", (i + 1) * 0.1)
+  );
+}
+
 function balanceMap(userKey, creditType, amount) {
   const m = new Map();
   m.set(`${userKey}:${creditType}`, { id: "b1", user_key: userKey, credit_type: creditType, balance: amount, created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z" });
@@ -169,35 +183,37 @@ describe("checkCreditEnforcementDryRun", () => {
     assert.equal(result.billingStatus, "included");
   });
 
-  it("02 — workspace_pr_review_run: requiredCredits=1, creditType=review", async () => {
-    const env = makeEnv();
+  it("02 — allowance exhausted: requiredCredits=1, creditType=review", async () => {
+    // 5 prior events exhaust allowance → requiredCredits = billing rule creditCost = 1
+    const env = makeEnv(new Map(), makeReviewEvents("u1", 5));
     const result = await checkCreditEnforcementDryRun({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
     assert.equal(result.requiredCredits, 1);
     assert.equal(result.creditType, "review");
     assert.equal(result.billingStatus, "billable_candidate");
   });
 
-  it("03 — wouldBlock=false when balance is sufficient", async () => {
-    const env = makeEnv(balanceMap("u1", "review", 5));
+  it("03 — wouldBlock=false when covered by allowance (even with 0 balance)", async () => {
+    const env = makeEnv(); // balance=0, usedThisPeriod=0 → covered by allowance
     const result = await checkCreditEnforcementDryRun({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
     assert.equal(result.wouldBlock, false);
-    assert.equal(result.currentBalance, 5);
-    assert.equal(result.remainingAfter, 4);
+    assert.equal(result.requiredCredits, 0);
+    assert.ok(result.allowance?.coveredByAllowance, "should be covered by allowance");
   });
 
-  it("04 — wouldBlock=true when balance is insufficient", async () => {
-    const env = makeEnv(); // balance = 0
+  it("04 — wouldBlock=true when allowance exhausted AND balance=0", async () => {
+    const env = makeEnv(new Map(), makeReviewEvents("u1", 5)); // balance=0, 5 prior events
     const result = await checkCreditEnforcementDryRun({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
     assert.equal(result.wouldBlock, true);
     assert.equal(result.currentBalance, 0);
     assert.equal(result.remainingAfter, 0);
   });
 
-  it("05 — wouldBlock=false when balance equals required", async () => {
-    const env = makeEnv(balanceMap("u1", "review", 1));
+  it("05 — wouldBlock=false when allowance exhausted but balance sufficient", async () => {
+    const env = makeEnv(balanceMap("u1", "review", 5), makeReviewEvents("u1", 5));
     const result = await checkCreditEnforcementDryRun({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
     assert.equal(result.wouldBlock, false);
-    assert.equal(result.remainingAfter, 0);
+    assert.equal(result.currentBalance, 5);
+    assert.equal(result.remainingAfter, 4); // 5 - 1 = 4
   });
 
   it("06 — dry-run never writes to balance table", async () => {
@@ -212,14 +228,15 @@ describe("checkCreditEnforcementDryRun", () => {
     assert.equal(env.DB._writeCount.ledger, 0);
   });
 
-  it("08 — message contains 실제 차감 when balance is sufficient", async () => {
-    const env = makeEnv(balanceMap("u1", "review", 10));
+  it("08 — message contains 차감하지 않습니다 when covered by allowance", async () => {
+    const env = makeEnv(); // usedThisPeriod=0 → covered
     const result = await checkCreditEnforcementDryRun({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
-    assert.ok(result.message.includes("실제 차감"), `message was: ${result.message}`);
+    assert.ok(result.message.includes("차감하지 않습니다"), `message was: ${result.message}`);
+    assert.ok(result.message.includes("무료 제공량"), `message was: ${result.message}`);
   });
 
-  it("09 — message contains 막지 않습니다 when wouldBlock=true", async () => {
-    const env = makeEnv();
+  it("09 — message contains 막지 않습니다 when allowance exhausted and balance=0", async () => {
+    const env = makeEnv(new Map(), makeReviewEvents("u1", 5)); // exhausted + no balance
     const result = await checkCreditEnforcementDryRun({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
     assert.ok(result.message.includes("막지 않습니다"), `message was: ${result.message}`);
   });
@@ -238,12 +255,14 @@ describe("checkCreditEnforcementDryRun", () => {
     }
   });
 
-  it("12 — remainingAfter = max(0, balance - required)", async () => {
-    const env = makeEnv(balanceMap("u1", "review", 3));
+  it("12 — remainingAfter with exhausted allowance = max(0, balance - required)", async () => {
+    // allowance exhausted (5 prior events), balance=3 → remainingAfter = 3-1 = 2
+    const env = makeEnv(balanceMap("u1", "review", 3), makeReviewEvents("u1", 5));
     const result = await checkCreditEnforcementDryRun({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
     assert.equal(result.remainingAfter, 2);
 
-    const envZero = makeEnv(); // balance=0, required=1 → remainingAfter=0 not -1
+    // allowance exhausted, balance=0 → remainingAfter=0 (not -1)
+    const envZero = makeEnv(new Map(), makeReviewEvents("u1", 5));
     const resultZero = await checkCreditEnforcementDryRun({ env: envZero, userKey: "u1", eventType: "workspace_pr_review_run" });
     assert.equal(resultZero.remainingAfter, 0);
   });
@@ -251,10 +270,11 @@ describe("checkCreditEnforcementDryRun", () => {
 
 // ─── Tests: preview entry annotations ─────────────────────────────────────────
 
-describe("previewCreditDebitFromUsageEvents with enforcement annotations", () => {
-  it("13 — preview entries include currentBalance", async () => {
+describe("previewCreditDebitFromUsageEvents with allowance + enforcement annotations", () => {
+  it("13 — preview entries include currentBalance (with allowance)", async () => {
+    // 6 events: 5 covered by allowance, 1 billable → entry appears with estimatedAmount=1
     const balances = balanceMap("u1", "review", 3);
-    const events = [makeUsageEvent("u1", "workspace_pr_review_run")];
+    const events = makeReviewEvents("u1", 6);
     const env = makeEnv(balances, events);
     const res = await reqWithEnv(env, "GET", "/admin/credits/preview?range=7d", null);
     const body = await res.json();
@@ -263,25 +283,27 @@ describe("previewCreditDebitFromUsageEvents with enforcement annotations", () =>
     assert.equal(entry.currentBalance, 3);
   });
 
-  it("14 — preview entries have wouldBlockIfEnforced=true when balance=0", async () => {
-    const events = [makeUsageEvent("u1", "workspace_pr_review_run")];
+  it("14 — wouldBlockIfEnforced=true when allowance exhausted and balance=0", async () => {
+    // 6 events: 5 covered, 1 billable; balance=0 → wouldBlock=true
+    const events = makeReviewEvents("u1", 6);
     const env = makeEnv(new Map(), events);
     const res = await reqWithEnv(env, "GET", "/admin/credits/preview?range=7d", null);
     const body = await res.json();
     const entry = body.previewEntries.find(e => e.eventType === "workspace_pr_review_run");
-    assert.ok(entry);
+    assert.ok(entry, "entry present");
     assert.equal(entry.wouldBlockIfEnforced, true);
     assert.equal(entry.currentBalance, 0);
   });
 
-  it("15 — preview entries have wouldBlockIfEnforced=false when balance is sufficient", async () => {
+  it("15 — wouldBlockIfEnforced=false when allowance exhausted and balance sufficient", async () => {
+    // 6 events: 1 billable; balance=5 → wouldBlock=false
     const balances = balanceMap("u1", "review", 5);
-    const events = [makeUsageEvent("u1", "workspace_pr_review_run")];
+    const events = makeReviewEvents("u1", 6);
     const env = makeEnv(balances, events);
     const res = await reqWithEnv(env, "GET", "/admin/credits/preview?range=7d", null);
     const body = await res.json();
     const entry = body.previewEntries.find(e => e.eventType === "workspace_pr_review_run");
-    assert.ok(entry);
+    assert.ok(entry, "entry present");
     assert.equal(entry.wouldBlockIfEnforced, false);
   });
 });
@@ -299,17 +321,44 @@ describe("admin preview enforcementPreview", () => {
     assert.equal(typeof body.enforcementPreview.checkedEventCount, "number");
   });
 
-  it("17 — enforcementPreview.wouldBlockCount counts wouldBlock entries", async () => {
-    // u1 has 0 balance → wouldBlock=true; u2 has 5 balance → wouldBlock=false
+  it("17 — enforcementPreview.wouldBlockCount counts entries where allowance exhausted and balance=0", async () => {
+    // u1: 6 events, balance=0 → estimatedAmount=1, wouldBlock=true
+    // u2: 6 events, balance=5 → estimatedAmount=1, wouldBlock=false
     const balances = balanceMap("u2", "review", 5);
     const events = [
-      makeUsageEvent("u1", "workspace_pr_review_run"),
-      makeUsageEvent("u2", "workspace_pr_review_run"),
+      ...makeReviewEvents("u1", 6),
+      ...makeReviewEvents("u2", 6),
     ];
     const env = makeEnv(balances, events);
     const res = await reqWithEnv(env, "GET", "/admin/credits/preview?range=7d", null);
     const body = await res.json();
     assert.equal(body.enforcementPreview.wouldBlockCount, 1);
     assert.equal(body.enforcementPreview.checkedEventCount, 2);
+  });
+});
+
+// ─── Tests: allowance field ───────────────────────────────────────────────────
+
+describe("allowance field in checkCreditEnforcementDryRun", () => {
+  it("18 — allowance.coveredByAllowance=true when no prior events", async () => {
+    const env = makeEnv(); // usageEvents=[] → usedThisPeriod=0 → covered
+    const result = await checkCreditEnforcementDryRun({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
+    assert.ok(result.allowance, "allowance field present");
+    assert.equal(result.allowance.coveredByAllowance, true);
+    assert.equal(result.allowance.usedThisPeriod, 0);
+    assert.equal(result.allowance.remainingIncludedRuns, 5);
+  });
+
+  it("19 — allowance field absent for included event", async () => {
+    const env = makeEnv();
+    const result = await checkCreditEnforcementDryRun({ env, userKey: "u1", eventType: "workspace_pr_comment_posted" });
+    assert.equal(result.allowance, undefined, "allowance should be absent for included event");
+  });
+
+  it("20 — allowance.periodKey is YYYY-MM format", async () => {
+    const env = makeEnv();
+    const result = await checkCreditEnforcementDryRun({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
+    assert.ok(result.allowance, "allowance field present");
+    assert.match(result.allowance.periodKey, /^\d{4}-\d{2}$/, `periodKey was: ${result.allowance.periodKey}`);
   });
 });

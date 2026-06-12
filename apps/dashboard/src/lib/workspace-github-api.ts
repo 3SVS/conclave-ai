@@ -275,6 +275,16 @@ export type CreditEnforcementDryRun = {
   currentBalance: number;
   remainingAfter: number;
   message: string;
+  allowance?: {
+    enabled: true;
+    period: "monthly";
+    periodKey: string;
+    includedRuns: number;
+    usedThisPeriod: number;
+    remainingIncludedRuns: number;
+    coveredByAllowance: boolean;
+    billableUnitsAfterAllowance: number;
+  };
 };
 
 export type StartReviewResponse =

@@ -3,9 +3,10 @@
  *
  * Credit enforcement dry-run helper.
  *
- * IMPORTANT: Stage 21 — dry-run only.
+ * IMPORTANT: Stage 22 — dry-run only.
  * - actualDebitsEnabled is always false.
- * - wouldBlock=true signals that credit would be insufficient,
+ * - Monthly allowance covers the first 5 PR reviews per workspace per month.
+ * - wouldBlock=true signals insufficient credit after allowance,
  *   but the feature is NEVER blocked and credits are NEVER debited.
  * - No D1 writes happen here.
  */
@@ -14,6 +15,8 @@ import { getBillingRule } from "./billing-rules.js";
 import { getCreditBalance } from "./credits.js";
 import type { CreditType } from "./credits.js";
 import type { BillingStatus } from "./billing-rules.js";
+import { getAllowanceDryRun } from "./allowance-usage.js";
+import type { AllowanceDryRun } from "./allowance-usage.js";
 
 export type CreditEnforcementDryRun = {
   actualDebitsEnabled: false;
@@ -25,13 +28,24 @@ export type CreditEnforcementDryRun = {
   currentBalance: number;
   remainingAfter: number;
   message: string;
+  allowance?: {
+    enabled: true;
+    period: "monthly";
+    periodKey: string;
+    includedRuns: number;
+    usedThisPeriod: number;
+    remainingIncludedRuns: number;
+    coveredByAllowance: boolean;
+    billableUnitsAfterAllowance: number;
+  };
 };
 
 function buildMessage(
   billingStatus: BillingStatus,
   wouldBlock: boolean,
   requiredCredits: number,
-  creditType?: CreditType,
+  creditType: CreditType | undefined,
+  allowance: AllowanceDryRun | null,
 ): string {
   if (billingStatus === "included" || billingStatus === "ignored") {
     return "이 기능은 현재 포함 기능으로 분류되어 credit이 필요하지 않습니다.";
@@ -40,11 +54,14 @@ function buildMessage(
     return "이 기능은 향후 과금 예정이지만 현재는 무료입니다.";
   }
   // billable_candidate
+  if (allowance?.coveredByAllowance) {
+    return "이번 PR 코드 확인은 월 무료 제공량 안에 포함됩니다. 현재는 실제 credit을 차감하지 않습니다.";
+  }
   const typeLabel = creditType === "review" ? "review credit" : creditType ?? "credit";
   if (wouldBlock) {
-    return `${typeLabel}이 부족할 예정이지만, 현재는 테스트 기간이라 실행을 막지 않습니다.`;
+    return `월 무료 제공량을 초과했고 ${typeLabel}이 부족할 예정입니다. 현재는 테스트 기간이라 실행을 막지 않습니다.`;
   }
-  return `이 실행은 ${requiredCredits} ${typeLabel}이 필요할 예정입니다. 현재는 실제 차감하지 않습니다.`;
+  return `월 무료 제공량을 초과하면 ${requiredCredits} ${typeLabel}이 필요할 예정입니다. 현재는 실제 차감하지 않습니다.`;
 }
 
 export async function checkCreditEnforcementDryRun({
@@ -58,7 +75,7 @@ export async function checkCreditEnforcementDryRun({
 }): Promise<CreditEnforcementDryRun> {
   const rule = getBillingRule(eventType);
 
-  // Non-billable: no balance query needed
+  // Non-billable: no queries needed
   if (rule.billingStatus !== "billable_candidate" || !rule.creditType || rule.creditCost <= 0) {
     return {
       actualDebitsEnabled: false,
@@ -69,24 +86,33 @@ export async function checkCreditEnforcementDryRun({
       requiredCredits: 0,
       currentBalance: 0,
       remainingAfter: 0,
-      message: buildMessage(rule.billingStatus, false, 0, rule.creditType as CreditType | undefined),
+      message: buildMessage(rule.billingStatus, false, 0, rule.creditType as CreditType | undefined, null),
     };
   }
 
   const creditType = rule.creditType as CreditType;
-  const requiredCredits = rule.creditCost;
 
-  // Query balance (non-fatal: treat missing balance as 0)
+  // Check monthly allowance first (non-fatal)
+  let allowance: AllowanceDryRun | null = null;
+  try {
+    allowance = await getAllowanceDryRun({ env, userKey, eventType });
+  } catch {
+    allowance = null;
+  }
+
+  // Covered by allowance → requiredCredits=0, wouldBlock=false
+  const requiredCredits = allowance?.coveredByAllowance ? 0 : rule.creditCost;
+
+  // Query current balance for informational purposes (non-fatal)
   let currentBalance = 0;
   try {
     const balanceRow = await getCreditBalance(env, userKey, creditType);
     currentBalance = balanceRow?.balance ?? 0;
   } catch {
-    // Balance table may not have a row yet — that's fine, treat as 0
     currentBalance = 0;
   }
 
-  const wouldBlock = currentBalance < requiredCredits;
+  const wouldBlock = allowance?.coveredByAllowance ? false : currentBalance < requiredCredits;
   const remainingAfter = Math.max(0, currentBalance - requiredCredits);
 
   return {
@@ -98,6 +124,7 @@ export async function checkCreditEnforcementDryRun({
     requiredCredits,
     currentBalance,
     remainingAfter,
-    message: buildMessage(rule.billingStatus, wouldBlock, requiredCredits, creditType),
+    message: buildMessage(rule.billingStatus, wouldBlock, requiredCredits, creditType, allowance),
+    ...(allowance ? { allowance } : {}),
   };
 }

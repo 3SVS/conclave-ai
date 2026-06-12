@@ -1,7 +1,7 @@
 /**
  * workspace-admin-credits.test.mjs
  *
- * Stage 20: credit ledger skeleton — balance, grant, ledger, preview.
+ * Stage 22: credit ledger + allowance-aware preview.
  *
  * Tests:
  *  01. GET /admin/credits — 503 when key not set
@@ -18,12 +18,16 @@
  *  12. GET /admin/credits/ledger — returns ledger entries ordered by created_at DESC
  *  13. GET /admin/credits/ledger — 401 on missing key
  *  14. GET /admin/credits/preview — actualDebitsEnabled is false
- *  15. GET /admin/credits/preview — maps workspace_pr_review_run to review credit
+ *  15. GET /admin/credits/preview — maps workspace_pr_review_run to review credit (allowance-exhausted)
  *  16. GET /admin/credits/preview — does NOT include included events
- *  17. GET /admin/credits/preview — totalEstimatedCredits sums billable events
+ *  17. GET /admin/credits/preview — totalEstimatedCredits sums billable events after allowance
  *  18. GET /admin/credits/preview — userKey filter scopes to one user
  *  19. GET /admin/credits/preview — empty when no billable events
  *  20. GET /admin/credits/preview — invalid range defaults to 7d
+ *  21. GET /admin/credits/preview — allowance field present on pr_review_run entry
+ *  22. GET /admin/credits/preview — estimatedAmount=0 when all events covered by allowance
+ *  23. GET /admin/credits/preview — estimatedAmount=1 when allowance exhausted (6 events)
+ *  24. GET /admin/credits/preview — totalEstimatedCredits correct after allowance
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -71,6 +75,12 @@ function makeDb(usageEvents = []) {
               }
             },
             async first() {
+              // Allowance period count — SELECT COUNT(*) FROM workspace_usage_events (no GROUP BY)
+              if (sql.includes("SELECT COUNT(*)") && sql.includes("FROM workspace_usage_events") && !sql.includes("GROUP BY")) {
+                const [userKey, eventType] = args; // args[2]=periodStart, args[3]=periodEnd (ignored in mock)
+                const count = stored.filter(e => e.user_key === userKey && e.event_type === eventType).length;
+                return { count };
+              }
               // SELECT balance from credit_balances
               if (sql.includes("SELECT balance FROM workspace_credit_balances")) {
                 const [userKey, creditType] = args;
@@ -83,7 +93,6 @@ function makeDb(usageEvents = []) {
                 const [userKey, creditType] = args;
                 return balances.get(`${userKey}:${creditType}`) ?? null;
               }
-              // Usage events for preview (first() not used here)
               return null;
             },
             async all() {
@@ -149,6 +158,10 @@ function makeEnv(override = {}) {
 
 function makeEnvWithUsage(events, override = {}) {
   return { ENVIRONMENT: "test", ADMIN_USAGE_STATS_KEY: ADMIN_KEY, DB: makeDb(events), ...override };
+}
+
+function makeReviewEvents(userKey, count) {
+  return Array.from({ length: count }, (_, i) => makeUsageEvent(userKey, "workspace_pr_review_run", (i + 1) * 0.1));
 }
 
 function req(method, path, body) {
@@ -313,11 +326,9 @@ describe("admin credit endpoints", () => {
     assert.equal(body.actualDebitsEnabled, false);
   });
 
-  it("15 — preview maps workspace_pr_review_run to review credit", async () => {
-    const env = makeEnvWithUsage([
-      makeUsageEvent("u1", "workspace_pr_review_run"),
-      makeUsageEvent("u1", "workspace_pr_review_run"),
-    ]);
+  it("15 — preview maps workspace_pr_review_run to review credit (allowance exhausted)", async () => {
+    // 7 events: 5 covered by allowance, 2 billable → estimatedAmount=2
+    const env = makeEnvWithUsage(makeReviewEvents("u1", 7));
     const res = await reqWithEnv(env, "GET", "/admin/credits/preview?range=7d", null);
     const body = await res.json();
     const entry = body.previewEntries.find((e) => e.eventType === "workspace_pr_review_run");
@@ -337,11 +348,11 @@ describe("admin credit endpoints", () => {
     assert.equal(body.totalEstimatedCredits, 0);
   });
 
-  it("17 — preview totalEstimatedCredits sums billable events", async () => {
+  it("17 — preview totalEstimatedCredits sums billable events after allowance", async () => {
+    // u1: 6 events (1 billable), u2: 7 events (2 billable), u1 included: 0
     const env = makeEnvWithUsage([
-      makeUsageEvent("u1", "workspace_pr_review_run"),
-      makeUsageEvent("u2", "workspace_pr_review_run"),
-      makeUsageEvent("u2", "workspace_pr_review_run"),
+      ...makeReviewEvents("u1", 6),
+      ...makeReviewEvents("u2", 7),
       makeUsageEvent("u1", "workspace_pr_comment_posted"), // 0 credit
     ]);
     const res = await reqWithEnv(env, "GET", "/admin/credits/preview?range=7d", null);
@@ -350,10 +361,10 @@ describe("admin credit endpoints", () => {
   });
 
   it("18 — preview userKey filter scopes to one user", async () => {
+    // u1: 6 events (1 billable), u2: 7 events (2 billable) — filter to u1
     const env = makeEnvWithUsage([
-      makeUsageEvent("u1", "workspace_pr_review_run"),
-      makeUsageEvent("u2", "workspace_pr_review_run"),
-      makeUsageEvent("u2", "workspace_pr_review_run"),
+      ...makeReviewEvents("u1", 6),
+      ...makeReviewEvents("u2", 7),
     ]);
     const res = await reqWithEnv(env, "GET", "/admin/credits/preview?range=7d&userKey=u1", null);
     const body = await res.json();
@@ -371,5 +382,51 @@ describe("admin credit endpoints", () => {
     const body = await res.json();
     assert.equal(body.ok, true);
     assert.equal(body.range, "7d");
+  });
+
+  it("21 — preview entry includes allowance field for pr_review_run", async () => {
+    // 6 events: entry should include allowance metadata
+    const env = makeEnvWithUsage(makeReviewEvents("u1", 6));
+    const res = await reqWithEnv(env, "GET", "/admin/credits/preview?range=7d", null);
+    const body = await res.json();
+    const entry = body.previewEntries.find((e) => e.eventType === "workspace_pr_review_run");
+    assert.ok(entry, "entry present");
+    assert.ok(entry.allowance, "allowance field present");
+    assert.equal(entry.allowance.includedRuns, 5);
+    assert.ok(entry.allowance.periodKey.match(/^\d{4}-\d{2}$/), `periodKey: ${entry.allowance.periodKey}`);
+  });
+
+  it("22 — estimatedAmount=0 when all events covered by allowance (3 events)", async () => {
+    const env = makeEnvWithUsage(makeReviewEvents("u1", 3));
+    const res = await reqWithEnv(env, "GET", "/admin/credits/preview?range=7d", null);
+    const body = await res.json();
+    const entry = body.previewEntries.find((e) => e.eventType === "workspace_pr_review_run");
+    // Entry still present (not filtered out), but estimatedAmount=0 since covered
+    if (entry) {
+      assert.equal(entry.estimatedAmount, 0);
+      assert.ok(entry.allowance?.coveredByAllowance, "coveredByAllowance should be true");
+    }
+    assert.equal(body.totalEstimatedCredits, 0);
+  });
+
+  it("23 — estimatedAmount=1 when allowance exhausted (6 events)", async () => {
+    const env = makeEnvWithUsage(makeReviewEvents("u1", 6));
+    const res = await reqWithEnv(env, "GET", "/admin/credits/preview?range=7d", null);
+    const body = await res.json();
+    const entry = body.previewEntries.find((e) => e.eventType === "workspace_pr_review_run");
+    assert.ok(entry, "entry present");
+    assert.equal(entry.estimatedAmount, 1);
+    assert.equal(body.totalEstimatedCredits, 1);
+  });
+
+  it("24 — totalEstimatedCredits correct after allowance with multiple users", async () => {
+    // u1: 5 events (0 billable — exactly at limit), u2: 8 events (3 billable)
+    const env = makeEnvWithUsage([
+      ...makeReviewEvents("u1", 5),
+      ...makeReviewEvents("u2", 8),
+    ]);
+    const res = await reqWithEnv(env, "GET", "/admin/credits/preview?range=7d", null);
+    const body = await res.json();
+    assert.equal(body.totalEstimatedCredits, 3);
   });
 });

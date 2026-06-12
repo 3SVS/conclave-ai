@@ -1227,17 +1227,39 @@ function ReviewResultPanel({ run, onRerun }: { run: ReviewRun; onRerun: () => vo
 function CreditDryRunBanner({ dryRun }: { dryRun: CreditEnforcementDryRun }) {
   if (dryRun.billingStatus === "included" || dryRun.billingStatus === "ignored") return null;
 
+  const covered = dryRun.allowance?.coveredByAllowance === true;
   const isWouldBlock = dryRun.wouldBlock;
-  const borderColor = isWouldBlock
+
+  const borderColor = covered
+    ? "border-green-100 bg-green-50"
+    : isWouldBlock
     ? "border-amber-200 bg-amber-50"
     : "border-blue-100 bg-blue-50";
-  const textColor = isWouldBlock ? "text-amber-700" : "text-blue-700";
-  const labelColor = isWouldBlock ? "text-amber-600" : "text-blue-600";
+  const textColor = covered
+    ? "text-green-700"
+    : isWouldBlock
+    ? "text-amber-700"
+    : "text-blue-700";
+  const labelColor = covered
+    ? "text-green-600"
+    : isWouldBlock
+    ? "text-amber-600"
+    : "text-blue-600";
+
+  const headerLabel = covered ? "월 무료 제공량 안에 포함" : "예상 credit 확인";
 
   return (
     <div className={`mt-3 border rounded-xl px-4 py-3 ${borderColor}`}>
-      <p className={`text-xs font-semibold mb-1 ${textColor}`}>예상 credit 확인</p>
+      <p className={`text-xs font-semibold mb-1 ${textColor}`}>{headerLabel}</p>
       <p className={`text-xs ${labelColor}`}>{dryRun.message}</p>
+      {dryRun.allowance && (
+        <p className="text-xs text-gray-500 mt-1">
+          이번 달 사용: {dryRun.allowance.usedThisPeriod} / {dryRun.allowance.includedRuns}회
+          {dryRun.allowance.coveredByAllowance
+            ? ` · 남은 무료 ${dryRun.allowance.remainingIncludedRuns}회`
+            : ""}
+        </p>
+      )}
       <p className="text-xs text-gray-400 mt-1">실제 차감 없음 · 실행은 허용됨</p>
     </div>
   );

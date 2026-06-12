@@ -55,6 +55,12 @@ export type PreviewEntry = {
   estimatedAmount: number;
   currentBalance?: number;
   wouldBlockIfEnforced?: boolean;
+  allowance?: {
+    periodKey: string;
+    includedRuns: number;
+    usedBeforeThisEvent: number;
+    coveredByAllowance: boolean;
+  };
   reason: string;
   createdAt: string;
 };
