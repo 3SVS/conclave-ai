@@ -319,6 +319,118 @@ export async function getLatestPRReview(
   }
 }
 
+// ─── PR Comment ───────────────────────────────────────────────────────────────
+
+export type CommentSummary = {
+  failed: number;
+  inconclusive: number;
+  needsDecision: number;
+  passed: number;
+};
+
+export type PreviewCommentResponse =
+  | {
+      ok: true;
+      comment: { body: string; selectedItemIds: string[]; summary: CommentSummary };
+      warnings?: string[];
+    }
+  | { ok: false; error: string; message?: string };
+
+export type PostedComment = {
+  id: string;
+  status: "posted";
+  githubCommentId: string;
+  githubCommentUrl: string;
+  bodyPreview: string;
+  createdAt: string;
+};
+
+export type PostCommentResponse =
+  | { ok: true; comment: PostedComment }
+  | { ok: false; error: string; message?: string };
+
+export type ListedComment = {
+  id: string;
+  status: string;
+  githubCommentUrl?: string;
+  bodyPreview: string;
+  errorMessage?: string;
+  createdAt: string;
+};
+
+export type ListCommentsResponse =
+  | { ok: true; comments: ListedComment[] }
+  | { ok: false; error: string };
+
+export async function previewPRComment(
+  projectId: string,
+  prNumber: number,
+  input: {
+    userKey: string;
+    selectedItemIds?: string[];
+    includeFixBrief?: boolean;
+  },
+): Promise<PreviewCommentResponse> {
+  try {
+    const resp = await fetch(
+      `${CENTRAL_PLANE_URL}/workspace/projects/${encodeURIComponent(projectId)}/github/pulls/${prNumber}/comment/preview`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+        signal: AbortSignal.timeout(15000),
+      },
+    );
+    const data = await resp.json().catch(() => ({ ok: false, error: `HTTP ${resp.status}` })) as PreviewCommentResponse;
+    return data;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+export async function postPRComment(
+  projectId: string,
+  prNumber: number,
+  input: {
+    userKey: string;
+    selectedItemIds?: string[];
+    body?: string;
+    includeFixBrief?: boolean;
+  },
+): Promise<PostCommentResponse> {
+  try {
+    const resp = await fetch(
+      `${CENTRAL_PLANE_URL}/workspace/projects/${encodeURIComponent(projectId)}/github/pulls/${prNumber}/comment`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+        signal: AbortSignal.timeout(20000),
+      },
+    );
+    const data = await resp.json().catch(() => ({ ok: false, error: `HTTP ${resp.status}` })) as PostCommentResponse;
+    return data;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+export async function listPRComments(
+  projectId: string,
+  prNumber: number,
+): Promise<ListCommentsResponse> {
+  try {
+    const resp = await fetch(
+      `${CENTRAL_PLANE_URL}/workspace/projects/${encodeURIComponent(projectId)}/github/pulls/${prNumber}/comments`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    if (!resp.ok) return { ok: false, error: `HTTP ${resp.status}` };
+    return (await resp.json()) as ListCommentsResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
 // ─── PR Fix Brief ─────────────────────────────────────────────────────────────
 
 export type FixBriefFile = {

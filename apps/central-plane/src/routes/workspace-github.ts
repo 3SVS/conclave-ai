@@ -43,6 +43,13 @@ import { getProject } from "../workspace/db.js";
 import type { CheckableItem, ProductSpecForCheck } from "../workspace/check.js";
 import { generatePRFixBrief } from "../workspace/pr-fix-brief.js";
 import type { FixBriefItem, FixBriefTarget } from "../workspace/pr-fix-brief.js";
+import {
+  insertPrComment, updatePrComment, getPrComments,
+} from "../workspace/pr-comment-db.js";
+import {
+  buildCommentBody, bodyPreview, postGitHubComment, hasPrCommentScope,
+} from "../workspace/pr-comment.js";
+import type { CommentResultItem } from "../workspace/pr-comment.js";
 
 // ─── CORS helpers (shared with workspace.ts) ──────────────────────────────────
 
@@ -781,6 +788,268 @@ export function createWorkspaceGitHubRoutes(
     });
 
     return json(result, 200, origin);
+  });
+
+  // ── POST /workspace/projects/:id/github/pulls/:number/comment/preview ────
+  // Generate a comment body preview without posting to GitHub.
+  app.post("/workspace/projects/:id/github/pulls/:number/comment/preview", async (c) => {
+    const origin = c.req.header("origin") ?? null;
+    const projectId = c.req.param("id");
+    const prNumber = parseInt(c.req.param("number"), 10);
+    if (isNaN(prNumber) || prNumber < 1) {
+      return json({ ok: false, error: "invalid_pr_number" }, 400, origin);
+    }
+
+    let body: unknown;
+    try { body = await c.req.json(); } catch {
+      return json({ ok: false, error: "invalid_json" }, 400, origin);
+    }
+    const b = body as Record<string, unknown>;
+    const userKey = typeof b["userKey"] === "string" ? b["userKey"] : "";
+    if (!userKey) return json({ ok: false, error: "userKey_required" }, 400, origin);
+
+    const bodySelectedIds = Array.isArray(b["selectedItemIds"])
+      ? (b["selectedItemIds"] as unknown[]).filter((x): x is string => typeof x === "string")
+      : undefined;
+    const includeFixBrief = b["includeFixBrief"] === true;
+
+    // 1. Get linked repo
+    const repo = await getProjectRepo(c.env, projectId).catch(() => null);
+    if (!repo) return json({ ok: false, error: "no_repo_linked" }, 400, origin);
+
+    // 2. Get latest review run
+    const run = await getLatestReviewRun(c.env, projectId, repo.repoFullName, prNumber).catch(() => null);
+    if (!run) return json({ ok: false, error: "no_review_run" }, 400, origin);
+
+    // 3. Parse review results
+    let reviewResults: CommentResultItem[] = [];
+    if (run.resultJson) {
+      try {
+        const parsed = JSON.parse(run.resultJson) as { results?: unknown[] };
+        if (Array.isArray(parsed.results)) reviewResults = parsed.results as CommentResultItem[];
+      } catch { /* ignored */ }
+    }
+    if (reviewResults.length === 0) {
+      return json({ ok: false, error: "no_review_results" }, 400, origin);
+    }
+
+    // 4. Determine selectedItemIds
+    const selectedItemIds = bodySelectedIds?.length
+      ? bodySelectedIds
+      : run.selectedItemIds;
+
+    const selectedItems = reviewResults.filter((r) => selectedItemIds.includes(r.itemId));
+    const summary = {
+      failed: selectedItems.filter((r) => r.status === "failed").length,
+      inconclusive: selectedItems.filter((r) => r.status === "inconclusive").length,
+      needsDecision: selectedItems.filter((r) => r.status === "needs_decision").length,
+      passed: selectedItems.filter((r) => r.status === "passed").length,
+    };
+
+    // 5. Get PR title
+    const linkedPRs = await getLinkedPRs(c.env, projectId).catch(() => []);
+    const linkedPR = linkedPRs.find((p) => p.prNumber === prNumber);
+    const prTitle = linkedPR?.prTitle ?? `PR #${prNumber}`;
+
+    // 6. Build body
+    const warnings: string[] = [];
+    const { body: commentBody, truncated } = buildCommentBody({
+      repoFullName: repo.repoFullName,
+      prNumber,
+      prTitle,
+      selectedItems,
+      summary,
+      includeFixBrief,
+    });
+    if (truncated) warnings.push("코멘트가 너무 길어 일부 내용이 잘렸습니다.");
+
+    return json({
+      ok: true,
+      comment: { body: commentBody, selectedItemIds, summary },
+      warnings: warnings.length ? warnings : undefined,
+    }, 200, origin);
+  });
+
+  // ── POST /workspace/projects/:id/github/pulls/:number/comment ─────────────
+  // Post a comment to the GitHub PR and record it in D1.
+  app.post("/workspace/projects/:id/github/pulls/:number/comment", async (c) => {
+    const origin = c.req.header("origin") ?? null;
+    const projectId = c.req.param("id");
+    const prNumber = parseInt(c.req.param("number"), 10);
+    if (isNaN(prNumber) || prNumber < 1) {
+      return json({ ok: false, error: "invalid_pr_number" }, 400, origin);
+    }
+
+    let body: unknown;
+    try { body = await c.req.json(); } catch {
+      return json({ ok: false, error: "invalid_json" }, 400, origin);
+    }
+    const b = body as Record<string, unknown>;
+    const userKey = typeof b["userKey"] === "string" ? b["userKey"] : "";
+    if (!userKey) return json({ ok: false, error: "userKey_required" }, 400, origin);
+
+    const bodySelectedIds = Array.isArray(b["selectedItemIds"])
+      ? (b["selectedItemIds"] as unknown[]).filter((x): x is string => typeof x === "string")
+      : undefined;
+    const customBody = typeof b["body"] === "string" ? b["body"] : undefined;
+    const includeFixBrief = b["includeFixBrief"] === true;
+
+    // 1. Get linked repo
+    const repo = await getProjectRepo(c.env, projectId).catch(() => null);
+    if (!repo) return json({ ok: false, error: "no_repo_linked" }, 400, origin);
+
+    // 2. GitHub connection + scope check
+    if (!c.env.CONCLAVE_TOKEN_KEK) {
+      return json({ ok: false, error: "token_unavailable" }, 503, origin);
+    }
+    const conn = await getGitHubConnectionByUserKey(c.env, userKey).catch(() => null);
+    if (!conn) return json({ ok: false, error: "not_connected" }, 401, origin);
+
+    if (!hasPrCommentScope(conn.scopes)) {
+      return json({
+        ok: false,
+        error: "github_scope_required",
+        message: "GitHub PR에 코멘트를 남기려면 권한을 다시 연결해야 해요.",
+      }, 403, origin);
+    }
+
+    let token: string;
+    try {
+      token = await decryptToken(conn.accessTokenEnc, c.env.CONCLAVE_TOKEN_KEK);
+    } catch {
+      return json({ ok: false, error: "token_decrypt_failed" }, 503, origin);
+    }
+
+    // 3. Get latest review run
+    const run = await getLatestReviewRun(c.env, projectId, repo.repoFullName, prNumber).catch(() => null);
+    if (!run) return json({ ok: false, error: "no_review_run" }, 400, origin);
+
+    // 4. Parse review results
+    let reviewResults: CommentResultItem[] = [];
+    if (run.resultJson) {
+      try {
+        const parsed = JSON.parse(run.resultJson) as { results?: unknown[] };
+        if (Array.isArray(parsed.results)) reviewResults = parsed.results as CommentResultItem[];
+      } catch { /* ignored */ }
+    }
+
+    // 5. Build or use provided body
+    const selectedItemIds = bodySelectedIds?.length ? bodySelectedIds : run.selectedItemIds;
+    const selectedItems = reviewResults.filter((r) => selectedItemIds.includes(r.itemId));
+
+    let commentBody: string;
+    if (customBody) {
+      commentBody = customBody;
+    } else {
+      const linkedPRs = await getLinkedPRs(c.env, projectId).catch(() => []);
+      const linkedPR = linkedPRs.find((p) => p.prNumber === prNumber);
+      const prTitle = linkedPR?.prTitle ?? `PR #${prNumber}`;
+      const summary = {
+        failed: selectedItems.filter((r) => r.status === "failed").length,
+        inconclusive: selectedItems.filter((r) => r.status === "inconclusive").length,
+        needsDecision: selectedItems.filter((r) => r.status === "needs_decision").length,
+        passed: selectedItems.filter((r) => r.status === "passed").length,
+      };
+      const { body: built } = buildCommentBody({
+        repoFullName: repo.repoFullName, prNumber, prTitle, selectedItems, summary, includeFixBrief,
+      });
+      commentBody = built;
+    }
+
+    // 6. Insert draft record
+    const preview = bodyPreview(commentBody);
+    const dbComment = await insertPrComment(c.env, {
+      projectId, userKey,
+      repoFullName: repo.repoFullName,
+      prNumber,
+      reviewRunId: run.id,
+      selectedItemIds,
+      bodyPreview: preview,
+      status: "draft",
+    }).catch(() => null);
+    if (!dbComment) return json({ ok: false, error: "comment_create_failed" }, 500, origin);
+
+    // 7. Post to GitHub
+    const [owner, repoName] = repo.repoFullName.split("/");
+    const postResult = await postGitHubComment(
+      { owner: owner ?? "", repo: repoName ?? "", issueNumber: prNumber, body: commentBody, token },
+      fetchImpl,
+    );
+
+    if (!postResult.ok) {
+      const errStatus = postResult.status;
+      await updatePrComment(c.env, dbComment.id, {
+        status: "error",
+        errorMessage: postResult.error,
+      });
+
+      if (errStatus === 403) {
+        return json({
+          ok: false,
+          error: "github_scope_required",
+          message: "GitHub 권한이 부족하거나 접근할 수 없는 저장소예요. 공개 저장소인지 확인하거나 GitHub 권한을 다시 연결해주세요.",
+        }, 403, origin);
+      }
+      if (errStatus === 404) {
+        return json({
+          ok: false,
+          error: "repo_not_found",
+          message: "GitHub 권한이 부족하거나 접근할 수 없는 저장소예요. 공개 저장소인지 확인하거나 GitHub 권한을 다시 연결해주세요.",
+        }, 404, origin);
+      }
+      return json({ ok: false, error: "github_post_failed", details: postResult.error }, 502, origin);
+    }
+
+    // 8. Update record with posted result
+    await updatePrComment(c.env, dbComment.id, {
+      status: "posted",
+      githubCommentId: postResult.id,
+      githubCommentUrl: postResult.url,
+    });
+
+    return json({
+      ok: true,
+      comment: {
+        id: dbComment.id,
+        status: "posted",
+        githubCommentId: postResult.id,
+        githubCommentUrl: postResult.url,
+        bodyPreview: preview,
+        createdAt: dbComment.createdAt,
+      },
+    }, 200, origin);
+  });
+
+  // ── GET /workspace/projects/:id/github/pulls/:number/comments ─────────────
+  // List comment records for a PR (most recent first).
+  app.get("/workspace/projects/:id/github/pulls/:number/comments", async (c) => {
+    const origin = c.req.header("origin") ?? null;
+    const projectId = c.req.param("id");
+    const prNumber = parseInt(c.req.param("number"), 10);
+    if (isNaN(prNumber) || prNumber < 1) {
+      return json({ ok: false, error: "invalid_pr_number" }, 400, origin);
+    }
+
+    const repo = await getProjectRepo(c.env, projectId).catch(() => null);
+    if (!repo) return json({ ok: true, comments: [] }, 200, origin);
+
+    try {
+      const comments = await getPrComments(c.env, projectId, repo.repoFullName, prNumber);
+      return json({
+        ok: true,
+        comments: comments.map((c2) => ({
+          id: c2.id,
+          status: c2.status,
+          githubCommentUrl: c2.githubCommentUrl,
+          bodyPreview: c2.bodyPreview,
+          errorMessage: c2.errorMessage,
+          createdAt: c2.createdAt,
+        })),
+      }, 200, origin);
+    } catch (err) {
+      console.error("[workspace/github/pulls/comments GET] failed:", err);
+      return json({ ok: false, error: "fetch_failed" }, 500, origin);
+    }
   });
 
   return app;

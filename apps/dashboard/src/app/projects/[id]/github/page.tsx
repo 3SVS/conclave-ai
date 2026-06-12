@@ -13,6 +13,9 @@ import {
   startPRReview,
   getLatestPRReview,
   generatePRFixBrief,
+  previewPRComment,
+  postPRComment,
+  listPRComments,
   type GitHubPull,
   type LinkedPull,
   type LinkedRepo,
@@ -20,6 +23,7 @@ import {
   type FixBriefTarget,
   type FixBriefResponse,
   type FixBriefFile,
+  type ListedComment,
 } from "@/lib/workspace-github-api";
 import { StatusBadge } from "@/components/StatusBadge";
 import type { ItemStatus } from "@/lib/labels";
@@ -404,6 +408,16 @@ export default function GitHubPage() {
                                 />
                               </div>
                             )}
+                            {run.results && run.results.length > 0 && (
+                              <div className="mt-4 pt-4 border-t border-gray-100">
+                                <PRCommentPanel
+                                  run={run}
+                                  lp={lp}
+                                  projectId={id}
+                                  userKey={userKey}
+                                />
+                              </div>
+                            )}
                           </>
                         )}
                       </div>
@@ -414,6 +428,230 @@ export default function GitHubPage() {
             </div>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+// ─── PRCommentPanel ──────────────────────────────────────────────────────────
+
+function PRCommentPanel({
+  run,
+  lp,
+  projectId,
+  userKey,
+}: {
+  run: ReviewRun;
+  lp: LinkedPull;
+  projectId: string;
+  userKey: string;
+}) {
+  const allResults = run.results ?? [];
+  const fixable = allResults.filter(
+    (r) => r.status === "failed" || r.status === "inconclusive" || r.status === "needs_decision",
+  );
+  const defaultSelected = new Set(
+    [...fixable]
+      .sort((a, b) => (a.status === "failed" ? -1 : b.status === "failed" ? 1 : 0))
+      .slice(0, 3)
+      .map((r) => r.itemId),
+  );
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(defaultSelected);
+  const [previewPhase, setPreviewPhase] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [previewBody, setPreviewBody] = useState<string | null>(null);
+  const [postPhase, setPostPhase] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [postedUrl, setPostedUrl] = useState<string | null>(null);
+  const [scopeError, setScopeError] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [pastComments, setPastComments] = useState<ListedComment[]>([]);
+  const [pastLoaded, setPastLoaded] = useState(false);
+
+  function toggleId(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function handlePreview() {
+    setPreviewPhase("loading");
+    setPreviewBody(null);
+    setScopeError(false);
+    setErrorMsg(null);
+    const res = await previewPRComment(projectId, lp.number, {
+      userKey,
+      selectedItemIds: Array.from(selectedIds),
+    });
+    if (res.ok) {
+      setPreviewBody(res.comment.body);
+      setPreviewPhase("done");
+    } else {
+      setPreviewPhase("error");
+      setErrorMsg(res.message ?? res.error ?? "미리보기 생성 실패");
+    }
+  }
+
+  async function handlePost() {
+    setPostPhase("loading");
+    setScopeError(false);
+    setErrorMsg(null);
+    const res = await postPRComment(projectId, lp.number, {
+      userKey,
+      selectedItemIds: Array.from(selectedIds),
+      body: previewBody ?? undefined,
+    });
+    if (res.ok) {
+      setPostedUrl(res.comment.githubCommentUrl);
+      setPostPhase("done");
+    } else {
+      setPostPhase("error");
+      if (res.error === "github_scope_required") {
+        setScopeError(true);
+      }
+      setErrorMsg(res.message ?? res.error ?? "코멘트 작성 실패");
+    }
+  }
+
+  async function loadPastComments() {
+    if (pastLoaded) return;
+    setPastLoaded(true);
+    const res = await listPRComments(projectId, lp.number);
+    if (res.ok) setPastComments(res.comments);
+  }
+
+  const canPost = selectedIds.size > 0;
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <p className="text-sm font-semibold text-gray-800 mb-0.5">PR에 코멘트 남기기</p>
+        <p className="text-xs text-gray-400">
+          확인 결과를 GitHub PR에 코멘트로 남길 수 있어요.
+          이 단계에서는 코드를 자동으로 고치지 않습니다.
+        </p>
+      </div>
+
+      <p className="text-xs text-blue-600 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+        현재는 공개 저장소 PR에만 코멘트를 남길 수 있어요.
+      </p>
+
+      {/* Item selection */}
+      <div className="space-y-1">
+        {allResults.map((r) => (
+          <label
+            key={r.itemId}
+            className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-gray-50 cursor-pointer"
+          >
+            <input
+              type="checkbox"
+              checked={selectedIds.has(r.itemId)}
+              onChange={() => toggleId(r.itemId)}
+              className="w-4 h-4 rounded accent-indigo-600 cursor-pointer flex-shrink-0"
+            />
+            <span className={`text-xs font-medium border rounded-full px-2 py-0.5 flex-shrink-0 ${STATUS_COLORS[r.status] ?? ""}`}>
+              {r.userLabel}
+            </span>
+            <span className="text-sm text-gray-700 truncate">{r.title}</span>
+          </label>
+        ))}
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <button
+          onClick={handlePreview}
+          disabled={!canPost || previewPhase === "loading"}
+          className="text-sm px-4 py-2 rounded-xl font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40 transition-colors"
+        >
+          {previewPhase === "loading" ? "미리보기 생성 중..." : "코멘트 미리보기"}
+        </button>
+        {previewBody && postPhase !== "done" && (
+          <button
+            onClick={handlePost}
+            disabled={postPhase === "loading"}
+            className="text-sm px-4 py-2 rounded-xl font-medium bg-gray-900 text-white hover:bg-gray-800 disabled:opacity-40 transition-colors"
+          >
+            {postPhase === "loading" ? "GitHub에 남기는 중..." : "GitHub에 남기기"}
+          </button>
+        )}
+      </div>
+
+      {/* Scope error */}
+      {scopeError && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800 space-y-1">
+          <p>GitHub 권한이 부족하거나 접근할 수 없는 저장소예요.</p>
+          <p className="text-xs">공개 저장소인지 확인하거나 GitHub 권한을 다시 연결해주세요.</p>
+          <Link
+            href={`/projects/${projectId}/settings`}
+            className="inline-block mt-1 text-xs font-medium text-amber-700 underline"
+          >
+            권한 다시 연결 →
+          </Link>
+        </div>
+      )}
+
+      {/* Other errors */}
+      {!scopeError && (previewPhase === "error" || postPhase === "error") && errorMsg && (
+        <p className="text-xs text-red-500">{errorMsg}</p>
+      )}
+
+      {/* Success */}
+      {postPhase === "done" && postedUrl && (
+        <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex items-center justify-between">
+          <p className="text-sm text-green-800 font-medium">코멘트가 작성됐어요!</p>
+          <a
+            href={postedUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm text-green-700 font-medium underline hover:text-green-900 ml-3 flex-shrink-0"
+          >
+            작성된 코멘트 보기 →
+          </a>
+        </div>
+      )}
+
+      {/* Preview body */}
+      {previewBody && previewPhase === "done" && postPhase !== "done" && (
+        <div className="bg-gray-50 rounded-xl border border-gray-200 p-4">
+          <p className="text-xs font-medium text-gray-500 mb-2">코멘트 미리보기</p>
+          <div className="max-h-64 overflow-y-auto">
+            <pre className="text-xs text-gray-700 whitespace-pre-wrap font-mono leading-relaxed">
+              {previewBody}
+            </pre>
+          </div>
+        </div>
+      )}
+
+      {/* Past comments toggle */}
+      <button
+        onClick={loadPastComments}
+        className="text-xs text-gray-400 hover:text-gray-600 underline"
+      >
+        이전에 남긴 코멘트 보기
+      </button>
+
+      {pastLoaded && pastComments.length > 0 && (
+        <div className="space-y-1.5">
+          {pastComments.map((c) => (
+            <div key={c.id} className="flex items-center gap-2 text-xs text-gray-500">
+              <span className={`rounded-full px-2 py-0.5 border flex-shrink-0 ${
+                c.status === "posted" ? "text-green-600 bg-green-50 border-green-200" :
+                c.status === "error" ? "text-red-600 bg-red-50 border-red-200" :
+                "text-gray-500 bg-gray-100 border-gray-200"
+              }`}>{c.status === "posted" ? "작성됨" : c.status === "error" ? "실패" : c.status}</span>
+              <span className="truncate flex-1">{c.bodyPreview}</span>
+              {c.githubCommentUrl && (
+                <a href={c.githubCommentUrl} target="_blank" rel="noopener noreferrer" className="flex-shrink-0 text-indigo-500 hover:underline">보기</a>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {pastLoaded && pastComments.length === 0 && (
+        <p className="text-xs text-gray-400">이전에 남긴 코멘트가 없어요.</p>
       )}
     </div>
   );
