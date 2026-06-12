@@ -326,6 +326,16 @@ export function createWorkspaceRoutes(): Hono<{ Bindings: Env }> {
       saveCheckRun(c.env, req.projectId, result.source, result).catch(() => undefined);
     }
 
+    // Record usage event (non-fatal)
+    await insertUsageEvent(c.env, {
+      userKey: typeof (body as Record<string, unknown>)["userKey"] === "string"
+        ? String((body as Record<string, unknown>)["userKey"])
+        : "anonymous",
+      projectId: req.projectId,
+      eventType: "workspace_check_draft_run",
+      metadata: { source: result.source },
+    });
+
     return new Response(JSON.stringify(result), { status: 200, headers: { "content-type": "application/json", ...headers } });
   });
 
@@ -366,6 +376,15 @@ export function createWorkspaceRoutes(): Hono<{ Bindings: Env }> {
     if (req.projectId) {
       saveFixSuggestionToDb(c.env, req.projectId, req.item.id, result.suggestion).catch(() => undefined);
     }
+
+    // Record usage event (non-fatal)
+    await insertUsageEvent(c.env, {
+      userKey: typeof (body as Record<string, unknown>)["userKey"] === "string"
+        ? String((body as Record<string, unknown>)["userKey"])
+        : "anonymous",
+      projectId: req.projectId,
+      eventType: "workspace_fix_suggestion_generated",
+    });
 
     return new Response(JSON.stringify(result), { status: 200, headers: { "content-type": "application/json", ...headers } });
   });
@@ -413,6 +432,16 @@ export function createWorkspaceRoutes(): Hono<{ Bindings: Env }> {
       target: req.target,
       format: req.format ?? "json",
       locale: req.locale ?? "ko",
+    });
+
+    // Record usage event (non-fatal)
+    await insertUsageEvent(c.env, {
+      userKey: typeof (body as Record<string, unknown>)["userKey"] === "string"
+        ? String((body as Record<string, unknown>)["userKey"])
+        : "anonymous",
+      projectId: req.projectId,
+      eventType: "workspace_builder_pack_exported",
+      metadata: { target: req.target },
     });
 
     return new Response(JSON.stringify(result), { status: 200, headers: { "content-type": "application/json", ...headers } });

@@ -7,22 +7,12 @@
  * Returns 503 when ADMIN_USAGE_STATS_KEY is unset.
  * Returns 401 on key mismatch.
  *
- * No billing, no credit deduction — read-only analytics.
+ * No billing, no credit deduction — read-only analytics + dry-run billing estimate.
  */
 import { Hono } from "hono";
 import type { Env } from "../env.js";
-
-// ─── Label map ────────────────────────────────────────────────────────────────
-
-const EVENT_LABELS: Record<string, string> = {
-  workspace_idea_to_spec_generated: "제품 설명서 생성",
-  workspace_pr_review_run: "PR 코드 확인",
-  workspace_pr_comment_posted: "PR 코멘트 작성",
-  workspace_pr_comment_updated: "PR 코멘트 수정",
-  workspace_fix_pack_exported: "수정 지시서 내보내기",
-  workspace_telegram_notification_sent: "Telegram 알림 전송",
-  workspace_telegram_notification_error: "Telegram 알림 실패",
-};
+import { getBillingRule, estimateCredits } from "../workspace/billing-rules.js";
+import type { BillingStatus, CreditType } from "../workspace/billing-rules.js";
 
 // ─── Range helpers ────────────────────────────────────────────────────────────
 
@@ -39,11 +29,14 @@ function cutoffIso(range: Range): string {
   return new Date(ms).toISOString();
 }
 
-// ─── DB aggregation ───────────────────────────────────────────────────────────
+// ─── DB row types ─────────────────────────────────────────────────────────────
 
 type EventCountRow = { event_type: string; count: number };
 type ActiveUserRow = { user_key: string; count: number };
 type DailyBucketRow = { day_bucket: string; count: number };
+type UserEventRow = { user_key: string; project_id: string | null; event_type: string; count: number };
+
+// ─── DB aggregation ───────────────────────────────────────────────────────────
 
 async function countByEventType(db: D1Database, cutoff: string): Promise<EventCountRow[]> {
   const result = await db
@@ -115,13 +108,10 @@ async function notificationErrorRate(db: D1Database, cutoff: string): Promise<nu
   const err = errRow?.count ?? 0;
   const total = sent + err;
   if (total === 0) return 0;
-  return Math.round((err / total) * 10000) / 100; // percentage, 2 decimal places
+  return Math.round((err / total) * 10000) / 100;
 }
 
 async function llmFallbackRate(db: D1Database, cutoff: string): Promise<number> {
-  // We don't have a dedicated event for LLM fallback, so we rely on the
-  // pr_review_run metadata field. As a proxy: count total review runs vs those
-  // with source="mock-fallback" stored in metadata_json.
   const totalRow = await db
     .prepare(
       `SELECT COUNT(*) as count FROM workspace_usage_events
@@ -144,6 +134,110 @@ async function llmFallbackRate(db: D1Database, cutoff: string): Promise<number> 
   return Math.round((fallback / total) * 10000) / 100;
 }
 
+/** Per-(user_key, project_id, event_type) counts — used for dry-run credit aggregation. */
+async function userEventBreakdown(db: D1Database, cutoff: string): Promise<UserEventRow[]> {
+  const result = await db
+    .prepare(
+      `SELECT user_key, project_id, event_type, COUNT(*) as count
+       FROM workspace_usage_events
+       WHERE created_at >= ?
+       GROUP BY user_key, project_id, event_type`,
+    )
+    .bind(cutoff)
+    .all<UserEventRow>();
+  return result.results ?? [];
+}
+
+// ─── Dry-run billing computation (no deduction) ───────────────────────────────
+
+type DryRunBillingByEventRow = {
+  eventType: string;
+  label: string;
+  count: number;
+  billingStatus: BillingStatus;
+  creditType?: CreditType;
+  creditCost: number;
+  estimatedCredits: number;
+};
+
+type DryRunBillingSummary = {
+  actualChargesEnabled: false;
+  totalEstimatedCredits: number;
+  byCreditType: Array<{ creditType: CreditType; estimatedCredits: number }>;
+  byEventType: DryRunBillingByEventRow[];
+  topUsersByEstimatedCredits: Array<{ userKey: string; estimatedCredits: number }>;
+  topProjectsByEstimatedCredits: Array<{ projectId: string; estimatedCredits: number }>;
+};
+
+function computeDryRunBilling(
+  eventCounts: EventCountRow[],
+  userRows: UserEventRow[],
+): DryRunBillingSummary {
+  // Per-event-type dry-run rows
+  const byEventType: DryRunBillingByEventRow[] = eventCounts.map((r) => {
+    const rule = getBillingRule(r.event_type);
+    const est = estimateCredits(r.event_type, r.count);
+    return {
+      eventType: r.event_type,
+      label: rule.label || r.event_type,
+      count: r.count,
+      billingStatus: rule.billingStatus,
+      creditType: rule.creditType,
+      creditCost: rule.creditCost,
+      estimatedCredits: est,
+    };
+  });
+
+  const totalEstimatedCredits = byEventType.reduce((s, r) => s + r.estimatedCredits, 0);
+
+  // Per credit type summary
+  const creditTypeMap = new Map<CreditType, number>();
+  for (const r of byEventType) {
+    if (r.creditType && r.estimatedCredits > 0) {
+      creditTypeMap.set(r.creditType, (creditTypeMap.get(r.creditType) ?? 0) + r.estimatedCredits);
+    }
+  }
+  const byCreditType = Array.from(creditTypeMap.entries())
+    .map(([creditType, estimatedCredits]) => ({ creditType, estimatedCredits }))
+    .sort((a, b) => b.estimatedCredits - a.estimatedCredits);
+
+  // Per-user credits
+  const userCreditMap = new Map<string, number>();
+  for (const row of userRows) {
+    const est = estimateCredits(row.event_type, row.count);
+    if (est > 0) {
+      userCreditMap.set(row.user_key, (userCreditMap.get(row.user_key) ?? 0) + est);
+    }
+  }
+  const topUsersByEstimatedCredits = Array.from(userCreditMap.entries())
+    .map(([userKey, estimatedCredits]) => ({ userKey, estimatedCredits }))
+    .sort((a, b) => b.estimatedCredits - a.estimatedCredits)
+    .slice(0, 10);
+
+  // Per-project credits
+  const projectCreditMap = new Map<string, number>();
+  for (const row of userRows) {
+    if (!row.project_id) continue;
+    const est = estimateCredits(row.event_type, row.count);
+    if (est > 0) {
+      projectCreditMap.set(row.project_id, (projectCreditMap.get(row.project_id) ?? 0) + est);
+    }
+  }
+  const topProjectsByEstimatedCredits = Array.from(projectCreditMap.entries())
+    .map(([projectId, estimatedCredits]) => ({ projectId, estimatedCredits }))
+    .sort((a, b) => b.estimatedCredits - a.estimatedCredits)
+    .slice(0, 10);
+
+  return {
+    actualChargesEnabled: false,
+    totalEstimatedCredits,
+    byCreditType,
+    byEventType,
+    topUsersByEstimatedCredits,
+    topProjectsByEstimatedCredits,
+  };
+}
+
 // ─── Route factory ────────────────────────────────────────────────────────────
 
 export function createWorkspaceAdminStatsRoutes(): Hono<{ Bindings: Env }> {
@@ -157,18 +251,15 @@ export function createWorkspaceAdminStatsRoutes(): Hono<{ Bindings: Env }> {
    * 401 on key mismatch.
    */
   app.get("/admin/usage-stats", async (c) => {
-    // Guard: key not configured
     if (!c.env.ADMIN_USAGE_STATS_KEY) {
       return c.json({ ok: false, error: "disabled", message: "ADMIN_USAGE_STATS_KEY가 설정되지 않았습니다." }, 503);
     }
 
-    // Auth
     const provided = c.req.header("x-admin-key") ?? "";
     if (provided !== c.env.ADMIN_USAGE_STATS_KEY) {
       return c.json({ ok: false, error: "unauthorized" }, 401);
     }
 
-    // Range param
     const rawRange = c.req.query("range") ?? "7d";
     const range: Range = (["24h", "7d", "30d"] as const).includes(rawRange as Range)
       ? (rawRange as Range)
@@ -177,7 +268,7 @@ export function createWorkspaceAdminStatsRoutes(): Hono<{ Bindings: Env }> {
     const cutoff = cutoffIso(range);
 
     try {
-      const [eventCounts, activeUserCount, topUsers, buckets, tgErrorRate, llmRate] =
+      const [eventCounts, activeUserCount, topUsers, buckets, tgErrorRate, llmRate, userRows] =
         await Promise.all([
           countByEventType(c.env.DB, cutoff),
           countActiveUsers(c.env.DB, cutoff),
@@ -185,15 +276,21 @@ export function createWorkspaceAdminStatsRoutes(): Hono<{ Bindings: Env }> {
           dailyBuckets(c.env.DB, cutoff),
           notificationErrorRate(c.env.DB, cutoff),
           llmFallbackRate(c.env.DB, cutoff),
+          userEventBreakdown(c.env.DB, cutoff),
         ]);
 
       const total = eventCounts.reduce((s, r) => s + r.count, 0);
 
-      const byEventType = eventCounts.map((r) => ({
-        eventType: r.event_type,
-        label: EVENT_LABELS[r.event_type] ?? r.event_type,
-        count: r.count,
-      }));
+      const byEventType = eventCounts.map((r) => {
+        const rule = getBillingRule(r.event_type);
+        return {
+          eventType: r.event_type,
+          label: rule.label || r.event_type,
+          count: r.count,
+        };
+      });
+
+      const dryRunBilling = computeDryRunBilling(eventCounts, userRows);
 
       return c.json({
         ok: true,
@@ -208,6 +305,7 @@ export function createWorkspaceAdminStatsRoutes(): Hono<{ Bindings: Env }> {
         byEventType,
         topUsers: topUsers.map((r) => ({ userKey: r.user_key, count: r.count })),
         dailyActivity: buckets.map((r) => ({ date: r.day_bucket, count: r.count })),
+        dryRunBilling,
       });
     } catch (err) {
       console.error("[admin/usage-stats] query failed:", err);

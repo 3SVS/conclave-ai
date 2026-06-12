@@ -8,7 +8,11 @@ import type { Env } from "../env.js";
 
 export type UsageEventType =
   | "workspace_idea_to_spec_generated"
+  | "workspace_check_draft_run"
+  | "workspace_fix_suggestion_generated"
+  | "workspace_builder_pack_exported"
   | "workspace_pr_review_run"
+  | "workspace_pr_review_compared"
   | "workspace_pr_comment_posted"
   | "workspace_pr_comment_updated"
   | "workspace_fix_pack_exported"

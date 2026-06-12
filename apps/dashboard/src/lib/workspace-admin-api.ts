@@ -2,8 +2,7 @@
  * workspace-admin-api.ts
  *
  * Client for GET /admin/usage-stats.
- * Requires NEXT_PUBLIC_ADMIN_USAGE_STATS_KEY env var on the dashboard side
- * (or passed in at call time). The key is never stored in D1 or sent to end users.
+ * The admin key is entered by the user at query time — never stored.
  */
 
 const BASE_URL =
@@ -34,6 +33,28 @@ export type DailyActivityRow = {
   count: number;
 };
 
+export type BillingStatus = "billable_candidate" | "included" | "future_billable" | "ignored";
+export type CreditType = "review" | "fix" | "workspace";
+
+export type DryRunBillingByEventRow = {
+  eventType: string;
+  label: string;
+  count: number;
+  billingStatus: BillingStatus;
+  creditType?: CreditType;
+  creditCost: number;
+  estimatedCredits: number;
+};
+
+export type DryRunBillingSummary = {
+  actualChargesEnabled: false;
+  totalEstimatedCredits: number;
+  byCreditType: Array<{ creditType: CreditType; estimatedCredits: number }>;
+  byEventType: DryRunBillingByEventRow[];
+  topUsersByEstimatedCredits: Array<{ userKey: string; estimatedCredits: number }>;
+  topProjectsByEstimatedCredits: Array<{ projectId: string; estimatedCredits: number }>;
+};
+
 export type UsageStatsResponse = {
   ok: true;
   range: UsageRange;
@@ -42,6 +63,7 @@ export type UsageStatsResponse = {
   byEventType: EventTypeRow[];
   topUsers: TopUserRow[];
   dailyActivity: DailyActivityRow[];
+  dryRunBilling: DryRunBillingSummary;
 };
 
 export type UsageStatsError = {

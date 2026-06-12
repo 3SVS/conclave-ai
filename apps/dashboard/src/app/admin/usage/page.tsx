@@ -5,12 +5,28 @@ import {
   fetchUsageStats,
   type UsageRange,
   type UsageStatsResponse,
+  type DryRunBillingByEventRow,
+  type BillingStatus,
 } from "@/lib/workspace-admin-api";
 
 const RANGE_LABELS: Record<UsageRange, string> = {
   "24h": "최근 24시간",
   "7d": "최근 7일",
   "30d": "최근 30일",
+};
+
+const BILLING_STATUS_LABELS: Record<BillingStatus, string> = {
+  billable_candidate: "과금 후보",
+  included: "무료/포함",
+  future_billable: "향후 과금 예정",
+  ignored: "집계 제외",
+};
+
+const BILLING_STATUS_COLORS: Record<BillingStatus, string> = {
+  billable_candidate: "bg-amber-100 text-amber-700",
+  included: "bg-green-100 text-green-700",
+  future_billable: "bg-blue-100 text-blue-700",
+  ignored: "bg-gray-100 text-gray-500",
 };
 
 export default function AdminUsagePage() {
@@ -48,12 +64,16 @@ export default function AdminUsagePage() {
     }
   }
 
+  const billing = stats?.dryRunBilling;
+  const billableRows = billing?.byEventType.filter((r) => r.billingStatus === "billable_candidate") ?? [];
+  const includedRows = billing?.byEventType.filter((r) => r.billingStatus === "included") ?? [];
+
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4">
       <div className="max-w-4xl mx-auto">
         <h1 className="text-2xl font-bold text-gray-900 mb-2">Admin — 사용 현황</h1>
         <p className="text-sm text-gray-500 mb-6">
-          워크스페이스 기능 사용 이벤트 집계입니다.
+          워크스페이스 기능 사용 이벤트 집계 및 예상 credit dry-run입니다.
         </p>
 
         {/* Auth + range selector */}
@@ -117,6 +137,117 @@ export default function AdminUsagePage() {
                 highlight={stats.summary.llmFallbackRate > 30}
               />
             </div>
+
+            {/* ─── Dry-run billing section ─────────────────────────────────── */}
+            {billing && (
+              <div className="mb-6">
+                {/* Dry-run notice */}
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 flex items-start gap-3">
+                  <span className="text-amber-500 text-lg leading-none">⚠</span>
+                  <div>
+                    <p className="text-sm font-semibold text-amber-800">예상 credit 사용량 — dry-run</p>
+                    <p className="text-xs text-amber-700 mt-0.5">
+                      이 값은 dry-run 계산입니다. 실제 차감 없음 (actualChargesEnabled: false)
+                    </p>
+                  </div>
+                </div>
+
+                {/* Credit summary cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
+                  <SummaryCard
+                    label="총 예상 credit"
+                    value={billing.totalEstimatedCredits.toLocaleString()}
+                    accent
+                  />
+                  {billing.byCreditType.map((r) => (
+                    <SummaryCard
+                      key={r.creditType}
+                      label={`${r.creditType} credit`}
+                      value={r.estimatedCredits.toLocaleString()}
+                    />
+                  ))}
+                </div>
+
+                {/* Billable candidates */}
+                {billableRows.length > 0 && (
+                  <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
+                    <div className="px-5 py-4 border-b border-gray-100">
+                      <h2 className="font-semibold text-gray-800">과금 후보 이벤트</h2>
+                      <p className="text-xs text-gray-400 mt-0.5">billing 활성화 시 credit이 차감될 이벤트</p>
+                    </div>
+                    <BillingEventTable rows={billableRows} />
+                  </div>
+                )}
+
+                {/* Included (free) events */}
+                {includedRows.length > 0 && (
+                  <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
+                    <div className="px-5 py-4 border-b border-gray-100">
+                      <h2 className="font-semibold text-gray-800">무료/포함 이벤트</h2>
+                    </div>
+                    <BillingEventTable rows={includedRows} />
+                  </div>
+                )}
+
+                {/* Top users by estimated credits */}
+                {billing.topUsersByEstimatedCredits.length > 0 && (
+                  <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
+                    <div className="px-5 py-4 border-b border-gray-100">
+                      <h2 className="font-semibold text-gray-800">사용자별 예상 credit</h2>
+                    </div>
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-gray-50 text-gray-500 text-xs">
+                          <th className="text-left px-5 py-2 font-medium">User Key</th>
+                          <th className="text-right px-5 py-2 font-medium">예상 credit</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {billing.topUsersByEstimatedCredits.map((row, i) => (
+                          <tr key={row.userKey} className="border-t border-gray-100 hover:bg-gray-50">
+                            <td className="px-5 py-3 font-mono text-xs text-gray-600">
+                              {i + 1}. {row.userKey}
+                            </td>
+                            <td className="px-5 py-3 text-right font-semibold text-amber-700">
+                              {row.estimatedCredits}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Top projects by estimated credits */}
+                {billing.topProjectsByEstimatedCredits.length > 0 && (
+                  <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
+                    <div className="px-5 py-4 border-b border-gray-100">
+                      <h2 className="font-semibold text-gray-800">프로젝트별 예상 credit</h2>
+                    </div>
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-gray-50 text-gray-500 text-xs">
+                          <th className="text-left px-5 py-2 font-medium">Project ID</th>
+                          <th className="text-right px-5 py-2 font-medium">예상 credit</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {billing.topProjectsByEstimatedCredits.map((row, i) => (
+                          <tr key={row.projectId} className="border-t border-gray-100 hover:bg-gray-50">
+                            <td className="px-5 py-3 font-mono text-xs text-gray-600">
+                              {i + 1}. {row.projectId}
+                            </td>
+                            <td className="px-5 py-3 text-right font-semibold text-amber-700">
+                              {row.estimatedCredits}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Event type breakdown */}
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
@@ -211,19 +342,60 @@ export default function AdminUsagePage() {
   );
 }
 
+function BillingEventTable({ rows }: { rows: DryRunBillingByEventRow[] }) {
+  return (
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="bg-gray-50 text-gray-500 text-xs">
+          <th className="text-left px-5 py-2 font-medium">기능</th>
+          <th className="text-left px-5 py-2 font-medium">상태</th>
+          <th className="text-right px-5 py-2 font-medium">횟수</th>
+          <th className="text-right px-5 py-2 font-medium">단가</th>
+          <th className="text-right px-5 py-2 font-medium">예상 credit</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.eventType} className="border-t border-gray-100 hover:bg-gray-50">
+            <td className="px-5 py-3 text-gray-900">{row.label}</td>
+            <td className="px-5 py-3">
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${BILLING_STATUS_COLORS[row.billingStatus]}`}>
+                {BILLING_STATUS_LABELS[row.billingStatus]}
+              </span>
+            </td>
+            <td className="px-5 py-3 text-right text-gray-700">{row.count.toLocaleString()}</td>
+            <td className="px-5 py-3 text-right text-gray-500">{row.creditCost}</td>
+            <td className="px-5 py-3 text-right font-semibold text-amber-700">
+              {row.estimatedCredits}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 function SummaryCard({
   label,
   value,
   highlight = false,
+  accent = false,
 }: {
   label: string;
   value: string;
   highlight?: boolean;
+  accent?: boolean;
 }) {
+  const cls = accent
+    ? "border-amber-400 bg-amber-50"
+    : highlight
+    ? "border-amber-300 bg-amber-50"
+    : "border-gray-200 bg-white";
+  const textCls = accent || highlight ? "text-amber-700" : "text-gray-900";
   return (
-    <div className={`bg-white rounded-xl border p-4 ${highlight ? "border-amber-300 bg-amber-50" : "border-gray-200"}`}>
+    <div className={`rounded-xl border p-4 ${cls}`}>
       <p className="text-xs text-gray-500 mb-1">{label}</p>
-      <p className={`text-2xl font-bold ${highlight ? "text-amber-700" : "text-gray-900"}`}>{value}</p>
+      <p className={`text-2xl font-bold ${textCls}`}>{value}</p>
     </div>
   );
 }
