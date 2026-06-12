@@ -189,11 +189,19 @@ export default function GitHubPage() {
 
   return (
     <div className="max-w-3xl space-y-6">
-      <div>
-        <h1 className="text-xl font-bold text-gray-900 mb-1">PR 연결</h1>
-        <p className="text-sm text-gray-500">
-          연결된 저장소의 Pull Request를 선택하고, 관련 항목과 연결합니다.
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900 mb-1">PR 연결</h1>
+          <p className="text-sm text-gray-500">
+            연결된 저장소의 Pull Request를 선택하고, 관련 항목과 연결합니다.
+          </p>
+        </div>
+        <Link
+          href={`/projects/${id}/github/history`}
+          className="text-xs text-gray-400 hover:text-indigo-600 font-medium flex-shrink-0 mt-1"
+        >
+          확인 기록 보기 →
+        </Link>
       </div>
 
       {/* Stage note */}
@@ -400,7 +408,7 @@ export default function GitHubPage() {
                         {phase === "error" && (
                           <div className="space-y-2">
                             {creditDryRunByPr[lp.number] && (creditDryRunByPr[lp.number] as CreditEnforcementResult).blocked ? (
-                              <CreditDryRunBanner dryRun={creditDryRunByPr[lp.number]!} />
+                              <CreditDryRunBanner dryRun={creditDryRunByPr[lp.number]!} projectId={id} />
                             ) : (
                               <p className="text-xs text-red-600">확인 실패. 잠시 후 다시 시도해주세요.</p>
                             )}
@@ -417,7 +425,7 @@ export default function GitHubPage() {
                           <>
                             <ReviewResultPanel run={run} onRerun={() => handleStartReview(lp)} />
                             {creditDryRunByPr[lp.number] && (
-                              <CreditDryRunBanner dryRun={creditDryRunByPr[lp.number]!} />
+                              <CreditDryRunBanner dryRun={creditDryRunByPr[lp.number]!} projectId={id} />
                             )}
                             <div className="mt-4 pt-4 border-t border-gray-100">
                               <ComparisonPanel
@@ -1237,7 +1245,7 @@ function ReviewResultPanel({ run, onRerun }: { run: ReviewRun; onRerun: () => vo
 
 // ─── Credit Dry-Run Banner ────────────────────────────────────────────────────
 
-function CreditDryRunBanner({ dryRun }: { dryRun: CreditEnforcementResult | CreditEnforcementDryRun }) {
+function CreditDryRunBanner({ dryRun, projectId }: { dryRun: CreditEnforcementResult | CreditEnforcementDryRun; projectId?: string }) {
   if (dryRun.billingStatus === "included" || dryRun.billingStatus === "ignored") return null;
 
   const covered = dryRun.allowance?.coveredByAllowance === true;
@@ -1348,6 +1356,24 @@ function CreditDryRunBanner({ dryRun }: { dryRun: CreditEnforcementResult | Cred
         <p className="text-xs text-blue-500 mt-1">현재 계정은 제한적 actual debit 테스트 대상입니다.</p>
       )}
       <p className="text-xs text-gray-400 mt-1">{footerNote}</p>
+      {projectId && (
+        <div className="mt-2 flex gap-3">
+          <Link
+            href={`/projects/${projectId}/credits`}
+            className="text-xs text-blue-600 hover:underline"
+          >
+            Credit 잔액 보기 →
+          </Link>
+          {(blocked || dryRun.wouldBlock) && (
+            <Link
+              href={`/projects/${projectId}/credits`}
+              className="text-xs text-amber-700 font-medium hover:underline"
+            >
+              Credit 충전 요청 →
+            </Link>
+          )}
+        </div>
+      )}
     </div>
   );
 }

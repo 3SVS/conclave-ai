@@ -664,3 +664,69 @@ export async function generatePRFixBrief(
     return { ok: false, error: String(err) };
   }
 }
+
+// ─── PR Review History ────────────────────────────────────────────────────────
+
+export type ReviewRunHistoryItem = {
+  id: string;
+  status: "queued" | "running" | "passed" | "failed" | "inconclusive" | "error";
+  repoFullName: string;
+  prNumber: number;
+  selectedItemIds?: string[];
+  summary?: { passed: number; failed: number; inconclusive: number; needsDecision: number };
+  results?: ReviewResultItem[];
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectReviewHistoryItem = Omit<ReviewRunHistoryItem, "selectedItemIds" | "results"> & {
+  selectedItemCount: number;
+};
+
+export type PRReviewHistoryResponse =
+  | { ok: true; runs: ReviewRunHistoryItem[] }
+  | { ok: false; error: string };
+
+export type ProjectReviewHistoryResponse =
+  | { ok: true; runs: ProjectReviewHistoryItem[] }
+  | { ok: false; error: string };
+
+export async function listPRReviewHistory(
+  projectId: string,
+  prNumber: number,
+  userKey: string,
+  opts: { limit?: number } = {},
+): Promise<PRReviewHistoryResponse> {
+  try {
+    const params = new URLSearchParams({ userKey });
+    if (opts.limit) params.set("limit", String(opts.limit));
+    const resp = await fetch(
+      `${CENTRAL_PLANE_URL}/workspace/projects/${encodeURIComponent(projectId)}/github/pulls/${prNumber}/review/history?${params}`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    if (!resp.ok) return { ok: false, error: `HTTP ${resp.status}` };
+    return (await resp.json()) as PRReviewHistoryResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+export async function listProjectReviewHistory(
+  projectId: string,
+  userKey: string,
+  opts: { limit?: number } = {},
+): Promise<ProjectReviewHistoryResponse> {
+  try {
+    const params = new URLSearchParams({ userKey });
+    if (opts.limit) params.set("limit", String(opts.limit));
+    const resp = await fetch(
+      `${CENTRAL_PLANE_URL}/workspace/projects/${encodeURIComponent(projectId)}/github/review-history?${params}`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    if (!resp.ok) return { ok: false, error: `HTTP ${resp.status}` };
+    return (await resp.json()) as ProjectReviewHistoryResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}

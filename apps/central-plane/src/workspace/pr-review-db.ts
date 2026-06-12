@@ -136,6 +136,84 @@ export async function getLatestTwoPrReviewRuns(
   return [latest, previous];
 }
 
+export async function listPRReviewRuns(
+  env: Env,
+  projectId: string,
+  repoFullName: string,
+  prNumber: number,
+  opts: { limit?: number } = {},
+): Promise<DbReviewRun[]> {
+  const limit = Math.min(opts.limit ?? 20, 100);
+  const rows = await env.DB.prepare(
+    `SELECT id, project_id, user_key, repo_full_name, pr_number, linked_pr_id,
+            selected_item_ids_json, status, result_json, error_message, created_at, updated_at
+     FROM workspace_pr_review_runs
+     WHERE project_id = ? AND repo_full_name = ? AND pr_number = ?
+     ORDER BY created_at DESC LIMIT ?`,
+  )
+    .bind(projectId, repoFullName, prNumber, limit)
+    .all<{
+      id: string; project_id: string; user_key: string; repo_full_name: string;
+      pr_number: number; linked_pr_id: string | null;
+      selected_item_ids_json: string; status: string;
+      result_json: string | null; error_message: string | null;
+      created_at: string; updated_at: string;
+    }>();
+
+  return (rows.results ?? []).map((row) => ({
+    id: row.id,
+    projectId: row.project_id,
+    userKey: row.user_key,
+    repoFullName: row.repo_full_name,
+    prNumber: row.pr_number,
+    linkedPrId: row.linked_pr_id ?? undefined,
+    selectedItemIds: (() => { try { return JSON.parse(row.selected_item_ids_json) as string[]; } catch { return []; } })(),
+    status: row.status as ReviewRunStatus,
+    resultJson: row.result_json ?? undefined,
+    errorMessage: row.error_message ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
+}
+
+export async function listProjectReviewRuns(
+  env: Env,
+  projectId: string,
+  opts: { limit?: number } = {},
+): Promise<DbReviewRun[]> {
+  const limit = Math.min(opts.limit ?? 50, 200);
+  const rows = await env.DB.prepare(
+    `SELECT id, project_id, user_key, repo_full_name, pr_number, linked_pr_id,
+            selected_item_ids_json, status, result_json, error_message, created_at, updated_at
+     FROM workspace_pr_review_runs
+     WHERE project_id = ?
+     ORDER BY created_at DESC LIMIT ?`,
+  )
+    .bind(projectId, limit)
+    .all<{
+      id: string; project_id: string; user_key: string; repo_full_name: string;
+      pr_number: number; linked_pr_id: string | null;
+      selected_item_ids_json: string; status: string;
+      result_json: string | null; error_message: string | null;
+      created_at: string; updated_at: string;
+    }>();
+
+  return (rows.results ?? []).map((row) => ({
+    id: row.id,
+    projectId: row.project_id,
+    userKey: row.user_key,
+    repoFullName: row.repo_full_name,
+    prNumber: row.pr_number,
+    linkedPrId: row.linked_pr_id ?? undefined,
+    selectedItemIds: (() => { try { return JSON.parse(row.selected_item_ids_json) as string[]; } catch { return []; } })(),
+    status: row.status as ReviewRunStatus,
+    resultJson: row.result_json ?? undefined,
+    errorMessage: row.error_message ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
+}
+
 export async function getLatestReviewRun(
   env: Env,
   projectId: string,

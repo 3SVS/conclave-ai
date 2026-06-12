@@ -36,6 +36,7 @@ import {
 import { upsertProjectPR, getLinkedPRs } from "../workspace/pr-db.js";
 import {
   insertReviewRun, updateReviewRun, getLatestReviewRun, getLatestTwoPrReviewRuns,
+  listPRReviewRuns, listProjectReviewRuns,
 } from "../workspace/pr-review-db.js";
 import {
   compareRunResults, buildRunSummary, parseRunResults,
@@ -1540,6 +1541,106 @@ export function createWorkspaceGitHubRoutes(
         updatedAt: new Date().toISOString(),
       },
     }, 200, origin);
+  });
+
+  // ── GET /workspace/projects/:id/github/pulls/:number/review/history ──────
+  // List all review runs for a specific PR, newest first.
+  // Query: userKey (required), limit (optional, 1-100, default 20)
+  app.get("/workspace/projects/:id/github/pulls/:number/review/history", async (c) => {
+    const origin = c.req.header("origin") ?? null;
+    const projectId = c.req.param("id");
+    const prNumber = parseInt(c.req.param("number"), 10);
+    if (isNaN(prNumber) || prNumber < 1) {
+      return json({ ok: false, error: "invalid_pr_number" }, 400, origin);
+    }
+
+    const userKey = c.req.query("userKey");
+    if (!userKey) return json({ ok: false, error: "userKey_required" }, 400, origin);
+
+    const limitParam = parseInt(c.req.query("limit") ?? "20", 10);
+    const limit = isNaN(limitParam) || limitParam < 1 ? 20 : Math.min(limitParam, 100);
+
+    const repo = await getProjectRepo(c.env, projectId).catch(() => null);
+    if (!repo) return json({ ok: true, runs: [] }, 200, origin);
+
+    try {
+      const runs = await listPRReviewRuns(c.env, projectId, repo.repoFullName, prNumber, { limit });
+
+      return json({
+        ok: true,
+        runs: runs.map((run) => {
+          let summary: unknown = undefined;
+          let results: unknown[] | undefined = undefined;
+          if (run.resultJson) {
+            try {
+              const parsed = JSON.parse(run.resultJson) as { summary?: unknown; results?: unknown[] };
+              summary = parsed.summary;
+              results = parsed.results;
+            } catch { /* ignored */ }
+          }
+          return {
+            id: run.id,
+            status: run.status,
+            repoFullName: run.repoFullName,
+            prNumber: run.prNumber,
+            selectedItemIds: run.selectedItemIds,
+            summary,
+            results,
+            errorMessage: run.errorMessage ?? undefined,
+            createdAt: run.createdAt,
+            updatedAt: run.updatedAt,
+          };
+        }),
+      }, 200, origin);
+    } catch (err) {
+      console.error("[workspace/github/pulls/review/history GET] failed:", err);
+      return json({ ok: false, error: "fetch_failed" }, 500, origin);
+    }
+  });
+
+  // ── GET /workspace/projects/:id/github/review-history ────────────────────
+  // List all review runs for the entire project (all PRs), newest first.
+  // Query: userKey (required), limit (optional, 1-200, default 50)
+  app.get("/workspace/projects/:id/github/review-history", async (c) => {
+    const origin = c.req.header("origin") ?? null;
+    const projectId = c.req.param("id");
+
+    const userKey = c.req.query("userKey");
+    if (!userKey) return json({ ok: false, error: "userKey_required" }, 400, origin);
+
+    const limitParam = parseInt(c.req.query("limit") ?? "50", 10);
+    const limit = isNaN(limitParam) || limitParam < 1 ? 50 : Math.min(limitParam, 200);
+
+    try {
+      const runs = await listProjectReviewRuns(c.env, projectId, { limit });
+
+      return json({
+        ok: true,
+        runs: runs.map((run) => {
+          let summary: unknown = undefined;
+          if (run.resultJson) {
+            try {
+              const parsed = JSON.parse(run.resultJson) as { summary?: unknown };
+              summary = parsed.summary;
+            } catch { /* ignored */ }
+          }
+          return {
+            id: run.id,
+            status: run.status,
+            repoFullName: run.repoFullName,
+            prNumber: run.prNumber,
+            selectedItemCount: run.selectedItemIds.length,
+            summary,
+            errorMessage: run.errorMessage ?? undefined,
+            createdAt: run.createdAt,
+            updatedAt: run.updatedAt,
+          };
+        }),
+      }, 200, origin);
+    } catch (err) {
+      console.error("[workspace/github/review-history GET] failed:", err);
+      return json({ ok: false, error: "fetch_failed" }, 500, origin);
+    }
   });
 
   return app;
