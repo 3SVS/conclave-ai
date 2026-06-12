@@ -385,3 +385,134 @@ describe("PR review credit blocking", () => {
     assert.equal(result.actualDebitsEnabled, false);
   });
 });
+
+// ─── Tests: Stage 25 — Scenario A (dry-run mode) ─────────────────────────────
+
+describe("Stage 25 — Scenario A: dry-run mode", () => {
+  it("21 — wouldBlock=true, blocked=false, debit absent (both flags false)", async () => {
+    const env = makeEnv({ usageEvents: makeReviewEvents("u1", 5) });
+    const result = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
+    assert.equal(result.wouldBlock, true);
+    assert.equal(result.blocked, false);
+    assert.equal(result.debit, undefined);
+  });
+
+  it("22 — actualDebitsEnabled=false is reflected in result even when wouldBlock=true", async () => {
+    const env = makeEnv({ usageEvents: makeReviewEvents("u1", 5) });
+    const result = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
+    assert.equal(result.actualDebitsEnabled, false);
+    assert.equal(result.requiredCredits, 1);
+    assert.equal(result.currentBalance, 0);
+  });
+});
+
+// ─── Tests: Stage 25 — Scenario B (allowance covered) ────────────────────────
+
+describe("Stage 25 — Scenario B: allowance covered, no debit", () => {
+  it("23 — requiredCredits=0 when monthly allowance not exhausted", async () => {
+    // 0 events used → all 5 monthly free runs remain → coveredByAllowance=true
+    const env = makeEnv({ actualDebits: "true", usageEvents: [] });
+    const result = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
+    assert.equal(result.requiredCredits, 0);
+    assert.equal(result.allowance?.coveredByAllowance, true);
+  });
+
+  it("24 — debit absent when coveredByAllowance=true (requiredCredits=0)", async () => {
+    const env = makeEnv({ actualDebits: "true", usageEvents: [] });
+    const result = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
+    assert.equal(result.debit, undefined);
+    assert.equal(result.blocked, false);
+    assert.equal(result.wouldBlock, false);
+  });
+});
+
+// ─── Tests: Stage 25 — Scenario C (allowance exhausted, balance sufficient) ──
+
+describe("Stage 25 — Scenario C: allowance exhausted + balance sufficient", () => {
+  it("25 — debit.ok=true when actualDebits=true + allowance exhausted + balance=3", async () => {
+    const env = makeEnv({
+      balances: balanceMap("u1", "review", 3),
+      usageEvents: makeReviewEvents("u1", 5),
+      actualDebits: "true",
+      changesOnUpdate: 1,
+    });
+    const result = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
+    assert.equal(result.actualDebitsEnabled, true);
+    assert.equal(result.wouldBlock, false);
+    assert.equal(result.debit?.ok, true);
+  });
+
+  it("26 — balance decremented by exactly 1 credit after debit", async () => {
+    const balances = balanceMap("u1", "review", 3);
+    const env = makeEnv({ balances, usageEvents: makeReviewEvents("u1", 5), actualDebits: "true", changesOnUpdate: 1 });
+    const result = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
+    assert.equal(result.debit?.ok, true);
+    const row = balances.get("u1:review");
+    assert.equal(row?.balance, 2, "balance must drop from 3 to 2");
+  });
+
+  it("27 — exactly one ledger entry inserted per debit", async () => {
+    const balances = balanceMap("u1", "review", 5);
+    const env = makeEnv({ balances, usageEvents: makeReviewEvents("u1", 5), actualDebits: "true", changesOnUpdate: 1 });
+    await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
+    assert.equal(env.DB._writeCount.ledger, 1);
+  });
+});
+
+// ─── Tests: Stage 25 — Scenario D (insufficient, blocking off) ───────────────
+
+describe("Stage 25 — Scenario D: insufficient balance, blocking off", () => {
+  it("28 — blocked=false when actualDebits=true, blocking=false, balance=0", async () => {
+    const env = makeEnv({ usageEvents: makeReviewEvents("u1", 5), actualDebits: "true" }); // blocking unset
+    const result = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
+    assert.equal(result.wouldBlock, true);
+    assert.equal(result.blocked, false, "blockingEnabled=false must suppress the HTTP 402 gate");
+  });
+
+  it("29 — debit absent when wouldBlock=true (debit skipped to protect balance integrity)", async () => {
+    const env = makeEnv({ usageEvents: makeReviewEvents("u1", 5), actualDebits: "true" });
+    const result = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
+    assert.equal(result.debit, undefined, "debit must not be called when wouldBlock=true");
+    assert.equal(result.currentBalance, 0);
+  });
+});
+
+// ─── Tests: Stage 25 — Scenario E (blocking on) ──────────────────────────────
+
+describe("Stage 25 — Scenario E: insufficient balance, blocking on", () => {
+  it("30 — blocked=true when both flags true + allowance exhausted + balance=0", async () => {
+    const env = makeEnv({ usageEvents: makeReviewEvents("u1", 5), actualDebits: "true", blocking: "true" });
+    const result = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
+    assert.equal(result.blocked, true);
+    assert.equal(result.wouldBlock, true);
+    assert.equal(result.actualDebitsEnabled, true);
+  });
+
+  it("31 — debit absent when blocked=true (debit never called for blocked requests)", async () => {
+    const env = makeEnv({ usageEvents: makeReviewEvents("u1", 5), actualDebits: "true", blocking: "true" });
+    const result = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
+    assert.equal(result.debit, undefined, "debit must not fire when request is blocked");
+  });
+});
+
+// ─── Tests: Stage 25 — Idempotency gap documentation ─────────────────────────
+
+describe("Stage 25 — Idempotency gap (documented, Stage 26 will add unique constraint)", () => {
+  it("32 — two sequential calls both debit when balance >= 2 (no idempotency guard)", async () => {
+    const balances = balanceMap("u1", "review", 2);
+    const env = makeEnv({ balances, usageEvents: makeReviewEvents("u1", 5), actualDebits: "true", changesOnUpdate: 1 });
+    const r1 = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
+    const r2 = await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
+    assert.equal(r1.debit?.ok, true, "first call debits");
+    assert.equal(r2.debit?.ok, true, "second call also debits — idempotency gap");
+  });
+
+  it("33 — balance=0 after two sequential debits, confirming double-debit on retry/double-click", async () => {
+    const balances = balanceMap("u1", "review", 2);
+    const env = makeEnv({ balances, usageEvents: makeReviewEvents("u1", 5), actualDebits: "true", changesOnUpdate: 1 });
+    await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
+    await checkCreditEnforcement({ env, userKey: "u1", eventType: "workspace_pr_review_run" });
+    const row = balances.get("u1:review");
+    assert.equal(row?.balance, 0, "both debits applied — Stage 26 will add sourceEventId unique constraint");
+  });
+});

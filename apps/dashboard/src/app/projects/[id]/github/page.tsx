@@ -176,6 +176,10 @@ export default function GitHubPage() {
       }
     } else {
       setReviewPhase((prev) => ({ ...prev, [lp.number]: "error" }));
+      // HTTP 402: store enforcement info so CreditDryRunBanner can show "차단됨"
+      if (!res.ok && res.error === "insufficient_credits" && res.creditEnforcement) {
+        setCreditDryRunByPr((prev) => ({ ...prev, [lp.number]: res.creditEnforcement! }));
+      }
     }
   }
 
@@ -393,7 +397,11 @@ export default function GitHubPage() {
 
                         {phase === "error" && (
                           <div className="space-y-2">
-                            <p className="text-xs text-red-600">확인 실패. 잠시 후 다시 시도해주세요.</p>
+                            {creditDryRunByPr[lp.number] && (creditDryRunByPr[lp.number] as CreditEnforcementResult).blocked ? (
+                              <CreditDryRunBanner dryRun={creditDryRunByPr[lp.number]!} />
+                            ) : (
+                              <p className="text-xs text-red-600">확인 실패. 잠시 후 다시 시도해주세요.</p>
+                            )}
                             <button
                               onClick={() => handleStartReview(lp)}
                               className="text-sm px-3 py-1.5 rounded-lg font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors"
@@ -1236,22 +1244,30 @@ function CreditDryRunBanner({ dryRun }: { dryRun: CreditEnforcementResult | Cred
   const actualDebitsEnabled = enforcement.actualDebitsEnabled === true;
   const debitOk = actualDebitsEnabled && enforcement.debit?.ok === true;
   const debitFailed = actualDebitsEnabled && enforcement.debit?.ok === false;
+  const blocked = actualDebitsEnabled && enforcement.blocked === true;
+  const insufficientButAllowed = actualDebitsEnabled && isWouldBlock && !blocked;
 
-  const borderColor = debitFailed || isWouldBlock
+  const borderColor = blocked
+    ? "border-red-200 bg-red-50"
+    : debitFailed || insufficientButAllowed
     ? "border-amber-200 bg-amber-50"
     : debitOk
     ? "border-indigo-100 bg-indigo-50"
     : covered
     ? "border-green-100 bg-green-50"
     : "border-blue-100 bg-blue-50";
-  const textColor = debitFailed || isWouldBlock
+  const textColor = blocked
+    ? "text-red-700"
+    : debitFailed || insufficientButAllowed
     ? "text-amber-700"
     : debitOk
     ? "text-indigo-700"
     : covered
     ? "text-green-700"
     : "text-blue-700";
-  const labelColor = debitFailed || isWouldBlock
+  const labelColor = blocked
+    ? "text-red-600"
+    : debitFailed || insufficientButAllowed
     ? "text-amber-600"
     : debitOk
     ? "text-indigo-600"
@@ -1259,19 +1275,27 @@ function CreditDryRunBanner({ dryRun }: { dryRun: CreditEnforcementResult | Cred
     ? "text-green-600"
     : "text-blue-600";
 
-  const headerLabel = debitOk
+  const headerLabel = blocked
+    ? "credit 부족으로 실행이 차단됨"
+    : debitOk
     ? "credit 차감됨"
     : debitFailed
     ? "credit 차감 실패"
+    : insufficientButAllowed
+    ? "잔액 부족이지만 실행 허용"
     : covered
     ? "월 무료 제공량 안에 포함"
     : "예상 credit 확인";
 
-  const footerNote = actualDebitsEnabled
+  const footerNote = blocked
+    ? `현재 잔액: ${enforcement.currentBalance} review credit · 필요: ${enforcement.requiredCredits}`
+    : actualDebitsEnabled
     ? (debitOk
         ? `잔액: ${enforcement.debit?.newBalance ?? enforcement.remainingAfter} review credit`
         : debitFailed
         ? `차감 오류: ${enforcement.debit?.reason ?? "알 수 없음"}`
+        : insufficientButAllowed
+        ? "잔액 부족 · 차감 없음 · 실행은 허용됨"
         : "실제 차감 활성화됨")
     : "실제 차감 없음 · 실행은 허용됨";
 
