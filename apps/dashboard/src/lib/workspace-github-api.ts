@@ -231,3 +231,90 @@ export async function linkPullRequest(
     return { ok: false, error: String(err) };
   }
 }
+
+// ─── PR Review ────────────────────────────────────────────────────────────────
+
+export type ReviewResultItem = {
+  itemId: string;
+  title: string;
+  status: "passed" | "failed" | "inconclusive" | "needs_decision";
+  userLabel: "통과" | "안 맞음" | "확인 부족" | "결정 필요";
+  reason: string;
+  evidence: string[];
+  nextAction: string;
+};
+
+export type ReviewSummary = {
+  passed: number;
+  failed: number;
+  inconclusive: number;
+  needsDecision: number;
+};
+
+export type ReviewRun = {
+  id: string;
+  status: "queued" | "running" | "passed" | "failed" | "inconclusive" | "error";
+  repoFullName?: string;
+  prNumber?: number;
+  selectedItemIds?: string[];
+  summary?: ReviewSummary;
+  results?: ReviewResultItem[];
+  errorMessage?: string;
+  projectId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type StartReviewResponse =
+  | { ok: true; run: ReviewRun; warnings?: string[] }
+  | { ok: false; error: string };
+
+export type GetReviewResponse =
+  | { ok: true; run: ReviewRun | null }
+  | { ok: false; error: string };
+
+export type WorkspaceItem = { id: string; title: string; status?: string; criteria?: string[] };
+export type ProductSpec = Record<string, unknown>;
+
+export async function startPRReview(
+  projectId: string,
+  prNumber: number,
+  input: {
+    userKey: string;
+    selectedItemIds?: string[];
+    items?: WorkspaceItem[];
+    productSpec?: ProductSpec;
+  },
+): Promise<StartReviewResponse> {
+  try {
+    const resp = await fetch(
+      `${CENTRAL_PLANE_URL}/workspace/projects/${encodeURIComponent(projectId)}/github/pulls/${prNumber}/review`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+        signal: AbortSignal.timeout(40000),
+      },
+    );
+    const data = await resp.json().catch(() => ({ ok: false, error: `HTTP ${resp.status}` })) as StartReviewResponse;
+    return data;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+export async function getLatestPRReview(
+  projectId: string,
+  prNumber: number,
+): Promise<GetReviewResponse> {
+  try {
+    const resp = await fetch(
+      `${CENTRAL_PLANE_URL}/workspace/projects/${encodeURIComponent(projectId)}/github/pulls/${prNumber}/review`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    if (!resp.ok) return { ok: false, error: `HTTP ${resp.status}` };
+    return (await resp.json()) as GetReviewResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}

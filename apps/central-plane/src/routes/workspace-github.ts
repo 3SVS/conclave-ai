@@ -34,6 +34,13 @@ import {
   isAllowedReturnTo, appendGitHubConnected,
 } from "../workspace/github-oauth.js";
 import { upsertProjectPR, getLinkedPRs } from "../workspace/pr-db.js";
+import {
+  insertReviewRun, updateReviewRun, getLatestReviewRun,
+} from "../workspace/pr-review-db.js";
+import { fetchPRFiles } from "../workspace/github-pr.js";
+import { reviewPRAgainstItems, deriveRunStatus } from "../workspace/pr-review.js";
+import { getProject } from "../workspace/db.js";
+import type { CheckableItem, ProductSpecForCheck } from "../workspace/check.js";
 
 // ─── CORS helpers (shared with workspace.ts) ──────────────────────────────────
 
@@ -78,6 +85,10 @@ export function createWorkspaceGitHubRoutes(
     return new Response(null, { status: 204, headers: corsHeaders(origin) });
   });
   app.options("/workspace/projects/:id/repo", (c) => {
+    const origin = c.req.header("origin") ?? null;
+    return new Response(null, { status: 204, headers: corsHeaders(origin) });
+  });
+  app.options("/workspace/projects/:id/github/*", (c) => {
     const origin = c.req.header("origin") ?? null;
     return new Response(null, { status: 204, headers: corsHeaders(origin) });
   });
@@ -466,6 +477,191 @@ export function createWorkspaceGitHubRoutes(
       }, 200, origin);
     } catch (err) {
       console.error("[workspace/github/linked-pulls] fetch failed:", err);
+      return json({ ok: false, error: "fetch_failed" }, 500, origin);
+    }
+  });
+
+  // ── POST /workspace/projects/:id/github/pulls/:number/review ─────────────
+  // Start a PR code review run. Synchronous: fetches diff + runs LLM + stores result.
+  app.post("/workspace/projects/:id/github/pulls/:number/review", async (c) => {
+    const origin = c.req.header("origin") ?? null;
+    const projectId = c.req.param("id");
+    const prNumber = parseInt(c.req.param("number"), 10);
+    if (isNaN(prNumber) || prNumber < 1) {
+      return json({ ok: false, error: "invalid_pr_number" }, 400, origin);
+    }
+
+    let body: unknown;
+    try { body = await c.req.json(); } catch {
+      return json({ ok: false, error: "invalid_json" }, 400, origin);
+    }
+    const b = body as Record<string, unknown>;
+    const userKey = typeof b["userKey"] === "string" ? b["userKey"] : "";
+    if (!userKey) return json({ ok: false, error: "userKey_required" }, 400, origin);
+
+    const bodySelectedIds = Array.isArray(b["selectedItemIds"])
+      ? (b["selectedItemIds"] as unknown[]).filter((x): x is string => typeof x === "string")
+      : undefined;
+
+    // 1. Get linked repo
+    const repo = await getProjectRepo(c.env, projectId).catch(() => null);
+    if (!repo) return json({ ok: false, error: "no_repo_linked" }, 400, origin);
+
+    // 2. Get linked PR to inherit selectedItemIds if not in body
+    const linkedPRs = await getLinkedPRs(c.env, projectId).catch(() => []);
+    const linkedPR = linkedPRs.find((p) => p.prNumber === prNumber);
+
+    // 3. Determine selectedItemIds: body > linked PR > error
+    const selectedItemIds = bodySelectedIds?.length
+      ? bodySelectedIds
+      : (linkedPR?.selectedItemIds ?? []);
+    if (selectedItemIds.length === 0) {
+      return json({ ok: false, error: "no_selected_items" }, 400, origin);
+    }
+
+    // 4. GitHub token
+    if (!c.env.CONCLAVE_TOKEN_KEK) {
+      return json({ ok: false, error: "token_unavailable" }, 503, origin);
+    }
+    const conn = await getGitHubConnectionByUserKey(c.env, userKey).catch(() => null);
+    if (!conn) return json({ ok: false, error: "not_connected" }, 401, origin);
+    let token: string;
+    try {
+      token = await decryptToken(conn.accessTokenEnc, c.env.CONCLAVE_TOKEN_KEK);
+    } catch {
+      return json({ ok: false, error: "token_decrypt_failed" }, 503, origin);
+    }
+
+    // 5. Load items + productSpec: prefer body payload, fall back to D1
+    let items: CheckableItem[];
+    let productSpec: ProductSpecForCheck;
+    const bodyItems = b["items"];
+    const bodySpec = b["productSpec"];
+
+    if (Array.isArray(bodyItems) && bodyItems.length > 0 && bodySpec && typeof bodySpec === "object") {
+      items = bodyItems as CheckableItem[];
+      productSpec = bodySpec as ProductSpecForCheck;
+    } else {
+      const dbProj = await getProject(c.env, projectId).catch(() => null);
+      if (!dbProj) return json({ ok: false, error: "project_not_found" }, 404, origin);
+      items = (Array.isArray(dbProj.items) ? dbProj.items : []) as CheckableItem[];
+      productSpec = (dbProj.productSpec ?? {}) as ProductSpecForCheck;
+    }
+
+    // Filter to selectedItemIds only
+    const itemsToReview = items.filter((item) => selectedItemIds.includes(item.id));
+    if (itemsToReview.length === 0) {
+      return json({ ok: false, error: "no_matching_items" }, 400, origin);
+    }
+
+    // 6. Insert run as running
+    const run = await insertReviewRun(c.env, {
+      projectId, userKey,
+      repoFullName: repo.repoFullName,
+      prNumber,
+      linkedPrId: linkedPR?.id,
+      selectedItemIds,
+      status: "running",
+    }).catch(() => null);
+    if (!run) return json({ ok: false, error: "run_create_failed" }, 500, origin);
+
+    // 7. Fetch PR files
+    const [owner, repoName] = repo.repoFullName.split("/");
+    const warnings: string[] = [];
+    let prFilesResult;
+    try {
+      prFilesResult = await fetchPRFiles(owner ?? "", repoName ?? "", prNumber, token, fetchImpl);
+      warnings.push(...prFilesResult.warnings);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await updateReviewRun(c.env, run.id, { status: "error", errorMessage: `PR 파일 가져오기 실패: ${msg}` });
+      return json({ ok: false, error: "pr_fetch_failed", details: msg }, 502, origin);
+    }
+
+    // 8. Run review
+    let reviewResult;
+    try {
+      reviewResult = await reviewPRAgainstItems(
+        {
+          projectId,
+          productSpec,
+          items: itemsToReview,
+          prMeta: prFilesResult.meta,
+          prFiles: prFilesResult.files,
+        },
+        c.env.ANTHROPIC_API_KEY,
+      );
+      if (reviewResult.warnings?.length) warnings.push(...reviewResult.warnings);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await updateReviewRun(c.env, run.id, { status: "error", errorMessage: `리뷰 실행 실패: ${msg}` });
+      return json({ ok: false, error: "review_failed", details: msg }, 500, origin);
+    }
+
+    // 9. Determine final status + store
+    const finalStatus = deriveRunStatus(reviewResult.results);
+    await updateReviewRun(c.env, run.id, {
+      status: finalStatus,
+      resultJson: JSON.stringify(reviewResult),
+    });
+
+    return json({
+      ok: true,
+      run: {
+        id: run.id,
+        status: finalStatus,
+        projectId,
+        repoFullName: repo.repoFullName,
+        prNumber,
+        selectedItemIds,
+        summary: reviewResult.summary,
+        results: reviewResult.results,
+        createdAt: run.createdAt,
+        updatedAt: new Date().toISOString(),
+      },
+      warnings: warnings.length ? warnings : undefined,
+    }, 200, origin);
+  });
+
+  // ── GET /workspace/projects/:id/github/pulls/:number/review ──────────────
+  // Return the latest review run for a PR.
+  app.get("/workspace/projects/:id/github/pulls/:number/review", async (c) => {
+    const origin = c.req.header("origin") ?? null;
+    const projectId = c.req.param("id");
+    const prNumber = parseInt(c.req.param("number"), 10);
+    if (isNaN(prNumber) || prNumber < 1) {
+      return json({ ok: false, error: "invalid_pr_number" }, 400, origin);
+    }
+
+    const repo = await getProjectRepo(c.env, projectId).catch(() => null);
+    if (!repo) return json({ ok: true, run: null }, 200, origin);
+
+    try {
+      const run = await getLatestReviewRun(c.env, projectId, repo.repoFullName, prNumber);
+      if (!run) return json({ ok: true, run: null }, 200, origin);
+
+      // Parse stored result if available
+      let reviewResult;
+      if (run.resultJson) {
+        try { reviewResult = JSON.parse(run.resultJson) as { summary?: unknown; results?: unknown[] }; } catch { /* ignored */ }
+      }
+
+      return json({
+        ok: true,
+        run: {
+          id: run.id,
+          status: run.status,
+          repoFullName: run.repoFullName,
+          prNumber: run.prNumber,
+          selectedItemIds: run.selectedItemIds,
+          summary: reviewResult?.summary ?? undefined,
+          results: reviewResult?.results ?? undefined,
+          errorMessage: run.errorMessage ?? undefined,
+          updatedAt: run.updatedAt,
+        },
+      }, 200, origin);
+    } catch (err) {
+      console.error("[workspace/github/pulls/review GET] failed:", err);
       return json({ ok: false, error: "fetch_failed" }, 500, origin);
     }
   });

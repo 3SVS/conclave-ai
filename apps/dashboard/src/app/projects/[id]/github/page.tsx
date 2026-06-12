@@ -10,9 +10,12 @@ import {
   fetchProjectPulls,
   fetchLinkedPulls,
   linkPullRequest,
+  startPRReview,
+  getLatestPRReview,
   type GitHubPull,
   type LinkedPull,
   type LinkedRepo,
+  type ReviewRun,
 } from "@/lib/workspace-github-api";
 import { StatusBadge } from "@/components/StatusBadge";
 import type { ItemStatus } from "@/lib/labels";
@@ -31,6 +34,9 @@ export default function GitHubPage() {
   const [selectedPR, setSelectedPR] = useState<GitHubPull | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [linkPhase, setLinkPhase] = useState<"idle" | "saving" | "done" | "error">("idle");
+  // Review state: keyed by prNumber
+  const [reviewRuns, setReviewRuns] = useState<Record<number, ReviewRun>>({});
+  const [reviewPhase, setReviewPhase] = useState<Record<number, "idle" | "running" | "done" | "error">>({});
 
   const ext = loadExtendedProjectData(id);
   const checkResultMap = new Map(
@@ -54,7 +60,17 @@ export default function GitHubPage() {
     } else {
       setLoadPhase("no_repo");
     }
-    if (linkedRes.ok) setLinkedPulls(linkedRes.pulls);
+    if (linkedRes.ok) {
+      setLinkedPulls(linkedRes.pulls);
+      // Load any existing review runs for linked PRs
+      for (const lp of linkedRes.pulls) {
+        const reviewRes = await getLatestPRReview(id, lp.number);
+        if (reviewRes.ok && reviewRes.run) {
+          setReviewRuns((prev) => ({ ...prev, [lp.number]: reviewRes.run! }));
+          setReviewPhase((prev) => ({ ...prev, [lp.number]: "done" }));
+        }
+      }
+    }
   }, [id]);
 
   useEffect(() => { loadInitial(); }, [loadInitial]);
@@ -115,6 +131,31 @@ export default function GitHubPage() {
     }
   }
 
+  async function handleStartReview(lp: LinkedPull) {
+    setReviewPhase((prev) => ({ ...prev, [lp.number]: "running" }));
+    const ext2 = loadExtendedProjectData(id);
+    const items = (project?.requirements ?? []).map((r) => ({
+      id: r.id,
+      title: r.title,
+      status: r.status ?? "draft",
+      criteria: (r as { criteria?: string[] }).criteria ?? [],
+    }));
+    const productSpec = (ext2?.productSpec ?? {}) as Record<string, unknown>;
+
+    const res = await startPRReview(id, lp.number, {
+      userKey,
+      selectedItemIds: lp.selectedItemIds,
+      items,
+      productSpec,
+    });
+    if (res.ok) {
+      setReviewRuns((prev) => ({ ...prev, [lp.number]: res.run }));
+      setReviewPhase((prev) => ({ ...prev, [lp.number]: "done" }));
+    } else {
+      setReviewPhase((prev) => ({ ...prev, [lp.number]: "error" }));
+    }
+  }
+
   if (!project) return <p className="text-sm text-gray-400">프로젝트를 찾을 수 없습니다.</p>;
 
   return (
@@ -127,8 +168,8 @@ export default function GitHubPage() {
       </div>
 
       {/* Stage note */}
-      <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700">
-        이 단계에서는 PR을 선택하고 관련 항목만 연결합니다. 아직 코드를 확인하거나 리뷰를 실행하지는 않아요.
+      <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-xs text-blue-700">
+        연결된 GitHub PR의 변경 내용을 기준으로 확인합니다. 제품 설명서 기준 사전 확인과 다를 수 있어요.
       </div>
 
       {/* Loading */}
@@ -273,47 +314,187 @@ export default function GitHubPage() {
                 연결된 PR {linkedPulls.length}개
               </p>
               <div className="divide-y divide-gray-50">
-                {linkedPulls.map((lp) => (
-                  <div key={lp.id} className="px-5 py-4">
-                    <div className="flex items-start gap-3 mb-2">
-                      <span className="text-xs text-gray-400 font-mono mt-0.5">#{lp.number}</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-800 truncate">{lp.title}</p>
-                        <p className="text-xs text-gray-400 mt-0.5">{lp.repoFullName}</p>
+                {linkedPulls.map((lp) => {
+                  const phase = reviewPhase[lp.number] ?? "idle";
+                  const run = reviewRuns[lp.number];
+                  return (
+                    <div key={lp.id} className="px-5 py-4 space-y-3">
+                      {/* PR header */}
+                      <div className="flex items-start gap-3">
+                        <span className="text-xs text-gray-400 font-mono mt-0.5">#{lp.number}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-800 truncate">{lp.title}</p>
+                          <p className="text-xs text-gray-400 mt-0.5">{lp.repoFullName}</p>
+                        </div>
+                        <span className={`text-xs rounded-full px-2 py-0.5 flex-shrink-0 ${lp.state === "open" ? "text-green-600 bg-green-50 border border-green-200" : "text-gray-500 bg-gray-100 border border-gray-200"}`}>
+                          {lp.state}
+                        </span>
                       </div>
-                      <span className={`text-xs rounded-full px-2 py-0.5 flex-shrink-0 ${lp.state === "open" ? "text-green-600 bg-green-50 border border-green-200" : "text-gray-500 bg-gray-100 border border-gray-200"}`}>
-                        {lp.state}
-                      </span>
+
+                      {/* Item tags */}
+                      {lp.selectedItemIds.length > 0 && (
+                        <div className="ml-6 flex flex-wrap gap-1.5">
+                          {lp.selectedItemIds.map((itemId) => {
+                            const item = allItems.find((i) => i.id === itemId);
+                            return item ? (
+                              <span key={itemId} className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full px-2 py-0.5 truncate max-w-[200px]">
+                                {item.title}
+                              </span>
+                            ) : null;
+                          })}
+                        </div>
+                      )}
+
+                      {/* Review section */}
+                      <div className="ml-6">
+                        {phase === "idle" && (
+                          <div className="space-y-2">
+                            <p className="text-xs text-gray-400">
+                              아직 실제 코드를 확인하지 않았어요. 버튼을 누르면 이 PR의 변경 내용을 기준으로 확인합니다.
+                            </p>
+                            <button
+                              onClick={() => handleStartReview(lp)}
+                              className="text-sm px-4 py-2 rounded-xl font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition-colors"
+                            >
+                              PR 코드 확인하기
+                            </button>
+                          </div>
+                        )}
+
+                        {phase === "running" && (
+                          <div className="flex items-center gap-2 text-sm text-gray-500">
+                            <div className="w-4 h-4 border-2 border-gray-300 border-t-indigo-600 rounded-full animate-spin flex-shrink-0" />
+                            확인 실행 중... (PR 변경 내용을 분석하고 있어요)
+                          </div>
+                        )}
+
+                        {phase === "error" && (
+                          <div className="space-y-2">
+                            <p className="text-xs text-red-600">확인 실패. 잠시 후 다시 시도해주세요.</p>
+                            <button
+                              onClick={() => handleStartReview(lp)}
+                              className="text-sm px-3 py-1.5 rounded-lg font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors"
+                            >
+                              다시 시도
+                            </button>
+                          </div>
+                        )}
+
+                        {phase === "done" && run && (
+                          <ReviewResultPanel run={run} onRerun={() => handleStartReview(lp)} />
+                        )}
+                      </div>
                     </div>
-                    {lp.selectedItemIds.length > 0 && (
-                      <div className="ml-6 flex flex-wrap gap-1.5">
-                        {lp.selectedItemIds.map((itemId) => {
-                          const item = allItems.find((i) => i.id === itemId);
-                          return item ? (
-                            <span key={itemId} className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full px-2 py-0.5 truncate max-w-[200px]">
-                              {item.title}
-                            </span>
-                          ) : null;
-                        })}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
-
-          {/* Disabled Stage 11 CTA */}
-          <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-500">PR 확인 실행</p>
-              <p className="text-xs text-gray-400">다음 단계에서 코드 확인이 가능해요. 아직 코드를 확인한 것은 아니에요.</p>
-            </div>
-            <button disabled className="text-sm px-4 py-2 rounded-xl font-medium bg-gray-200 text-gray-400 cursor-not-allowed">
-              다음 단계에서 사용 가능
-            </button>
-          </div>
         </>
+      )}
+    </div>
+  );
+}
+
+// ─── ReviewResultPanel ────────────────────────────────────────────────────────
+
+const STATUS_COLORS: Record<string, string> = {
+  passed: "text-green-700 bg-green-50 border-green-200",
+  failed: "text-red-700 bg-red-50 border-red-200",
+  inconclusive: "text-yellow-700 bg-yellow-50 border-yellow-200",
+  needs_decision: "text-purple-700 bg-purple-50 border-purple-200",
+  error: "text-gray-600 bg-gray-50 border-gray-200",
+};
+
+const RUN_STATUS_LABEL: Record<string, string> = {
+  passed: "통과",
+  failed: "안 맞음",
+  inconclusive: "확인 부족",
+  error: "확인 실패",
+  queued: "대기 중",
+  running: "확인 중",
+};
+
+function ReviewResultPanel({ run, onRerun }: { run: ReviewRun; onRerun: () => void }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const statusLabel = RUN_STATUS_LABEL[run.status] ?? run.status;
+  const statusColor = STATUS_COLORS[run.status] ?? "text-gray-600 bg-gray-50 border-gray-200";
+
+  return (
+    <div className="space-y-3">
+      {/* Result header */}
+      <div className="flex items-center gap-2">
+        <span className={`text-xs font-medium border rounded-full px-2.5 py-0.5 ${statusColor}`}>
+          확인 결과: {statusLabel}
+        </span>
+        {run.summary && (
+          <span className="text-xs text-gray-400">
+            통과 {run.summary.passed} · 안 맞음 {run.summary.failed} · 확인 부족 {run.summary.inconclusive}
+            {run.summary.needsDecision > 0 && ` · 결정 필요 ${run.summary.needsDecision}`}
+          </span>
+        )}
+        <button
+          onClick={onRerun}
+          className="ml-auto text-xs text-gray-400 hover:text-gray-600 underline"
+        >
+          다시 확인
+        </button>
+      </div>
+
+      {/* Disclaimer */}
+      <p className="text-xs text-gray-400">
+        이 결과는 연결된 PR의 변경 내용 기준입니다. 전체 저장소나 배포된 서비스 전체를 확인한 것은 아니에요.
+        아직 고쳐보기는 다음 단계에서 제공됩니다.
+      </p>
+
+      {/* Error */}
+      {run.status === "error" && run.errorMessage && (
+        <p className="text-xs text-red-500">{run.errorMessage}</p>
+      )}
+
+      {/* Per-item results */}
+      {run.results && run.results.length > 0 && (
+        <div className="space-y-2">
+          {run.results.map((r) => (
+            <div
+              key={r.itemId}
+              className="border border-gray-100 rounded-lg overflow-hidden"
+            >
+              <button
+                onClick={() => setExpanded(expanded === r.itemId ? null : r.itemId)}
+                className="w-full text-left px-3 py-2.5 flex items-center gap-2 hover:bg-gray-50 transition-colors"
+              >
+                <span className={`text-xs font-medium border rounded-full px-2 py-0.5 flex-shrink-0 ${STATUS_COLORS[r.status] ?? ""}`}>
+                  {r.userLabel}
+                </span>
+                <span className="text-sm text-gray-800 flex-1 truncate">{r.title}</span>
+                <span className="text-gray-400 text-xs flex-shrink-0">{expanded === r.itemId ? "▲" : "▼"}</span>
+              </button>
+              {expanded === r.itemId && (
+                <div className="px-3 pb-3 space-y-2 border-t border-gray-100 pt-2">
+                  <p className="text-xs text-gray-700">{r.reason}</p>
+                  {r.evidence.length > 0 && (
+                    <div>
+                      <p className="text-xs text-gray-400 mb-1">코드에서 확인된 내용</p>
+                      <ul className="space-y-0.5">
+                        {r.evidence.map((e, i) => (
+                          <li key={i} className="text-xs text-gray-600 font-mono bg-gray-50 rounded px-2 py-0.5 truncate">
+                            {e}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {r.nextAction && (
+                    <p className="text-xs text-indigo-700 bg-indigo-50 rounded px-2 py-1.5">
+                      다음: {r.nextAction}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
