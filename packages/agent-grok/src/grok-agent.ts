@@ -92,9 +92,9 @@ export class GrokAgent implements Agent {
   private clientPromise: Promise<GrokLike> | null;
 
   constructor(opts: GrokAgentOptions = {}) {
-    const key = opts.apiKey ?? process.env["OPENAI_API_KEY"] ?? "";
+    const key = opts.apiKey ?? process.env["XAI_API_KEY"] ?? "";
     if (!key && !opts.client) {
-      throw new Error("GrokAgent: OPENAI_API_KEY not set (pass opts.apiKey, opts.client, or the env var)");
+      throw new Error("GrokAgent: XAI_API_KEY not set (pass opts.apiKey, opts.client, or the env var)");
     }
     this.apiKey = key;
     this.model = opts.model ?? DEFAULT_MODEL;

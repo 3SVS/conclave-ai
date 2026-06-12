@@ -82,7 +82,7 @@ test("B.1: fresh init scaffolds .conclaverc.json + 3 workflow files + exits 0", 
     // Workflows must be reusable-workflow wrappers pointing at the
     // central conclave-ai repo, not inlined logic.
     const wf1Body = fs.readFileSync(wf1, "utf8");
-    assert.match(wf1Body, /seunghunbae-3svs\/conclave-ai/);
+    assert.match(wf1Body, /3SVS\/conclave-ai/);
     assert.match(wf1Body, /workflows\/review\.yml/);
   } finally {
     cleanup(root);
