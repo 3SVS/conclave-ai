@@ -1242,8 +1242,10 @@ function CreditDryRunBanner({ dryRun }: { dryRun: CreditEnforcementResult | Cred
   const isWouldBlock = dryRun.wouldBlock;
   const enforcement = dryRun as CreditEnforcementResult;
   const actualDebitsEnabled = enforcement.actualDebitsEnabled === true;
-  const debitOk = actualDebitsEnabled && enforcement.debit?.ok === true;
-  const debitFailed = actualDebitsEnabled && enforcement.debit?.ok === false;
+  // Stage 26 — debit shape uses attempted/applied/duplicate instead of ok
+  const debitOk = actualDebitsEnabled && enforcement.debit?.attempted === true && enforcement.debit?.applied === true && !enforcement.debit?.duplicate;
+  const debitDuplicate = actualDebitsEnabled && enforcement.debit?.duplicate === true;
+  const debitFailed = actualDebitsEnabled && enforcement.debit?.attempted === true && enforcement.debit?.applied === false && !enforcement.debit?.duplicate;
   const blocked = actualDebitsEnabled && enforcement.blocked === true;
   const insufficientButAllowed = actualDebitsEnabled && isWouldBlock && !blocked;
 
@@ -1251,7 +1253,7 @@ function CreditDryRunBanner({ dryRun }: { dryRun: CreditEnforcementResult | Cred
     ? "border-red-200 bg-red-50"
     : debitFailed || insufficientButAllowed
     ? "border-amber-200 bg-amber-50"
-    : debitOk
+    : debitOk || debitDuplicate
     ? "border-indigo-100 bg-indigo-50"
     : covered
     ? "border-green-100 bg-green-50"
@@ -1260,7 +1262,7 @@ function CreditDryRunBanner({ dryRun }: { dryRun: CreditEnforcementResult | Cred
     ? "text-red-700"
     : debitFailed || insufficientButAllowed
     ? "text-amber-700"
-    : debitOk
+    : debitOk || debitDuplicate
     ? "text-indigo-700"
     : covered
     ? "text-green-700"
@@ -1269,7 +1271,7 @@ function CreditDryRunBanner({ dryRun }: { dryRun: CreditEnforcementResult | Cred
     ? "text-red-600"
     : debitFailed || insufficientButAllowed
     ? "text-amber-600"
-    : debitOk
+    : debitOk || debitDuplicate
     ? "text-indigo-600"
     : covered
     ? "text-green-600"
@@ -1277,6 +1279,8 @@ function CreditDryRunBanner({ dryRun }: { dryRun: CreditEnforcementResult | Cred
 
   const headerLabel = blocked
     ? "credit 부족으로 실행이 차단됨"
+    : debitDuplicate
+    ? "이미 처리된 credit 차감 요청"
     : debitOk
     ? "credit 차감됨"
     : debitFailed
@@ -1290,10 +1294,12 @@ function CreditDryRunBanner({ dryRun }: { dryRun: CreditEnforcementResult | Cred
   const footerNote = blocked
     ? `현재 잔액: ${enforcement.currentBalance} review credit · 필요: ${enforcement.requiredCredits}`
     : actualDebitsEnabled
-    ? (debitOk
+    ? (debitDuplicate
+        ? "이미 처리된 credit 차감 요청이라 추가 차감은 하지 않았어요."
+        : debitOk
         ? `잔액: ${enforcement.debit?.newBalance ?? enforcement.remainingAfter} review credit`
         : debitFailed
-        ? `차감 오류: ${enforcement.debit?.reason ?? "알 수 없음"}`
+        ? `차감 오류: ${enforcement.debit?.error ?? "알 수 없음"}`
         : insufficientButAllowed
         ? "잔액 부족 · 차감 없음 · 실행은 허용됨"
         : "실제 차감 활성화됨")

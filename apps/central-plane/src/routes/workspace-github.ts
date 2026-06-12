@@ -57,6 +57,7 @@ import type { CommentResultItem, ComparisonDataForComment } from "../workspace/p
 import { insertUsageEvent } from "../workspace/usage-events-db.js";
 import { checkCreditEnforcementDryRun, checkCreditEnforcement } from "../workspace/credit-enforcement.js";
 import type { CreditEnforcementDryRun, CreditEnforcementResult } from "../workspace/credit-enforcement.js";
+import { generateDebitId } from "../workspace/credits.js";
 import {
   getNotificationSettings,
   insertNotificationRecord,
@@ -614,6 +615,8 @@ export function createWorkspaceGitHubRoutes(
     }
 
     // 5b. Credit enforcement (blocks with HTTP 402 when ENABLE_CREDIT_BLOCKING+ENABLE_ACTUAL_CREDIT_DEBITS=true)
+    // Generate a stable per-request debit ID (Option A idempotency — one ID per review attempt)
+    const prReviewExecutionId = generateDebitId();
     let creditEnforcement: CreditEnforcementResult | CreditEnforcementDryRun | undefined;
     try {
       creditEnforcement = await checkCreditEnforcement({
@@ -621,6 +624,7 @@ export function createWorkspaceGitHubRoutes(
         userKey,
         eventType: "workspace_pr_review_run",
         projectId,
+        sourceEventId: prReviewExecutionId,
       });
       if ((creditEnforcement as CreditEnforcementResult).blocked) {
         return json({

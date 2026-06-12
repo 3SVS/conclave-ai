@@ -287,7 +287,7 @@ export type CreditEnforcementDryRun = {
   };
 };
 
-// Stage 24 — extends CreditEnforcementDryRun with actual debit fields
+// Stage 24/26 — extends CreditEnforcementDryRun with actual debit + idempotency fields
 export type CreditEnforcementResult = {
   actualDebitsEnabled: boolean;
   blocked: boolean;
@@ -300,10 +300,13 @@ export type CreditEnforcementResult = {
   remainingAfter: number;
   message: string;
   debit?: {
-    ok: boolean;
-    newBalance?: number;
+    attempted: boolean;
+    applied: boolean;
+    duplicate?: boolean;
+    sourceEventId?: string;
     ledgerEntryId?: string;
-    reason?: "insufficient_balance" | "race_condition" | "db_error";
+    newBalance?: number;
+    error?: string;
   };
   allowance?: {
     enabled: true;

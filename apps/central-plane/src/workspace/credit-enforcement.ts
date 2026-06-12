@@ -12,7 +12,7 @@
  */
 import type { Env } from "../env.js";
 import { getBillingRule } from "./billing-rules.js";
-import { getCreditBalance, debitCredits } from "./credits.js";
+import { getCreditBalance, debitCredits, generateDebitId } from "./credits.js";
 import type { CreditType } from "./credits.js";
 import type { BillingStatus } from "./billing-rules.js";
 import { getAllowanceDryRun } from "./allowance-usage.js";
@@ -68,6 +68,7 @@ function buildMessage(
 // Stage 24 — CreditEnforcementResult extends the dry-run result with
 // actual debit outcome. CreditEnforcementDryRun is kept as a type alias
 // for backwards compatibility with existing callers.
+// Stage 26 — debit field extended with idempotency fields.
 export type CreditEnforcementResult = {
   actualDebitsEnabled: boolean;
   blocked: boolean;
@@ -80,10 +81,13 @@ export type CreditEnforcementResult = {
   remainingAfter: number;
   message: string;
   debit?: {
-    ok: boolean;
-    newBalance?: number;
+    attempted: boolean;
+    applied: boolean;
+    duplicate?: boolean;
+    sourceEventId?: string;
     ledgerEntryId?: string;
-    reason?: "insufficient_balance" | "race_condition" | "db_error";
+    newBalance?: number;
+    error?: string;
   };
   allowance?: {
     enabled: true;
@@ -165,17 +169,32 @@ export async function checkCreditEnforcement({
   let debit: CreditEnforcementResult["debit"];
 
   if (config.actualDebitsEnabled && requiredCredits > 0 && !wouldBlock) {
+    // Use caller-provided sourceEventId for idempotency; generate a fallback if absent
+    const effectiveSourceEventId = sourceEventId ?? generateDebitId();
     const result = await debitCredits(env, {
       userKey,
       creditType,
       amount: requiredCredits,
       reason: `${rule.label ?? eventType} 실행`,
       ...(projectId ? { projectId } : {}),
-      ...(sourceEventId ? { sourceEventId } : {}),
+      sourceEventId: effectiveSourceEventId,
     });
-    debit = result.ok
-      ? { ok: true, newBalance: result.newBalance, ledgerEntryId: result.ledgerEntryId }
-      : { ok: false, reason: result.reason };
+    if (result.ok) {
+      debit = {
+        attempted: true,
+        applied: !result.duplicate,
+        ...(result.duplicate ? { duplicate: true } : {}),
+        sourceEventId: result.sourceEventId,
+        ledgerEntryId: result.ledgerEntryId,
+        newBalance: result.newBalance,
+      };
+    } else {
+      debit = {
+        attempted: true,
+        applied: false,
+        error: result.error,
+      };
+    }
   }
 
   return {
