@@ -22,7 +22,7 @@ import {
   nonPassedRerunItemIds,
   canRerun,
   formatSelectedCountMessage,
-} from "@/lib/rerun-selection";
+} from "@/lib/rerun-selection.mjs";
 
 // ─── Status config ────────────────────────────────────────────────────────────
 

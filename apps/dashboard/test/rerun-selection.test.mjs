@@ -12,7 +12,7 @@ import {
   nonPassedRerunItemIds,
   canRerun,
   formatSelectedCountMessage,
-} from "../src/lib/rerun-selection.ts";
+} from "../src/lib/rerun-selection.mjs";
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 

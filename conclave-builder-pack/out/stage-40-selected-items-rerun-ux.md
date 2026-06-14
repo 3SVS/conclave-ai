@@ -41,7 +41,8 @@ PR 확인 기록 상세 (/projects/:id/github/history/:runId)
 기본 선택 = **추천 선택** = `failed` / `inconclusive` / `needs_decision`.
 즉 **통과(passed) 항목은 기본 선택하지 않는다.**
 
-순수 로직은 `apps/dashboard/src/lib/rerun-selection.ts` 로 분리:
+순수 로직은 `apps/dashboard/src/lib/rerun-selection.mjs` (+ 타입 선언 `rerun-selection.d.mts`) 로 분리.
+(plain ESM `.mjs`로 둔 이유: CI가 Node 20 floor에서 `node --test`를 돌리는데 Node 20은 `.ts` type-stripping 미지원. `.mjs`+`.d.mts`는 앱 타입안정성을 유지하면서 모든 지원 Node에서 테스트가 돈다.) 함수:
 - `recommendedRerunItemIds(items)` — 안 맞음/확인 부족/결정 필요
 - `allRerunItemIds(items)` — 전체
 - `nonPassedRerunItemIds(items)` — 통과 제외
@@ -114,7 +115,7 @@ re-run 후 `ComparisonPanel` 헤더에 선택 항목 수 표시:
 
 ## 7. 테스트
 
-`apps/dashboard/test/rerun-selection.test.mjs` (Node 24 type-stripping으로 `.ts` import, 9 tests):
+`apps/dashboard/test/rerun-selection.test.mjs` (plain `.mjs` import, Node ≥ 20에서 동작, 9 tests):
 - 추천 선택 = failed/inconclusive/needs_decision, passed 미선택
 - 전체 선택 = 전부
 - 통과 제외 = passed 제외
