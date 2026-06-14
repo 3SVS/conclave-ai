@@ -105,7 +105,9 @@ test("LIVE INVARIANT: release.yml checkout uses ORCHESTRATOR_PAT so PIA-1 auto-b
   // The checkout step's `token:` line must reference ORCHESTRATOR_PAT.
   // We accept fallback patterns like `secrets.ORCHESTRATOR_PAT || secrets.GITHUB_TOKEN`
   // so the workflow degrades gracefully when the PAT isn't set in CI.
-  const checkoutBlock = release.match(/uses:\s*actions\/checkout@v4[\s\S]*?(?=\n\s{0,4}-\s|\n\s*$)/);
+  // Version-agnostic: match any pinned major (the action version is bumped
+  // independently for Node-runtime upkeep; the invariant under test is the token).
+  const checkoutBlock = release.match(/uses:\s*actions\/checkout@v\d+[\s\S]*?(?=\n\s{0,4}-\s|\n\s*$)/);
   assert.ok(checkoutBlock, "release.yml has an actions/checkout step");
   assert.match(
     checkoutBlock[0],
