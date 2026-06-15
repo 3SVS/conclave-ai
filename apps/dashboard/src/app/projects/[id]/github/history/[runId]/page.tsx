@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { getProject } from "@/lib/mock-data";
@@ -114,12 +114,21 @@ function ResultCard({ item }: { item: ReviewResultItem }) {
 // ─── Fix Pack Panel ───────────────────────────────────────────────────────────
 
 function FixPackPanel({
-  projectId, prNumber, runId, userKey,
-}: { projectId: string; prNumber: number; runId: string; userKey: string }) {
+  projectId, prNumber, runId, userKey, selectedItemIds, autoOpen,
+}: {
+  projectId: string;
+  prNumber: number;
+  runId: string;
+  userKey: string;
+  selectedItemIds?: string[];
+  autoOpen?: boolean;
+}) {
   const [phase, setPhase] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [result, setResult] = useState<FixBriefResult | null>(null);
   const [selectedFileIdx, setSelectedFileIdx] = useState(0);
   const [copied, setCopied] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const autoFiredRef = useRef(false);
 
   const generate = useCallback(async () => {
     setPhase("loading");
@@ -127,37 +136,50 @@ function FixPackPanel({
     const res = await generatePRFixBrief(projectId, prNumber, {
       userKey,
       reviewRunId: runId,
+      // 남은 문제(안 맞음/확인 부족/결정 필요)만 — 서버 기본값과 동일하지만 명시 전달.
+      selectedItemIds: selectedItemIds && selectedItemIds.length > 0 ? selectedItemIds : undefined,
       productSpec: ext?.productSpec,
       items: undefined,
     });
     if (!res.ok) { setPhase("error"); return; }
     setResult(res);
     setPhase("done");
-  }, [projectId, prNumber, runId, userKey]);
+  }, [projectId, prNumber, runId, userKey, selectedItemIds]);
+
+  // Stage 42: when arrived via "남은 문제 Fix Pack" (?action=fix-pack), scroll the
+  // panel into view and auto-generate once.
+  useEffect(() => {
+    if (!autoOpen || autoFiredRef.current) return;
+    autoFiredRef.current = true;
+    containerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    void generate();
+  }, [autoOpen, generate]);
 
   if (phase === "idle") {
     return (
-      <button
-        onClick={generate}
-        className="w-full bg-gray-900 text-white text-sm font-medium px-4 py-2.5 rounded-xl hover:bg-gray-800 transition-colors"
-      >
-        이 기록으로 Fix Pack 만들기
-      </button>
+      <div ref={containerRef}>
+        <button
+          onClick={generate}
+          className="w-full bg-gray-900 text-white text-sm font-medium px-4 py-2.5 rounded-xl hover:bg-gray-800 transition-colors"
+        >
+          선택한 항목으로 수정 지시서 만들기
+        </button>
+      </div>
     );
   }
 
   if (phase === "loading") {
     return (
-      <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
+      <div ref={containerRef} className="flex items-center gap-2 text-sm text-gray-400 py-2">
         <div className="w-4 h-4 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin flex-shrink-0" />
-        Fix Pack 생성 중...
+        수정 지시서 만드는 중...
       </div>
     );
   }
 
   if (phase === "error") {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700 flex items-center justify-between">
+      <div ref={containerRef} className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700 flex items-center justify-between">
         <span>Fix Pack 생성 실패</span>
         <button onClick={generate} className="text-xs text-red-600 underline">다시 시도</button>
       </div>
@@ -174,13 +196,13 @@ function FixPackPanel({
   };
 
   return (
-    <div className="border border-gray-200 rounded-xl overflow-hidden">
+    <div ref={containerRef} className="border border-gray-200 rounded-xl overflow-hidden">
       {/* Header */}
       <div className="bg-gray-50 border-b border-gray-200 px-4 py-3 flex items-center justify-between">
         <div>
-          <p className="text-sm font-semibold text-gray-800">Fix Pack</p>
-          <p className="text-xs text-gray-400 mt-0.5">
-            이 확인 기록 기준 생성됨 · {result.selectedItemIds.length}개 항목
+          <p className="text-sm font-semibold text-gray-800">남은 문제 Fix Pack</p>
+          <p className="text-xs text-indigo-600 mt-0.5">
+            남은 문제 {result.selectedItemIds.length}개로 Fix Pack을 만들었어요.
           </p>
         </div>
         <button
@@ -189,6 +211,13 @@ function FixPackPanel({
         >
           {copied ? "복사됨!" : "전체 복사"}
         </button>
+      </div>
+
+      {/* Source notice — Fix Pack reflects a specific historical run */}
+      <div className="bg-amber-50 border-b border-amber-100 px-4 py-2">
+        <p className="text-xs text-amber-700">
+          이 Fix Pack은 특정 확인 기록 기준입니다. 최신 PR 상태와 다를 수 있습니다.
+        </p>
       </div>
 
       {/* File tabs */}
@@ -676,6 +705,13 @@ export default function RunDetailPage() {
     prNumber: number;
     run: PRReviewRunDetail;
   } | null>(null);
+  // Stage 42: arrived from the history list "남은 문제 Fix Pack" quick action.
+  // Read on the client to avoid a useSearchParams Suspense boundary.
+  const [fixPackRequested, setFixPackRequested] = useState(false);
+
+  useEffect(() => {
+    setFixPackRequested(new URLSearchParams(window.location.search).get("action") === "fix-pack");
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -832,9 +868,16 @@ export default function RunDetailPage() {
         </>
       )}
 
-      {/* ── Run-specific Fix Pack ── */}
+      {/* ── Run-specific Fix Pack (남은 문제 중심) ── */}
       {actionNeeded > 0 && userKey && (
-        <FixPackPanel projectId={id} prNumber={prNumber} runId={runId} userKey={userKey} />
+        <FixPackPanel
+          projectId={id}
+          prNumber={prNumber}
+          runId={runId}
+          userKey={userKey}
+          selectedItemIds={recommendedRerunItemIds(run.results)}
+          autoOpen={fixPackRequested}
+        />
       )}
 
       {/* ── Run-specific Comment ── */}

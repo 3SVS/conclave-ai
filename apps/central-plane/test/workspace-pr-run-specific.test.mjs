@@ -261,6 +261,27 @@ describe("POST /workspace/projects/:id/github/pulls/:number/fix-brief with revie
     assert.ok(typeof body.sourceReviewRun.summary === "object");
     assert.equal(body.sourceReviewRun.summary.failed, 1);
   });
+
+  // Stage 42: history-list quick Fix Pack passes reviewRunId + explicit
+  // recommendedItemIds (남은 문제). The server must honor the passed selection.
+  it("5a — honors explicit selectedItemIds (recommended subset) + returns sourceReviewRun", async () => {
+    const run = makeRun();
+    const app = createApp();
+    const env = makeEnv({ runs: [run], repos: [makeRepo()], productSpec: PRODUCT_SPEC });
+
+    const res = await post(app, env, "/workspace/projects/proj1/github/pulls/42/fix-brief", {
+      userKey: "uk1",
+      reviewRunId: "wprr_s36_01",
+      selectedItemIds: ["req_002"], // recommended (failed) only
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.ok(body.ok);
+    assert.equal(body.runId, "wprr_s36_01");
+    assert.deepEqual(body.selectedItemIds, ["req_002"]);
+    assert.ok(body.sourceReviewRun, "sourceReviewRun present for the notice");
+    assert.equal(body.sourceReviewRun.id, "wprr_s36_01");
+  });
 });
 
 // ─── Comment preview — run-specific ──────────────────────────────────────────

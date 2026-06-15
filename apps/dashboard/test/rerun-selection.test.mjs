@@ -14,6 +14,7 @@ import {
   formatSelectedCountMessage,
   quickRerunDisabledMessage,
   buildRunDetailHref,
+  buildFixPackHref,
 } from "../src/lib/rerun-selection.mjs";
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
@@ -113,4 +114,25 @@ test("buildRunDetailHref: carries the source run as fromRunId", () => {
     buildRunDetailHref("proj1", "wprr_new", "wprr_old"),
     "/projects/proj1/github/history/wprr_new?fromRunId=wprr_old",
   );
+});
+
+// ─── Stage 42: history-list quick Fix Pack ───────────────────────────────────
+
+test("buildFixPackHref: links to detail with action=fix-pack", () => {
+  assert.equal(
+    buildFixPackHref("proj1", "wprr_42"),
+    "/projects/proj1/github/history/wprr_42?action=fix-pack",
+  );
+});
+
+test("quick Fix Pack uses the same recommended set as re-run (failed/inconclusive/needs_decision)", () => {
+  // The history-list Fix Pack button is enabled on the same recommendedItemCount,
+  // and the request sends exactly the recommended (non-passed) itemIds.
+  const ids = recommendedRerunItemIds([
+    { itemId: "a", status: "passed" },
+    { itemId: "b", status: "failed" },
+    { itemId: "c", status: "needs_decision" },
+  ]);
+  assert.deepEqual(ids, ["b", "c"]);
+  assert.equal(canRerun(ids.length), true);
 });

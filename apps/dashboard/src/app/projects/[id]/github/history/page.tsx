@@ -13,6 +13,7 @@ import {
 import {
   quickRerunDisabledMessage,
   buildRunDetailHref,
+  buildFixPackHref,
 } from "@/lib/rerun-selection.mjs";
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
@@ -147,6 +148,37 @@ function QuickRerun({
   );
 }
 
+// "남은 문제 Fix Pack" — navigates to the detail page with ?action=fix-pack,
+// which auto-opens the FixPackPanel for failed/inconclusive/needs_decision items.
+// No inline picker in the list; item editing happens on the detail page.
+function QuickFixPackLink({
+  projectId, runId, rerunAction,
+}: {
+  projectId: string;
+  runId: string;
+  rerunAction: ProjectReviewHistoryItem["rerunAction"];
+}) {
+  const count = rerunAction?.recommendedItemCount ?? 0;
+  if (count === 0) {
+    return (
+      <span
+        title="Fix Pack으로 만들 남은 문제가 없어요."
+        className="text-xs font-medium border rounded-lg px-2.5 py-1 border-gray-200 text-gray-300 cursor-not-allowed select-none"
+      >
+        남은 문제 Fix Pack
+      </span>
+    );
+  }
+  return (
+    <Link
+      href={buildFixPackHref(projectId, runId)}
+      className="text-xs font-medium border rounded-lg px-2.5 py-1 transition-colors border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100"
+    >
+      남은 문제 Fix Pack ({count})
+    </Link>
+  );
+}
+
 export default function ReviewHistoryPage() {
   const { id } = useParams<{ id: string }>();
   const project = getLocalProject(id) ?? getProject(id);
@@ -276,15 +308,22 @@ export default function ReviewHistoryPage() {
                   </span>
                 </div>
 
-                <div className="mt-2">
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
                   {userKey ? (
-                    <QuickRerun
-                      projectId={id}
-                      prNumber={run.prNumber}
-                      runId={run.id}
-                      rerunAction={run.rerunAction}
-                      userKey={userKey}
-                    />
+                    <>
+                      <QuickRerun
+                        projectId={id}
+                        prNumber={run.prNumber}
+                        runId={run.id}
+                        rerunAction={run.rerunAction}
+                        userKey={userKey}
+                      />
+                      <QuickFixPackLink
+                        projectId={id}
+                        runId={run.id}
+                        rerunAction={run.rerunAction}
+                      />
+                    </>
                   ) : (
                     <Link
                       href={`/projects/${id}/github/history/${run.id}`}

@@ -32,3 +32,6 @@ export function buildRunDetailHref(
   newRunId: string,
   fromRunId?: string,
 ): string;
+
+/** Detail-page href that auto-opens the "남은 문제 Fix Pack" panel (Stage 42). */
+export function buildFixPackHref(projectId: string, runId: string): string;

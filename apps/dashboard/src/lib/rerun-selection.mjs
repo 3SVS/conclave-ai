@@ -88,3 +88,13 @@ export function buildRunDetailHref(projectId, newRunId, fromRunId) {
   const base = `/projects/${projectId}/github/history/${newRunId}`;
   return fromRunId ? `${base}?fromRunId=${encodeURIComponent(fromRunId)}` : base;
 }
+
+/**
+ * Detail-page href that auto-opens the "남은 문제 Fix Pack" panel (Stage 42).
+ * @param {string} projectId
+ * @param {string} runId
+ * @returns {string}
+ */
+export function buildFixPackHref(projectId, runId) {
+  return `/projects/${projectId}/github/history/${runId}?action=fix-pack`;
+}
