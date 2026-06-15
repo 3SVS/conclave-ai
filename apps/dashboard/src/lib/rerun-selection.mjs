@@ -64,3 +64,27 @@ export function canRerun(selectedCount) {
 export function formatSelectedCountMessage(selectedCount) {
   return `선택한 ${selectedCount}개 항목을 다시 확인했습니다.`;
 }
+
+// ─── Stage 41: history-list quick re-run ─────────────────────────────────────
+
+/**
+ * Korean tooltip/hint for a disabled quick re-run button.
+ * @param {"no_remaining_issues" | "results_unavailable" | undefined} reason
+ * @returns {string}
+ */
+export function quickRerunDisabledMessage(reason) {
+  if (reason === "results_unavailable") return "확인 결과가 없어 다시 확인할 수 없어요.";
+  return "다시 확인할 남은 문제가 없어요.";
+}
+
+/**
+ * Detail-page href for a newly created run, optionally carrying the source run.
+ * @param {string} projectId
+ * @param {string} newRunId
+ * @param {string} [fromRunId]
+ * @returns {string}
+ */
+export function buildRunDetailHref(projectId, newRunId, fromRunId) {
+  const base = `/projects/${projectId}/github/history/${newRunId}`;
+  return fromRunId ? `${base}?fromRunId=${encodeURIComponent(fromRunId)}` : base;
+}

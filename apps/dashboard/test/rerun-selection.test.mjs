@@ -12,6 +12,8 @@ import {
   nonPassedRerunItemIds,
   canRerun,
   formatSelectedCountMessage,
+  quickRerunDisabledMessage,
+  buildRunDetailHref,
 } from "../src/lib/rerun-selection.mjs";
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
@@ -86,4 +88,29 @@ test("re-run is enabled with at least one item", () => {
 test("comparison count message reflects the selected count", () => {
   assert.equal(formatSelectedCountMessage(3), "선택한 3개 항목을 다시 확인했습니다.");
   assert.equal(formatSelectedCountMessage(1), "선택한 1개 항목을 다시 확인했습니다.");
+});
+
+// ─── Stage 41: history-list quick re-run helpers ─────────────────────────────
+
+test("quickRerunDisabledMessage: no remaining issues", () => {
+  assert.equal(quickRerunDisabledMessage("no_remaining_issues"), "다시 확인할 남은 문제가 없어요.");
+  assert.equal(quickRerunDisabledMessage(undefined), "다시 확인할 남은 문제가 없어요.");
+});
+
+test("quickRerunDisabledMessage: results unavailable", () => {
+  assert.equal(quickRerunDisabledMessage("results_unavailable"), "확인 결과가 없어 다시 확인할 수 없어요.");
+});
+
+test("buildRunDetailHref: navigates to the new run detail", () => {
+  assert.equal(
+    buildRunDetailHref("proj1", "wprr_new"),
+    "/projects/proj1/github/history/wprr_new",
+  );
+});
+
+test("buildRunDetailHref: carries the source run as fromRunId", () => {
+  assert.equal(
+    buildRunDetailHref("proj1", "wprr_new", "wprr_old"),
+    "/projects/proj1/github/history/wprr_new?fromRunId=wprr_old",
+  );
 });

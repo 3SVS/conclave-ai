@@ -285,6 +285,62 @@ describe("GET /workspace/projects/:id/github/review-history", () => {
     const body = await res.json();
     assert.equal(body.runs.length, 3);
   });
+
+  // ── Stage 41: rerunAction (quick re-run) ──────────────────────────────────
+
+  function mixedResultsRun(overrides = {}) {
+    return makeRun({
+      selected_item_ids_json: '["a","b","c","d"]',
+      status: "failed",
+      result_json: JSON.stringify({
+        summary: { passed: 1, failed: 1, inconclusive: 1, needsDecision: 1 },
+        results: [
+          { itemId: "a", title: "A", status: "passed", reason: "ok" },
+          { itemId: "b", title: "B", status: "failed", reason: "x" },
+          { itemId: "c", title: "C", status: "inconclusive", reason: "x" },
+          { itemId: "d", title: "D", status: "needs_decision", reason: "x" },
+        ],
+      }),
+      ...overrides,
+    });
+  }
+
+  it("14a — rerunAction exposes recommendedItemIds without full results", async () => {
+    const app = createApp();
+    const res = await get(app, makeEnv([mixedResultsRun()], [makeRepo()]), "/workspace/projects/proj1/github/review-history?userKey=uk1");
+    const r = (await res.json()).runs[0];
+    assert.ok(r.rerunAction, "rerunAction present");
+    assert.deepEqual(r.rerunAction.recommendedItemIds, ["b", "c", "d"]);
+    assert.equal(r.rerunAction.recommendedItemCount, 3);
+    assert.ok(!("results" in r), "full results array should NOT be in the list response");
+    assert.equal(r.rerunAction.disabledReason, undefined);
+  });
+
+  it("14b — recommendedItemIds exclude passed items", async () => {
+    const app = createApp();
+    const res = await get(app, makeEnv([mixedResultsRun()], [makeRepo()]), "/workspace/projects/proj1/github/review-history?userKey=uk1");
+    const ids = (await res.json()).runs[0].rerunAction.recommendedItemIds;
+    assert.ok(!ids.includes("a"));
+  });
+
+  it("14c — all-passed run disables quick re-run (no_remaining_issues)", async () => {
+    // default makeRun() has two passed items
+    const app = createApp();
+    const res = await get(app, makeEnv([makeRun()], [makeRepo()]), "/workspace/projects/proj1/github/review-history?userKey=uk1");
+    const action = (await res.json()).runs[0].rerunAction;
+    assert.equal(action.recommendedItemCount, 0);
+    assert.deepEqual(action.recommendedItemIds, []);
+    assert.equal(action.disabledReason, "no_remaining_issues");
+  });
+
+  it("14d — run without stored results → results_unavailable", async () => {
+    const app = createApp();
+    const noResults = makeRun({ status: "error", result_json: null, error_message: "boom" });
+    const res = await get(app, makeEnv([noResults], [makeRepo()]), "/workspace/projects/proj1/github/review-history?userKey=uk1");
+    const action = (await res.json()).runs[0].rerunAction;
+    assert.equal(action.recommendedItemCount, 0);
+    assert.equal(action.disabledReason, "results_unavailable");
+  });
 });
 
 // ─── DB helper unit tests ─────────────────────────────────────────────────────

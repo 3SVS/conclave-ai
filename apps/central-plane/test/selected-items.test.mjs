@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const { normalizeSelectedItemIds, MAX_SELECTED_ITEMS } = await import("../dist/workspace/selected-items.js");
+const { normalizeSelectedItemIds, MAX_SELECTED_ITEMS, recommendedRerunItemIds } = await import("../dist/workspace/selected-items.js");
 
 test("returns undefined when input is not an array", () => {
   assert.equal(normalizeSelectedItemIds(undefined), undefined);
@@ -46,4 +46,38 @@ test("realistic re-run payload passes through unchanged", () => {
     normalizeSelectedItemIds(["req_002", "req_005", "req_009"]),
     ["req_002", "req_005", "req_009"],
   );
+});
+
+// ─── Stage 41: recommendedRerunItemIds ──────────────────────────────────────
+
+const MIXED = [
+  { itemId: "a", status: "passed" },
+  { itemId: "b", status: "failed" },
+  { itemId: "c", status: "inconclusive" },
+  { itemId: "d", status: "needs_decision" },
+  { itemId: "e", status: "passed" },
+];
+
+test("recommendedRerunItemIds includes failed / inconclusive / needs_decision only", () => {
+  assert.deepEqual(recommendedRerunItemIds(MIXED), ["b", "c", "d"]);
+});
+
+test("recommendedRerunItemIds excludes passed", () => {
+  const ids = recommendedRerunItemIds(MIXED);
+  assert.ok(!ids.includes("a"));
+  assert.ok(!ids.includes("e"));
+});
+
+test("recommendedRerunItemIds is empty when all passed (no remaining issues)", () => {
+  assert.deepEqual(
+    recommendedRerunItemIds([
+      { itemId: "x", status: "passed" },
+      { itemId: "y", status: "passed" },
+    ]),
+    [],
+  );
+});
+
+test("recommendedRerunItemIds is empty for empty results", () => {
+  assert.deepEqual(recommendedRerunItemIds([]), []);
 });

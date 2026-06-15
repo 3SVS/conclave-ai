@@ -710,8 +710,16 @@ export type ReviewRunHistoryItem = {
   updatedAt: string;
 };
 
+export type PRReviewRerunAction = {
+  /** failed / inconclusive / needs_decision itemIds only — never full results. */
+  recommendedItemIds: string[];
+  recommendedItemCount: number;
+  disabledReason?: "no_remaining_issues" | "results_unavailable";
+};
+
 export type ProjectReviewHistoryItem = Omit<ReviewRunHistoryItem, "selectedItemIds" | "results"> & {
   selectedItemCount: number;
+  rerunAction?: PRReviewRerunAction;
 };
 
 export type PRReviewHistoryResponse =

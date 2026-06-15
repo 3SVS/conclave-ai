@@ -33,3 +33,27 @@ export function normalizeSelectedItemIds(raw: unknown): string[] | undefined {
   }
   return out;
 }
+
+/**
+ * Stage 41: statuses that count as "문제가 남은 항목" — the default selection for
+ * a quick re-run. Mirrors the dashboard's recommendedRerunItemIds (안 맞음 /
+ * 확인 부족 / 결정 필요). 통과(passed) is excluded.
+ */
+const RECOMMENDED_RERUN_STATUSES: ReadonlySet<string> = new Set([
+  "failed",
+  "inconclusive",
+  "needs_decision",
+]);
+
+/**
+ * Item ids worth re-checking from a run's results: failed / inconclusive /
+ * needs_decision only. Used by the project history list to power the
+ * "남은 문제 다시 확인" quick action without shipping full results.
+ */
+export function recommendedRerunItemIds(
+  results: ReadonlyArray<{ itemId: string; status: string }>,
+): string[] {
+  return results
+    .filter((r) => RECOMMENDED_RERUN_STATUSES.has(r.status))
+    .map((r) => r.itemId);
+}

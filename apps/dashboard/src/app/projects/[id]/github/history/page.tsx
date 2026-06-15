@@ -1,14 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { useState, useEffect, useCallback } from "react";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { getProject } from "@/lib/mock-data";
 import { getLocalProject, getUserKey } from "@/lib/workflow-store";
 import {
   listProjectReviewHistory,
+  startPRReview,
   type ProjectReviewHistoryItem,
 } from "@/lib/workspace-github-api";
+import {
+  quickRerunDisabledMessage,
+  buildRunDetailHref,
+} from "@/lib/rerun-selection.mjs";
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   passed:      { label: "통과",     className: "text-green-700 bg-green-50 border-green-200" },
@@ -57,6 +62,87 @@ function SummaryBar({ summary }: { summary: NonNullable<ProjectReviewHistoryItem
       {summary.needsDecision > 0 && (
         <span className="text-violet-600 font-medium">{summary.needsDecision} 결정 필요</span>
       )}
+    </div>
+  );
+}
+
+// ─── Quick re-run (history-list direct action) ───────────────────────────────
+// "남은 문제 다시 확인" — re-checks failed/inconclusive/needs_decision only.
+// For editing which items run, the user goes to the detail page (Stage 40 picker).
+
+function QuickRerun({
+  projectId, prNumber, runId, rerunAction, userKey,
+}: {
+  projectId: string;
+  prNumber: number;
+  runId: string;
+  rerunAction: ProjectReviewHistoryItem["rerunAction"];
+  userKey: string;
+}) {
+  const router = useRouter();
+  const [phase, setPhase] = useState<"idle" | "running" | "error">("idle");
+
+  const enabled = (rerunAction?.recommendedItemCount ?? 0) > 0;
+
+  const run = useCallback(async () => {
+    const recommendedItemIds = rerunAction?.recommendedItemIds ?? [];
+    if (recommendedItemIds.length === 0 || phase === "running") return;
+    setPhase("running");
+    // New idempotency key per click; held for this in-flight request only.
+    const idempotencyKey = crypto.randomUUID();
+    const res = await startPRReview(projectId, prNumber, {
+      userKey,
+      selectedItemIds: recommendedItemIds,
+      rerunOfReviewRunId: runId,
+      idempotencyKey,
+    });
+    if (!res.ok) {
+      setPhase("error");
+      return;
+    }
+    // Auto-navigate to the new run detail, carrying the source run.
+    router.push(buildRunDetailHref(projectId, res.run.id, runId));
+  }, [rerunAction, phase, projectId, prNumber, runId, userKey, router]);
+
+  const detailLink = (
+    <Link
+      href={`/projects/${projectId}/github/history/${runId}`}
+      className="text-xs text-indigo-500 hover:text-indigo-700"
+    >
+      상세에서 항목 선택 →
+    </Link>
+  );
+
+  if (phase === "running") {
+    return (
+      <div className="flex items-center gap-2 text-xs text-gray-400">
+        <div className="w-3 h-3 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin flex-shrink-0" />
+        다시 확인 중...
+      </div>
+    );
+  }
+
+  if (phase === "error") {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-red-600">다시 확인하지 못했어요. 상세 화면에서 다시 시도해 주세요.</span>
+        {detailLink}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        onClick={run}
+        disabled={!enabled}
+        title={enabled ? undefined : quickRerunDisabledMessage(rerunAction?.disabledReason)}
+        className="text-xs font-medium border rounded-lg px-2.5 py-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed
+          border-indigo-200 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 enabled:hover:border-indigo-300"
+      >
+        남은 문제 다시 확인{enabled ? ` (${rerunAction?.recommendedItemCount})` : ""}
+      </button>
+      {detailLink}
     </div>
   );
 }
@@ -185,17 +271,28 @@ export default function ReviewHistoryPage() {
 
                 <div className="flex items-center justify-between mt-1.5">
                   <span className="text-xs text-gray-400">{formatDate(run.createdAt)}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-300">
-                      {run.selectedItemCount}개 항목
-                    </span>
+                  <span className="text-xs text-gray-300">
+                    {run.selectedItemCount}개 항목
+                  </span>
+                </div>
+
+                <div className="mt-2">
+                  {userKey ? (
+                    <QuickRerun
+                      projectId={id}
+                      prNumber={run.prNumber}
+                      runId={run.id}
+                      rerunAction={run.rerunAction}
+                      userKey={userKey}
+                    />
+                  ) : (
                     <Link
                       href={`/projects/${id}/github/history/${run.id}`}
                       className="text-xs text-indigo-500 hover:text-indigo-700"
                     >
                       상세 보기 →
                     </Link>
-                  </div>
+                  )}
                 </div>
               </div>
             </div>

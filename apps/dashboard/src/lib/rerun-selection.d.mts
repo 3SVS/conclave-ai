@@ -20,3 +20,15 @@ export function canRerun(selectedCount: number): boolean;
 
 /** Korean message shown above the comparison after a selective re-run. */
 export function formatSelectedCountMessage(selectedCount: number): string;
+
+/** Korean tooltip/hint for a disabled quick re-run button (Stage 41). */
+export function quickRerunDisabledMessage(
+  reason: "no_remaining_issues" | "results_unavailable" | undefined,
+): string;
+
+/** Detail-page href for a newly created run, optionally carrying the source run (Stage 41). */
+export function buildRunDetailHref(
+  projectId: string,
+  newRunId: string,
+  fromRunId?: string,
+): string;

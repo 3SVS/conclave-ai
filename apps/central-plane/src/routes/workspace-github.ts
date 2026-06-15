@@ -39,7 +39,7 @@ import {
   listPRReviewRuns, listProjectReviewRuns, getReviewRunById,
 } from "../workspace/pr-review-db.js";
 import { loadPRReviewRunForAction } from "../workspace/pr-review-run-loader.js";
-import { normalizeSelectedItemIds } from "../workspace/selected-items.js";
+import { normalizeSelectedItemIds, recommendedRerunItemIds } from "../workspace/selected-items.js";
 import {
   compareRunResults, buildRunSummary, parseRunResults, compareSpecificReviewRuns,
   type SpecificRunComparison,
@@ -1942,6 +1942,23 @@ export function createWorkspaceGitHubRoutes(
         ok: true,
         runs: runs.map((run) => {
           let summary: unknown = undefined;
+          // Stage 41: lightweight rerunAction for the history-list quick re-run.
+          // We extract only the recommended itemIds (failed / inconclusive /
+          // needs_decision) — never the full results — so the list stays small.
+          const results = parseRunResults(run.resultJson);
+          let rerunAction: {
+            recommendedItemIds: string[];
+            recommendedItemCount: number;
+            disabledReason?: "no_remaining_issues" | "results_unavailable";
+          };
+          if (results.length === 0) {
+            rerunAction = { recommendedItemIds: [], recommendedItemCount: 0, disabledReason: "results_unavailable" };
+          } else {
+            const recommendedItemIds = recommendedRerunItemIds(results);
+            rerunAction = recommendedItemIds.length > 0
+              ? { recommendedItemIds, recommendedItemCount: recommendedItemIds.length }
+              : { recommendedItemIds: [], recommendedItemCount: 0, disabledReason: "no_remaining_issues" };
+          }
           if (run.resultJson) {
             try {
               const parsed = JSON.parse(run.resultJson) as { summary?: unknown };
@@ -1955,6 +1972,7 @@ export function createWorkspaceGitHubRoutes(
             prNumber: run.prNumber,
             selectedItemCount: run.selectedItemIds.length,
             summary,
+            rerunAction,
             errorMessage: run.errorMessage ?? undefined,
             createdAt: run.createdAt,
             updatedAt: run.updatedAt,
