@@ -24,6 +24,22 @@ import {
   canRerun,
   formatSelectedCountMessage,
 } from "@/lib/rerun-selection.mjs";
+import {
+  buildReviewSelectionStorageKey,
+  readStoredReviewSelection,
+  writeStoredReviewSelection,
+} from "@/lib/review-selection-storage.mjs";
+import type { StorageLike } from "@/lib/review-selection-storage.mjs";
+
+// Stage 44: localStorage, guarded for SSR / private-mode / blocked storage.
+function getReviewSelectionStorage(): StorageLike | null {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return null;
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
@@ -553,11 +569,12 @@ function RerunItemRow({ item, checked, onToggle }: {
 // One picker; RerunPanel / FixPackPanel / CommentPanel all consume its result.
 
 function ReviewItemSelectionPanel({
-  items, selectedItemIds, onChange,
+  items, selectedItemIds, onChange, storageNote,
 }: {
   items: ReviewResultItem[];
   selectedItemIds: string[];
   onChange: (selectedItemIds: string[]) => void;
+  storageNote?: string;
 }) {
   const selectedSet = new Set(selectedItemIds);
   return (
@@ -606,7 +623,7 @@ function ReviewItemSelectionPanel({
         ))}
       </div>
 
-      <div className="border-t border-gray-100 bg-gray-50 px-4 py-2.5">
+      <div className="border-t border-gray-100 bg-gray-50 px-4 py-2.5 flex items-center justify-between gap-2">
         {selectedItemIds.length > 0 ? (
           <p className="text-xs text-indigo-600">이번에 다룰 항목: {selectedItemIds.length}개 선택됨</p>
         ) : (
@@ -614,6 +631,7 @@ function ReviewItemSelectionPanel({
             항목을 하나 이상 선택하면 다시 확인, Fix Pack, PR comment를 만들 수 있어요.
           </p>
         )}
+        {storageNote && <span className="text-[11px] text-gray-400 flex-shrink-0">{storageNote}</span>}
       </div>
     </div>
   );
@@ -725,6 +743,12 @@ export default function RunDetailPage() {
   const [fixPackRequested, setFixPackRequested] = useState(false);
   // Stage 43: one shared item selection for re-run / Fix Pack / PR comment.
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
+  // Stage 44: client-side persistence of the selection per (project, run).
+  const [storageStatus, setStorageStatus] = useState<"restored" | "saved" | null>(null);
+  const hydratedRef = useRef(false);
+  const skipNextWriteRef = useRef(false);
+
+  const storageKey = buildReviewSelectionStorageKey({ projectId: id, runId });
 
   useEffect(() => {
     setFixPackRequested(new URLSearchParams(window.location.search).get("action") === "fix-pack");
@@ -732,6 +756,9 @@ export default function RunDetailPage() {
 
   useEffect(() => {
     let cancelled = false;
+    // Reset hydration for this run before loading (handles run-to-run navigation).
+    hydratedRef.current = false;
+    setStorageStatus(null);
     async function load() {
       setPhase("loading");
       const res = await getReviewRunDetail(id, runId, userKey ?? "");
@@ -741,13 +768,41 @@ export default function RunDetailPage() {
         return;
       }
       setDetail({ repoFullName: res.repoFullName, prNumber: res.prNumber, run: res.run });
-      // Default shared selection: 안 맞음 / 확인 부족 / 결정 필요.
-      setSelectedItemIds(recommendedRerunItemIds(res.run.results));
+
+      // Stage 44: restore stored selection, else recommended fallback.
+      const validItemIds = res.run.results.map((r) => r.itemId);
+      const recommended = recommendedRerunItemIds(res.run.results);
+      const storage = getReviewSelectionStorage();
+      const stored = storage
+        ? readStoredReviewSelection({ storage, key: storageKey, validItemIds })
+        : null;
+      if (stored !== null) {
+        // stored [] is an intentional "모두 해제" — restore it as-is.
+        setSelectedItemIds(stored);
+        setStorageStatus("restored");
+      } else {
+        setSelectedItemIds(recommended);
+      }
+      // The setState above will trigger the write effect; skip that one write
+      // so restoring doesn't immediately re-persist / flip the status to "saved".
+      skipNextWriteRef.current = true;
+      hydratedRef.current = true;
       setPhase("done");
     }
     load();
     return () => { cancelled = true; };
-  }, [id, runId, userKey]);
+  }, [id, runId, userKey, storageKey]);
+
+  // Stage 44: persist on every post-hydration change.
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    if (skipNextWriteRef.current) { skipNextWriteRef.current = false; return; }
+    const storage = getReviewSelectionStorage();
+    if (!storage) return;
+    if (writeStoredReviewSelection({ storage, key: storageKey, selectedItemIds })) {
+      setStorageStatus("saved");
+    }
+  }, [selectedItemIds, storageKey]);
 
   if (!project) return <p className="text-sm text-gray-400">프로젝트를 찾을 수 없습니다.</p>;
 
@@ -878,6 +933,11 @@ export default function RunDetailPage() {
             items={run.results}
             selectedItemIds={selectedItemIds}
             onChange={setSelectedItemIds}
+            storageNote={
+              storageStatus === "restored" ? "이전에 고른 항목을 불러왔어요."
+              : storageStatus === "saved" ? "선택 항목을 기억했어요."
+              : undefined
+            }
           />
 
           {/* Re-run */}
