@@ -14,7 +14,7 @@
 
 ## 사전 준비
 
-- [ ] **live dashboard URL** 확보 — `TODO(Bae): Vercel 확인 후 여기에 기록`
+- [ ] **live dashboard URL** 확보 — `TODO(Bae)`. 배포 절차/도메인 선택은 `stage-53-dashboard-vercel-deployment.md` 참조. **권장 target = `https://dashboard.conclave-ai.dev`**(코드 pre-wired; DNS 미설정 상태). bare `*.vercel.app`은 CORS·OAuth로 미동작 주의.
 - [ ] central-plane healthz 200 확인:
   ```bash
   curl -sS https://conclave-ai.seunghunbae.workers.dev/healthz
