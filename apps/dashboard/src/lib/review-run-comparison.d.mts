@@ -34,6 +34,26 @@ export function pickComparisonSourceRunId(args: {
   rerunOfReviewRunId?: string | null;
 }): string | null;
 
+/** Stage 46: comparison→comment shortcut is available only when comparable AND lineage exists. */
+export function canPostComparisonToComment(args: {
+  comparable?: boolean;
+  hasLineage?: boolean;
+}): boolean;
+
+/** Stage 46: build the comparison-aware comment preview/post request body. */
+export function buildComparisonCommentInput(args: {
+  userKey: string;
+  reviewRunId: string;
+  selectedItemIds?: string[];
+  includeRerunComparison?: boolean;
+  comparisonAvailable?: boolean;
+}): {
+  userKey: string;
+  reviewRunId: string;
+  includeRerunComparison: boolean;
+  selectedItemIds?: string[];
+};
+
 /**
  * Classify item-level changes between a source run and the current run.
  * Groups hold the CURRENT item; comparable=false when either side has no results.

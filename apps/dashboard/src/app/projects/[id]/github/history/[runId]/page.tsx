@@ -30,7 +30,11 @@ import {
   writeStoredReviewSelection,
 } from "@/lib/review-selection-storage.mjs";
 import type { StorageLike } from "@/lib/review-selection-storage.mjs";
-import { compareReviewRunResults, pickComparisonSourceRunId } from "@/lib/review-run-comparison.mjs";
+import {
+  compareReviewRunResults,
+  pickComparisonSourceRunId,
+  buildComparisonCommentInput,
+} from "@/lib/review-run-comparison.mjs";
 import type { ReviewRunComparison } from "@/lib/review-run-comparison.mjs";
 
 // Stage 44: localStorage, guarded for SSR / private-mode / blocked storage.
@@ -294,43 +298,67 @@ type CommentPreview = {
 
 function CommentPanel({
   projectId, prNumber, runId, userKey, rerunOfReviewRunId, selectedItemIds,
-}: { projectId: string; prNumber: number; runId: string; userKey: string; rerunOfReviewRunId?: string; selectedItemIds: string[] }) {
+  comparisonAvailable, comparisonDisplayOnly, triggerComparisonComment,
+}: {
+  projectId: string;
+  prNumber: number;
+  runId: string;
+  userKey: string;
+  rerunOfReviewRunId?: string;
+  selectedItemIds: string[];
+  comparisonAvailable?: boolean;     // Stage 46: lineage exists → comparison can go in the comment
+  comparisonDisplayOnly?: boolean;   // a comparison is on screen but fromRunId-only (no lineage)
+  triggerComparisonComment?: number; // Stage 46: AutoComparisonPanel "send to comment" nonce
+}) {
   const [phase, setPhase] = useState<"idle" | "previewing" | "ready" | "posting" | "posted" | "error">("idle");
   const [preview, setPreview] = useState<CommentPreview | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [postResult, setPostResult] = useState<{ url?: string } | null>(null);
   const [copied, setCopied] = useState(false);
-  const [includeRerunComparison, setIncludeRerunComparison] = useState(Boolean(rerunOfReviewRunId));
+  const [includeRerunComparison, setIncludeRerunComparison] = useState(Boolean(comparisonAvailable));
+  const lastTriggerRef = useRef(0);
 
   // Stage 43: 공유 selectedItemIds 전달 (비어 있으면 서버가 run 선택으로 fallback).
   const sharedSelected = selectedItemIds.length > 0 ? selectedItemIds : undefined;
 
-  const generatePreview = useCallback(async () => {
+  const generatePreview = useCallback(async (override?: { includeRerunComparison?: boolean }) => {
     setPhase("previewing");
     setWarnings([]);
-    const res = await previewPRComment(projectId, prNumber, {
-      userKey, reviewRunId: runId,
-      selectedItemIds: sharedSelected,
-      includeRerunComparison: includeRerunComparison && Boolean(rerunOfReviewRunId),
-    });
+    const wantRerun = override?.includeRerunComparison ?? includeRerunComparison;
+    const res = await previewPRComment(projectId, prNumber, buildComparisonCommentInput({
+      userKey, reviewRunId: runId, selectedItemIds: sharedSelected,
+      includeRerunComparison: wantRerun, comparisonAvailable,
+    }));
     if (!res.ok) { setPhase("error"); return; }
     setPreview(res.comment as CommentPreview);
     setWarnings(res.warnings ?? []);
     setPhase("ready");
-  }, [projectId, prNumber, runId, userKey, sharedSelected, includeRerunComparison, rerunOfReviewRunId]);
+  }, [projectId, prNumber, runId, userKey, sharedSelected, includeRerunComparison, comparisonAvailable]);
 
   const post = useCallback(async () => {
     if (!preview) return;
     setPhase("posting");
     const res = await postPRComment(projectId, prNumber, {
-      userKey, reviewRunId: runId, mode: "new",
-      selectedItemIds: sharedSelected,
-      includeRerunComparison: includeRerunComparison && Boolean(rerunOfReviewRunId),
+      ...buildComparisonCommentInput({
+        userKey, reviewRunId: runId, selectedItemIds: sharedSelected,
+        includeRerunComparison, comparisonAvailable,
+      }),
+      mode: "new",
     });
     if (!res.ok) { setPhase("ready"); return; }
     setPostResult({ url: (res as { comment?: { githubCommentUrl?: string } }).comment?.githubCommentUrl });
     setPhase("posted");
-  }, [projectId, prNumber, runId, userKey, preview, sharedSelected, includeRerunComparison, rerunOfReviewRunId]);
+  }, [projectId, prNumber, runId, userKey, preview, sharedSelected, includeRerunComparison, comparisonAvailable]);
+
+  // Stage 46: AutoComparisonPanel "이 비교 결과를 PR comment로 남기기" — check the
+  // box and auto-generate a preview (the Page scrolls this panel into view).
+  useEffect(() => {
+    if (!triggerComparisonComment || triggerComparisonComment === lastTriggerRef.current) return;
+    lastTriggerRef.current = triggerComparisonComment;
+    if (!comparisonAvailable) return;
+    setIncludeRerunComparison(true);
+    void generatePreview({ includeRerunComparison: true });
+  }, [triggerComparisonComment, comparisonAvailable, generatePreview]);
 
   const copyBody = () => {
     if (!preview) return;
@@ -340,19 +368,28 @@ function CommentPanel({
   if (phase === "idle") {
     return (
       <div className="space-y-2">
-        {rerunOfReviewRunId && (
-          <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-600">
+        {comparisonAvailable ? (
+          <label className="flex items-start gap-2 cursor-pointer text-xs text-gray-600">
             <input
               type="checkbox"
               checked={includeRerunComparison}
               onChange={(e) => setIncludeRerunComparison(e.target.checked)}
-              className="rounded border-gray-300"
+              className="mt-0.5 rounded border-gray-300 flex-shrink-0"
             />
-            이전 확인 기록과의 비교 포함
+            <span>
+              다시 확인 결과 비교 포함
+              <span className="block text-[11px] text-gray-400">
+                좋아진 항목, 아직 남은 항목, 새로 생긴 문제를 PR comment에 함께 넣습니다.
+              </span>
+            </span>
           </label>
-        )}
+        ) : comparisonDisplayOnly ? (
+          <p className="text-[11px] text-gray-400">
+            이 기록은 다시 확인으로 만들어진 결과가 아니어서 비교를 comment에 포함할 수 없어요.
+          </p>
+        ) : null}
         <button
-          onClick={generatePreview}
+          onClick={() => generatePreview()}
           className="w-full bg-white border border-gray-200 text-gray-700 text-sm font-medium px-4 py-2.5 rounded-xl hover:bg-gray-50 transition-colors"
         >
           선택한 항목으로 PR comment 작성하기
@@ -374,7 +411,7 @@ function CommentPanel({
     return (
       <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700 flex items-center justify-between">
         <span>comment 생성 실패</span>
-        <button onClick={generatePreview} className="text-xs text-red-600 underline">다시 시도</button>
+        <button onClick={() => generatePreview()} className="text-xs text-red-600 underline">다시 시도</button>
       </div>
     );
   }
@@ -580,7 +617,11 @@ function AutoCompareGroup({ title, color, items }: {
   );
 }
 
-function AutoComparisonPanel({ state }: { state: AutoCompareState }) {
+function AutoComparisonPanel({ state, hasLineage, onSendToComment }: {
+  state: AutoCompareState;
+  hasLineage?: boolean;
+  onSendToComment?: () => void;
+}) {
   if (state.phase === "loading") {
     return (
       <div className="flex items-center gap-2 text-xs text-gray-400 py-1">
@@ -623,6 +664,22 @@ function AutoComparisonPanel({ state }: { state: AutoCompareState }) {
         <AutoCompareGroup title="새로 생긴 문제" color="text-red-700" items={cmp.newlyProblematic} />
         <AutoCompareGroup title="아직 남은 항목" color="text-yellow-700" items={cmp.stillOpen} />
         <AutoCompareGroup title="변화 없음" color="text-gray-500" items={cmp.unchanged} />
+      </div>
+
+      {/* Stage 46: post this comparison to a PR comment (lineage runs only) */}
+      <div className="border-t border-gray-100 bg-gray-50 px-4 py-3">
+        {hasLineage && onSendToComment ? (
+          <button
+            onClick={onSendToComment}
+            className="text-xs font-medium border border-indigo-200 text-indigo-700 bg-indigo-50 rounded-lg px-3 py-1.5 hover:bg-indigo-100 transition-colors"
+          >
+            이 비교 결과를 PR comment로 남기기
+          </button>
+        ) : (
+          <p className="text-[11px] text-gray-400">
+            PR comment에 포함하려면 다시 확인으로 생성된 기록이 필요해요.
+          </p>
+        )}
       </div>
     </div>
   );
@@ -838,6 +895,9 @@ export default function RunDetailPage() {
   // Stage 45: ?fromRunId — auto-compare against that source run.
   const [fromRunId, setFromRunId] = useState<string | null>(null);
   const [autoCompare, setAutoCompare] = useState<AutoCompareState | null>(null);
+  // Stage 46: AutoComparisonPanel → CommentPanel "send comparison to comment".
+  const [commentTriggerKey, setCommentTriggerKey] = useState(0);
+  const commentSectionRef = useRef<HTMLDivElement | null>(null);
   // Stage 43: one shared item selection for re-run / Fix Pack / PR comment.
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   // Stage 44: client-side persistence of the selection per (project, run).
@@ -983,6 +1043,10 @@ export default function RunDetailPage() {
   const { run, repoFullName, prNumber } = detail;
   const actionNeeded = run.summary.failed + run.summary.inconclusive + run.summary.needsDecision;
   const hasResults = Array.isArray(run.results) && run.results.length > 0;
+  // Stage 46: backend can only put the comparison in the comment when this run
+  // has rerun lineage (it uses rerun_of_review_run_id). fromRunId-only is display-only.
+  const hasLineage = Boolean(run.rerunOfReviewRunId);
+  const comparisonDisplayOnly = autoCompare?.phase === "done" && !hasLineage;
 
   const sortedResults = hasResults
     ? [...run.results].sort((a, b) => {
@@ -1047,8 +1111,17 @@ export default function RunDetailPage() {
       {/* ── Summary cards ── */}
       <SummaryCards summary={run.summary} />
 
-      {/* ── Auto comparison vs source run (Stage 45) ── */}
-      {autoCompare && <AutoComparisonPanel state={autoCompare} />}
+      {/* ── Auto comparison vs source run (Stage 45/46) ── */}
+      {autoCompare && (
+        <AutoComparisonPanel
+          state={autoCompare}
+          hasLineage={hasLineage}
+          onSendToComment={() => {
+            commentSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+            setCommentTriggerKey((k) => k + 1);
+          }}
+        />
+      )}
 
       {/* ── Comparison hint (hidden once an auto-comparison is shown) ── */}
       {!autoCompare && run.status !== "queued" && run.status !== "running" && (
@@ -1098,14 +1171,19 @@ export default function RunDetailPage() {
           )}
 
           {/* PR comment */}
-          <CommentPanel
-            projectId={id}
-            prNumber={prNumber}
-            runId={runId}
-            userKey={userKey}
-            rerunOfReviewRunId={run.rerunOfReviewRunId}
-            selectedItemIds={selectedItemIds}
-          />
+          <div ref={commentSectionRef}>
+            <CommentPanel
+              projectId={id}
+              prNumber={prNumber}
+              runId={runId}
+              userKey={userKey}
+              rerunOfReviewRunId={run.rerunOfReviewRunId}
+              selectedItemIds={selectedItemIds}
+              comparisonAvailable={hasLineage}
+              comparisonDisplayOnly={comparisonDisplayOnly}
+              triggerComparisonComment={commentTriggerKey}
+            />
+          </div>
         </>
       )}
 

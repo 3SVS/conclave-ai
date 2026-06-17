@@ -25,6 +25,41 @@ export function pickComparisonSourceRunId({ fromRunId, runId, rerunOfReviewRunId
   return null;
 }
 
+/**
+ * Stage 46: the "post this comparison to a PR comment" shortcut is only
+ * available when the on-screen comparison is comparable AND the current run
+ * has rerun lineage — the backend computes the comment comparison from the
+ * run's rerun_of_review_run_id (Policy A; fromRunId-only is display-only).
+ * @param {{ comparable?: boolean, hasLineage?: boolean }} args
+ * @returns {boolean}
+ */
+export function canPostComparisonToComment({ comparable, hasLineage }) {
+  return Boolean(comparable) && Boolean(hasLineage);
+}
+
+/**
+ * Build the preview/post comment request body for a comparison-aware comment.
+ * - reviewRunId = current run id
+ * - includeRerunComparison only when both requested AND lineage available
+ * - includeComparison is intentionally omitted (never sent with rerun comparison)
+ * - selectedItemIds passed through when non-empty
+ * @param {{ userKey: string, reviewRunId: string, selectedItemIds?: string[], includeRerunComparison?: boolean, comparisonAvailable?: boolean }} args
+ */
+export function buildComparisonCommentInput({
+  userKey, reviewRunId, selectedItemIds, includeRerunComparison, comparisonAvailable,
+}) {
+  /** @type {{ userKey: string, reviewRunId: string, includeRerunComparison: boolean, selectedItemIds?: string[] }} */
+  const input = {
+    userKey,
+    reviewRunId,
+    includeRerunComparison: Boolean(includeRerunComparison) && Boolean(comparisonAvailable),
+  };
+  if (Array.isArray(selectedItemIds) && selectedItemIds.length > 0) {
+    input.selectedItemIds = selectedItemIds;
+  }
+  return input;
+}
+
 const STATUS_SCORE = { passed: 4, needs_decision: 2, inconclusive: 1, failed: 0 };
 
 function scoreOf(status) {
