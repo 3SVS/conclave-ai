@@ -84,7 +84,7 @@ assert.deepEqual(order, ["b","c","a"]); // delay 순서 가정
 
 ## 8. CI Node 20/22 결과
 
-(push 후 ci.yml에서 확인 — 아래 보고에 기재)
+push `0e217b3` 후 ci.yml: **typecheck-build (20) success, (22) success**. parallel 테스트 재발 없음.
 
 ---
 
