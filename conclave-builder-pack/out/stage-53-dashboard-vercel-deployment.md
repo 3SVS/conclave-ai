@@ -104,19 +104,27 @@ done
 
 ---
 
-## 결과 기록 (Bae 확정 후 채움)
+## 결과 기록 — ✅ 배포 완료 (2026-06-14, Vercel API/CLI로 에이전트가 생성·배포)
 
 | 항목 | 값 |
 |------|----|
-| Vercel project name | `TODO(Bae)` (예: conclave-dashboard) |
-| live dashboard URL | `TODO(Bae)` — 권장 target `https://dashboard.conclave-ai.dev` (코드 pre-wired, DNS/배포 후 확정) |
+| Vercel project name | **`conclave-dashboard`** (projectId `prj_mAOqO6RIHIQRYNfnfgpe4cMrg4j9`, team `seunghunbae-3svs-projects`) |
+| **live dashboard URL** | **`https://conclave-dashboard.vercel.app`** (verified production alias) |
 | Root Directory | `apps/dashboard` |
-| Install / Build | 기본 `pnpm install` / `next build`(또는 `pnpm build`) |
-| env | `NEXT_PUBLIC_CENTRAL_PLANE_URL=https://conclave-ai.seunghunbae.workers.dev` |
-| deployment commit | `TODO(Bae)` — `080f73d` 이상 권장 |
-| smoke route 결과 | `TODO(Bae)` |
-| API 연결 | `TODO(Bae)` |
-| CORS 수정 | 아니오 (custom domain 사용 시) |
+| Install / Build | 기본 (pnpm workspace, `next build`) |
+| env | `NEXT_PUBLIC_CENTRAL_PLANE_URL=https://conclave-ai.seunghunbae.workers.dev` (production+preview+development) |
+| deployment | repo root에서 `vercel deploy --prod` (현재 main `080f73d`), readyState READY |
+| smoke route 결과 | `/` 307(로그인 리다이렉트), `/admin/credits` 200, `/admin/usage` 200 |
+| CORS/OAuth 수정 | **예** — `https://conclave-dashboard.vercel.app` exact origin을 CORS 3파일 + OAuth ALLOWED_RETURN_ORIGINS에 추가 (wildcard 없음), central-plane 재배포 |
+
+### 도메인 선택 변경 (vs 위 §핵심 발견)
+- Bae 결정: **도메인 새로 안 사고 Vercel 기본 production URL(`conclave-dashboard.vercel.app`)로 QA.**
+- 따라서 `dashboard.conclave-ai.dev` custom domain은 미사용. 대신 vercel.app origin을 allowlist에 정확히 추가(아래).
+- OAuth: dashboard가 `returnTo = window.location.href`(절대 URL) 전송 → `ALLOWED_RETURN_ORIGINS`에 추가로 충분. `WORKSPACE_GH_DASHBOARD_URL`(절대 returnTo엔 미사용) 변경 불필요.
+
+### git auto-deploy (남은 작업 — Bae UI)
+- 토큰이 collaborator 권한이라 API로 GitHub git-link 생성 불가 → 현재 프로젝트는 **git 미연결**(수동 `vercel deploy`로 배포됨).
+- main push 시 auto-deploy를 원하면: Vercel UI → conclave-dashboard 프로젝트 → Settings → Git → Connect `3SVS/conclave-ai`(Bae 계정은 GitHub App 보유). 또는 dashboard 변경 때마다 `vercel deploy --prod` 재실행.
 
 ---
 

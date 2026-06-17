@@ -23,8 +23,8 @@ Conclave PR review workflow(Stage 33~49)를 베타 사용자 테스트에 넣기
 ## ⏳ 아직 수동 확인이 필요한 것
 
 - **라이브 dashboard 브라우저 E2E** — OAuth, 화면 클릭, 실제 GitHub comment post, in-browser 영속화 육안. → Bae가 `stage-52-bae-manual-ui-qa-pack.md`로 1회 실행.
-- **라이브 dashboard URL** — `TODO(Bae)`. **apps/dashboard용 Vercel 프로젝트가 아직 없음** → `stage-53-dashboard-vercel-deployment.md`로 신규 생성(Root Directory `apps/dashboard`, env `NEXT_PUBLIC_CENTRAL_PLANE_URL`) + **custom domain `dashboard.conclave-ai.dev` 부착**(코드 pre-wired, backend 변경 0). bare `*.vercel.app`은 CORS·OAuth 막힘.
-- 배포 후 deployment commit이 `080f73d` 이후인지 확인.
+- ✅ **라이브 dashboard URL 확정** = **`https://conclave-dashboard.vercel.app`** (Stage 53에서 Vercel 프로젝트 `conclave-dashboard` 생성·배포, exact origin을 CORS+OAuth allowlist에 추가). 이제 수동 QA 실행 가능.
+- (선택) git auto-deploy 연결은 Bae UI에서(현재는 `vercel deploy --prod` 수동).
 
 ## 🚦 베타 테스트 시작 조건
 

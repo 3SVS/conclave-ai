@@ -106,6 +106,12 @@ describe("github-oauth helpers", () => {
     assert.ok(!isAllowedReturnTo(""));
   });
 
+  it("isAllowedReturnTo accepts the Vercel production dashboard origin (exact, no wildcard)", () => {
+    assert.ok(isAllowedReturnTo("https://conclave-dashboard.vercel.app/projects/x/github"));
+    // exact-match only — a different vercel.app subdomain must still be rejected
+    assert.ok(!isAllowedReturnTo("https://evil-dashboard.vercel.app/projects/x"));
+  });
+
   it("appendGitHubConnected adds query param", () => {
     assert.equal(
       appendGitHubConnected("/projects/abc", "https://dashboard.conclave-ai.dev"),

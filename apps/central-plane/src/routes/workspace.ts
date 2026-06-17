@@ -47,6 +47,7 @@ const ALLOWED_ORIGINS = [
   "http://localhost:3002",
   "http://localhost:3000",
   "https://dashboard.conclave-ai.dev",
+  "https://conclave-dashboard.vercel.app", // Vercel production dashboard (beta QA)
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
