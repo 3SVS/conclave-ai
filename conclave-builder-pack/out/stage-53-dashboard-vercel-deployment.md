@@ -144,6 +144,12 @@ done
 
 → **자동 검증 가능 surface 전부 GREEN.**
 
+### 라이브 QA 중 발견·수정한 P1 (2026-06-18, `ae76c67`)
+- **증상**: "저장하고 프로젝트 시작하기" → `/projects/<id>` 이동 시 **404**.
+- **원인**: `projects/[id]/page.tsx`(개요)와 `projects/[id]/idea/page.tsx`가 **async Server Component**로 `getProject(id)`(=MOCK 데모만) + `notFound()`. 로컬 생성 프로젝트는 **localStorage(client-only)**라 서버가 못 찾아 404. (다른 탭은 이미 client + `getLocalProject`.)
+- **수정**: 두 페이지를 client component로 전환, `getLocalProject(id) ?? getProject(id)` + graceful fallback("프로젝트를 찾을 수 없습니다"). layout은 `project?.name ?? "프로젝트"`로 이미 안전(무변경).
+- **검증**: 재배포 후 라이브 `/projects/<any-id>`·`/idea`·`/github` 모두 **200**(이전 404→200). node --test 3457/3457, typecheck 53/53, build 29/29.
+
 ### 진짜 남은 것 (사람+브라우저+GitHub 계정 필수 — 어떤 에이전트도 불가)
 - GitHub "Authorize" 실제 클릭(OAuth grant)
 - UI 클릭 흐름(review 실행, Fix Pack 생성, comment 작성 버튼)
