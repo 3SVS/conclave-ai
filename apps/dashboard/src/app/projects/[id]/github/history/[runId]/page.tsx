@@ -30,6 +30,8 @@ import {
   writeStoredReviewSelection,
 } from "@/lib/review-selection-storage.mjs";
 import type { StorageLike } from "@/lib/review-selection-storage.mjs";
+import { compareReviewRunResults, pickComparisonSourceRunId } from "@/lib/review-run-comparison.mjs";
+import type { ReviewRunComparison } from "@/lib/review-run-comparison.mjs";
 
 // Stage 44: localStorage, guarded for SSR / private-mode / blocked storage.
 function getReviewSelectionStorage(): StorageLike | null {
@@ -534,6 +536,98 @@ function ComparisonPanel({ cmp, newRunId, projectId, selectedCount }: {
   );
 }
 
+// ─── Auto comparison (Stage 45) — ?fromRunId / rerun lineage ──────────────────
+
+type AutoCompareState =
+  | { phase: "loading"; sourceId: string }
+  | {
+      phase: "error";
+      sourceId: string;
+      reason: "source_not_found" | "pr_mismatch" | "source_empty" | "current_empty";
+    }
+  | {
+      phase: "done";
+      sourceId: string;
+      comparison: ReviewRunComparison<ReviewResultItem>;
+      sourceCreatedAt: string;
+      currentCreatedAt: string;
+    };
+
+const AUTO_COMPARE_ERROR_KO: Record<string, string> = {
+  source_not_found: "이전 확인 기록을 찾지 못했어요.",
+  pr_mismatch: "서로 다른 PR의 확인 기록이라 비교하지 않았어요.",
+  source_empty: "이전 확인 기록의 결과가 비어 있어요.",
+  current_empty: "현재 확인 기록의 결과가 비어 있어요.",
+};
+
+function AutoCompareGroup({ title, color, items }: {
+  title: string;
+  color: string;
+  items: ReviewResultItem[];
+}) {
+  if (items.length === 0) return null;
+  return (
+    <div className="px-4 py-3">
+      <p className={`text-xs font-medium mb-2 ${color}`}>{title} ({items.length}개)</p>
+      {items.map((item) => (
+        <div key={item.itemId} className="text-xs text-gray-600 mb-1.5">
+          <span className="font-medium">{item.title}</span>
+          <span className="text-gray-400 mx-1">·</span>
+          <span className={CMP_STATUS_COLORS[item.status] ?? ""}>{STATUS_KO[item.status] ?? item.status}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AutoComparisonPanel({ state }: { state: AutoCompareState }) {
+  if (state.phase === "loading") {
+    return (
+      <div className="flex items-center gap-2 text-xs text-gray-400 py-1">
+        <div className="w-3 h-3 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin flex-shrink-0" />
+        이전 확인 기록과 비교 중...
+      </div>
+    );
+  }
+
+  if (state.phase === "error") {
+    return (
+      <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5">
+        <p className="text-xs font-medium text-gray-600">이전 확인 기록과 비교할 수 없어요.</p>
+        <p className="text-[11px] text-gray-400 mt-0.5">{AUTO_COMPARE_ERROR_KO[state.reason] ?? "비교 결과를 불러오지 못했어요."}</p>
+      </div>
+    );
+  }
+
+  const { comparison: cmp, sourceCreatedAt, currentCreatedAt } = state;
+  return (
+    <div className="border border-gray-200 rounded-xl overflow-hidden">
+      <div className="bg-gray-50 border-b border-gray-200 px-4 py-3">
+        <p className="text-sm font-semibold text-gray-800">이전 확인 기록과 비교</p>
+        <p className="text-xs text-gray-400 mt-0.5">
+          이 비교는 선택한 이전 확인 기록과 현재 확인 기록을 비교한 것입니다.
+        </p>
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[11px] text-gray-400">
+          <span>이전: {formatDate(sourceCreatedAt)}</span>
+          <span>현재: {formatDate(currentCreatedAt)}</span>
+        </div>
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-xs">
+          {cmp.summary.improved > 0 && <span className="text-green-600 font-medium">좋아진 항목 {cmp.summary.improved}</span>}
+          {cmp.summary.newlyProblematic > 0 && <span className="text-red-600 font-medium">새로 생긴 문제 {cmp.summary.newlyProblematic}</span>}
+          {cmp.summary.stillOpen > 0 && <span className="text-yellow-600 font-medium">아직 남은 항목 {cmp.summary.stillOpen}</span>}
+          {cmp.summary.unchanged > 0 && <span className="text-gray-500 font-medium">변화 없음 {cmp.summary.unchanged}</span>}
+        </div>
+      </div>
+      <div className="divide-y divide-gray-100 bg-white">
+        <AutoCompareGroup title="좋아진 항목" color="text-green-700" items={cmp.improved} />
+        <AutoCompareGroup title="새로 생긴 문제" color="text-red-700" items={cmp.newlyProblematic} />
+        <AutoCompareGroup title="아직 남은 항목" color="text-yellow-700" items={cmp.stillOpen} />
+        <AutoCompareGroup title="변화 없음" color="text-gray-500" items={cmp.unchanged} />
+      </div>
+    </div>
+  );
+}
+
 function RerunItemRow({ item, checked, onToggle }: {
   item: ReviewResultItem;
   checked: boolean;
@@ -741,6 +835,9 @@ export default function RunDetailPage() {
   // Stage 42: arrived from the history list "남은 문제 Fix Pack" quick action.
   // Read on the client to avoid a useSearchParams Suspense boundary.
   const [fixPackRequested, setFixPackRequested] = useState(false);
+  // Stage 45: ?fromRunId — auto-compare against that source run.
+  const [fromRunId, setFromRunId] = useState<string | null>(null);
+  const [autoCompare, setAutoCompare] = useState<AutoCompareState | null>(null);
   // Stage 43: one shared item selection for re-run / Fix Pack / PR comment.
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   // Stage 44: client-side persistence of the selection per (project, run).
@@ -751,7 +848,9 @@ export default function RunDetailPage() {
   const storageKey = buildReviewSelectionStorageKey({ projectId: id, runId });
 
   useEffect(() => {
-    setFixPackRequested(new URLSearchParams(window.location.search).get("action") === "fix-pack");
+    const params = new URLSearchParams(window.location.search);
+    setFixPackRequested(params.get("action") === "fix-pack");
+    setFromRunId(params.get("fromRunId"));
   }, []);
 
   useEffect(() => {
@@ -803,6 +902,40 @@ export default function RunDetailPage() {
       setStorageStatus("saved");
     }
   }, [selectedItemIds, storageKey]);
+
+  // Stage 45: auto-compare against ?fromRunId, else the rerun lineage source.
+  // Non-blocking — failures only surface a small notice; other actions keep working.
+  useEffect(() => {
+    if (phase !== "done" || !detail || !userKey) return;
+    const current = detail.run;
+    // Priority: query fromRunId > current run's rerun lineage. Ignore self.
+    const sourceId = pickComparisonSourceRunId({
+      fromRunId, runId, rerunOfReviewRunId: current.rerunOfReviewRunId,
+    });
+    if (!sourceId) { setAutoCompare(null); return; }
+
+    let cancelled = false;
+    setAutoCompare({ phase: "loading", sourceId });
+    (async () => {
+      const res = await getReviewRunDetail(id, sourceId, userKey);
+      if (cancelled) return;
+      if (!res.ok) { setAutoCompare({ phase: "error", sourceId, reason: "source_not_found" }); return; }
+      if (res.prNumber !== detail.prNumber) { setAutoCompare({ phase: "error", sourceId, reason: "pr_mismatch" }); return; }
+      const cmp = compareReviewRunResults({ sourceResults: res.run.results, currentResults: current.results });
+      if (!cmp.comparable) {
+        setAutoCompare({
+          phase: "error", sourceId,
+          reason: cmp.reason === "missing_current_results" ? "current_empty" : "source_empty",
+        });
+        return;
+      }
+      setAutoCompare({
+        phase: "done", sourceId, comparison: cmp,
+        sourceCreatedAt: res.run.createdAt, currentCreatedAt: current.createdAt,
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [phase, detail, fromRunId, id, runId, userKey]);
 
   if (!project) return <p className="text-sm text-gray-400">프로젝트를 찾을 수 없습니다.</p>;
 
@@ -914,8 +1047,11 @@ export default function RunDetailPage() {
       {/* ── Summary cards ── */}
       <SummaryCards summary={run.summary} />
 
-      {/* ── Comparison hint ── */}
-      {run.status !== "queued" && run.status !== "running" && (
+      {/* ── Auto comparison vs source run (Stage 45) ── */}
+      {autoCompare && <AutoComparisonPanel state={autoCompare} />}
+
+      {/* ── Comparison hint (hidden once an auto-comparison is shown) ── */}
+      {!autoCompare && run.status !== "queued" && run.status !== "running" && (
         <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
           <p className="text-xs text-blue-700">
             같은 PR을 한 번 더 확인하면 이전 확인 결과와 비교할 수 있어요.
