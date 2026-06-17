@@ -16,6 +16,9 @@ export type ReviewResultItem = {
   title: string;
   status: "passed" | "failed" | "inconclusive" | "needs_decision";
   reason: string;
+  // Stage 49: the stored run results carry these; declared optional so the
+  // comment formatter can surface "다음 조치" without changing parse behavior.
+  nextAction?: string;
 };
 
 export type RunSummary = {
@@ -43,6 +46,11 @@ export type StillOpenItem = {
   title: string;
   status: string;
   reason: string;
+  // Stage 49: source status for the transition label. Undefined when the item
+  // only exists in the current run (새 항목). For both-runs still-open items
+  // the source status equals `status` (same score → same status).
+  from?: string;
+  nextAction?: string;
 };
 
 export type NewlyProblematicItem = {
@@ -51,12 +59,14 @@ export type NewlyProblematicItem = {
   from: string;
   to: string;
   reason: string;
+  nextAction?: string; // Stage 49
 };
 
 export type UnchangedItem = {
   itemId: string;
   title: string;
   status: string;
+  from?: string; // Stage 49: undefined when current-only (새 항목)
 };
 
 export type ComparisonResult = {
@@ -195,12 +205,13 @@ export function compareRunResults(
     const latest = latestMap.get(itemId);
 
     if (!prev || !latest) {
-      // Item only in one run — treat as unchanged in the run that has it
+      // Item only in one run — treat as unchanged in the run that has it.
+      // current-only → no source status (from undefined → "새 항목").
       if (latest) {
         if (latest.status === "passed") {
           unchanged.push({ itemId, title: latest.title, status: latest.status });
         } else {
-          stillOpen.push({ itemId, title: latest.title, status: latest.status, reason: latest.reason });
+          stillOpen.push({ itemId, title: latest.title, status: latest.status, reason: latest.reason, nextAction: latest.nextAction });
         }
       }
       continue;
@@ -224,13 +235,14 @@ export function compareRunResults(
         from: prev.status,
         to: latest.status,
         reason: describeRegression(prev.status, latest.status),
+        nextAction: latest.nextAction,
       });
     } else {
-      // Same score
+      // Same score → same status (scores are distinct). source status = prev.status.
       if (latest.status === "passed") {
-        unchanged.push({ itemId, title: latest.title, status: latest.status });
+        unchanged.push({ itemId, title: latest.title, status: latest.status, from: prev.status });
       } else {
-        stillOpen.push({ itemId, title: latest.title, status: latest.status, reason: latest.reason });
+        stillOpen.push({ itemId, title: latest.title, status: latest.status, reason: latest.reason, from: prev.status, nextAction: latest.nextAction });
       }
     }
   }

@@ -675,3 +675,83 @@ describe("PATCH /comment/:commentId — includeComparison", () => {
     assert.ok(!patchedBody.includes("이전/최신 비교"), "no comparison section when not requested");
   });
 });
+
+// ─── Stage 49: rerun comparison section shows status transitions ──────────────
+
+describe("buildCommentBody — rerun comparison status transitions", () => {
+  const RERUN_DATA = {
+    comparable: true,
+    sourceRunId: "src",
+    newRunId: "cur",
+    summaryText: "좋아진 항목 1개, 새로 생긴 문제 1개, 아직 남은 항목 1개, 변화 없음 1개.",
+    improved: [{ itemId: "i1", title: "로그인 에러 처리", from: "failed", to: "passed", reason: "ok" }],
+    newlyProblematic: [{ itemId: "i2", title: "권한 화면", from: "passed", to: "failed", reason: "regressed", nextAction: "권한 분기 복구" }],
+    stillOpen: [
+      { itemId: "i3", title: "권한 에러 메시지", status: "inconclusive", reason: "근거 부족", from: "inconclusive", nextAction: "에러 메시지를 사용자 친화적으로 수정하세요." },
+      { itemId: "i9", title: "신규 검증", status: "failed", reason: "새 항목", nextAction: "구현 추가" }, // current-only: from undefined
+    ],
+    unchanged: [{ itemId: "i4", title: "빈 상태 UI", status: "passed", from: "passed" }],
+  };
+
+  function rerunBody(extra = {}) {
+    const { body } = buildCommentBody({
+      repoFullName: REPO, prNumber: PR_NUMBER, prTitle: PR_TITLE,
+      selectedItems: ITEMS_MIXED, summary: SUMMARY_MIXED,
+      includeRerunComparison: true, rerunComparisonData: RERUN_DATA,
+      ...extra,
+    });
+    return body;
+  }
+
+  it("improved item shows 안 맞음 → 통과", () => {
+    assert.match(rerunBody(), /로그인 에러 처리: 안 맞음 → 통과/);
+  });
+
+  it("newly problematic item shows 통과 → 안 맞음", () => {
+    assert.match(rerunBody(), /권한 화면: 통과 → 안 맞음/);
+  });
+
+  it("still open item shows 확인 부족 → 확인 부족", () => {
+    assert.match(rerunBody(), /권한 에러 메시지: 확인 부족 → 확인 부족/);
+  });
+
+  it("current-only still-open item renders 새 항목 → 안 맞음", () => {
+    assert.match(rerunBody(), /신규 검증: 새 항목 → 안 맞음/);
+  });
+
+  it("unchanged item shows 통과 → 통과", () => {
+    assert.match(rerunBody(), /빈 상태 UI: 통과 → 통과/);
+  });
+
+  it("nextAction renders as 다음 조치", () => {
+    const body = rerunBody();
+    assert.match(body, /다음 조치: 에러 메시지를 사용자 친화적으로 수정하세요\./);
+  });
+
+  it("empty groups are still omitted", () => {
+    const body = buildCommentBody({
+      repoFullName: REPO, prNumber: PR_NUMBER, prTitle: PR_TITLE,
+      selectedItems: ITEMS_MIXED, summary: SUMMARY_MIXED,
+      includeRerunComparison: true,
+      rerunComparisonData: {
+        comparable: true, sourceRunId: "s", newRunId: "n",
+        summaryText: "좋아진 항목 1개.",
+        improved: [{ itemId: "i1", title: "A", from: "failed", to: "passed", reason: "ok" }],
+        newlyProblematic: [], stillOpen: [], unchanged: [],
+      },
+    }).body;
+    assert.ok(body.includes("### 좋아진 항목"), "non-empty group present");
+    assert.ok(!body.includes("### 새로 생긴 문제"), "empty newlyProblematic omitted");
+    assert.ok(!body.includes("### 아직 남은 항목"), "empty stillOpen omitted");
+    assert.ok(!body.includes("### 변화 없음"), "empty unchanged omitted");
+  });
+
+  it("rerunComparisonIncluded flag is true when section emitted", () => {
+    const { rerunComparisonIncluded } = buildCommentBody({
+      repoFullName: REPO, prNumber: PR_NUMBER, prTitle: PR_TITLE,
+      selectedItems: ITEMS_MIXED, summary: SUMMARY_MIXED,
+      includeRerunComparison: true, rerunComparisonData: RERUN_DATA,
+    });
+    assert.equal(rerunComparisonIncluded, true);
+  });
+});

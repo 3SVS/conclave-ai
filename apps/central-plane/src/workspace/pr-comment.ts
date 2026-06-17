@@ -83,6 +83,23 @@ const STATUS_KO_PLAIN: Record<string, string> = {
   needs_decision: "결정 필요",
 };
 
+// Stage 49: "이전 상태 → 현재 상태" label for the rerun comparison section.
+// A missing source status (current-only item) reads "새 항목".
+function statusKoOr(status: string | undefined, fallback: string): string {
+  if (!status) return fallback;
+  return STATUS_KO_PLAIN[status] ?? status;
+}
+
+function transitionLabel(from: string | undefined, to: string | undefined): string {
+  return `${statusKoOr(from, "새 항목")} → ${statusKoOr(to, "")}`;
+}
+
+// Keep nextAction lines short so the PR thread stays readable.
+function truncateAction(action: string, max = 140): string {
+  const trimmed = action.trim();
+  return trimmed.length > max ? `${trimmed.slice(0, max - 1)}…` : trimmed;
+}
+
 // ─── Section builders ─────────────────────────────────────────────────────────
 
 function buildRequiredPart(opts: BuildCommentOptions): string {
@@ -234,7 +251,7 @@ function buildRerunComparisonPart(data: SpecificRunComparison): string {
   if (data.improved.length > 0) {
     lines.push(`### 좋아진 항목 (${data.improved.length}개)`, "");
     for (const item of data.improved) {
-      lines.push(`- ${item.title}: ${STATUS_KO_PLAIN[item.from] ?? item.from} → ${STATUS_KO_PLAIN[item.to] ?? item.to}`);
+      lines.push(`- ${item.title}: ${transitionLabel(item.from, item.to)}`);
     }
     lines.push("");
   }
@@ -242,7 +259,8 @@ function buildRerunComparisonPart(data: SpecificRunComparison): string {
   if (data.stillOpen.length > 0) {
     lines.push(`### 아직 남은 항목 (${data.stillOpen.length}개)`, "");
     for (const item of data.stillOpen) {
-      lines.push(`- ${item.title} (${STATUS_KO_PLAIN[item.status] ?? item.status})`);
+      lines.push(`- ${item.title}: ${transitionLabel(item.from, item.status)}`);
+      if (item.nextAction) lines.push(`  - 다음 조치: ${truncateAction(item.nextAction)}`);
     }
     lines.push("");
   }
@@ -250,7 +268,8 @@ function buildRerunComparisonPart(data: SpecificRunComparison): string {
   if (data.newlyProblematic.length > 0) {
     lines.push(`### 새로 생긴 문제 (${data.newlyProblematic.length}개)`, "");
     for (const item of data.newlyProblematic) {
-      lines.push(`- ${item.title}: ${STATUS_KO_PLAIN[item.from] ?? item.from} → ${STATUS_KO_PLAIN[item.to] ?? item.to}`);
+      lines.push(`- ${item.title}: ${transitionLabel(item.from, item.to)}`);
+      if (item.nextAction) lines.push(`  - 다음 조치: ${truncateAction(item.nextAction)}`);
     }
     lines.push("");
   }
@@ -258,7 +277,7 @@ function buildRerunComparisonPart(data: SpecificRunComparison): string {
   if (data.unchanged.length > 0) {
     lines.push(`### 변화 없음 (${data.unchanged.length}개)`, "");
     for (const item of data.unchanged) {
-      lines.push(`- ${item.title}`);
+      lines.push(`- ${item.title}: ${transitionLabel(item.from, item.status)}`);
     }
     lines.push("");
   }
