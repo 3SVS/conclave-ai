@@ -154,7 +154,12 @@ export default function SettingsPage() {
   }
 
   function handleConnectGitHub() {
-    const returnTo = `${typeof window !== "undefined" ? window.location.pathname : `/projects/${id}/settings`}`;
+    // Pass the ABSOLUTE current URL as returnTo. A relative path makes the OAuth
+    // callback prepend the backend's DEFAULT_DASHBOARD_URL (dashboard.conclave-ai.dev,
+    // which has no DNS) → NXDOMAIN after authorize. The absolute origin is already on
+    // the central-plane return allowlist, so the callback returns here unchanged.
+    const returnTo =
+      typeof window !== "undefined" ? window.location.href : `/projects/${id}/settings`;
     startGitHubOAuth(userKey, returnTo);
   }
 
