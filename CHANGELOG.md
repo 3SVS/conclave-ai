@@ -1,5 +1,31 @@
 # Changelog
 
+## PR review workflow checkpoint — 2026-06-14 (Stage 33~49)
+
+> Apps-only release (`apps/central-plane` + `apps/dashboard`). No published-package
+> version bump — the cli/worker npm packages are unchanged, so this is not an
+> npm release. central-plane auto-deploys via `deploy-central-plane.yml`; dashboard
+> via Vercel Git. See `conclave-builder-pack/out/release-note-v0.14-pr-review-workflow.md`
+> (product) and `stage-50-release-checkpoint.md` (ops/QA/rollback).
+
+### Added
+- **PR 확인 워크플로 end-to-end**: PR 확인 기록(History) → 확인 상세 → 남은 문제 다시
+  확인 → 이전 확인 기록과 자동 비교(이전 상태 → 현재 상태) → 남은 문제 Fix Pack →
+  비교 결과를 PR comment로 공유.
+- run detail에서 **다시 확인 / Fix Pack / PR comment가 하나의 선택(selectedItemIds)을
+  공유**하고, 그 선택을 (project, run)별 localStorage에 복원(stored `[]`는 의도적 빈 선택).
+- history list **1-click "남은 문제 다시 확인" / "남은 문제 Fix Pack"**(`?action=fix-pack`).
+- `?fromRunId` 또는 rerun lineage(`rerun_of_review_run_id`) 기반 **source↔current 자동
+  비교**. dashboard 패널과 PR comment body 모두 항목별 `안 맞음 → 통과` 식 상태 전환 표시.
+- D1 migrations 0036~0039 (credit idempotency/status, top-up requests, rerun lineage) — 모두 additive.
+
+### Ops / safety
+- production actual debit/blocking **OFF** 유지 (`ENABLE_ACTUAL_CREDIT_DEBITS=false`,
+  `ENABLE_CREDIT_BLOCKING=false`, `ACTUAL_DEBIT_ALLOWED_USER_KEYS=""`). 코드 기본값도 safe.
+- GitHub Actions를 Node 24 런타임으로(checkout v5 / setup-node v5 / pnpm v6), progress-emit
+  flaky 테스트 안정화. 전체 `node --test` 3456 green, CI Node 20·22 green.
+- 자동 수정/patch/commit/branch/status check 없음. private repo 전체 지원 없음.
+
 ## v0.13.20 — 2026-04-27 (H1 #5)
 
 ### Added
