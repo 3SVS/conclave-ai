@@ -128,6 +128,30 @@ done
 
 ---
 
+## 자동 라이브 E2E 검증 (에이전트 수행, 2026-06-14)
+
+브라우저 없이 HTTP 레벨로 검증 가능한 전부:
+
+| 항목 | 결과 |
+|------|------|
+| dashboard 라이브 | `https://conclave-dashboard.vercel.app` 서빙 |
+| route (5xx 없음) | `/admin/credits` 200, `/admin/usage` 200, `/projects` 200, `/projects/:id/github` 200, `.../history` 200, `/` 307(로그인), `/login`·`/admin` 404(인덱스 없음, 정상) |
+| dashboard 번들 → central-plane | worker URL(`conclave-ai.seunghunbae.workers.dev`) 인라인 확인 |
+| CORS (라이브) | dashboard origin → `Access-Control-Allow-Origin` 반영(preflight 204 + GET 200); `evil.vercel.app` → localhost fallback(미반영, exact-match) |
+| OAuth start (라이브) | → `github.com/login/oauth/authorize`, `client_id` SET(`Ov23ctqh…`), `redirect_uri = {worker}/workspace/github/oauth/callback`(안정적), `scope read:user public_repo`(private 없음), `state` set |
+| safety flags | ENABLE_ACTUAL_CREDIT_DEBITS/BLOCKING=false (OFF) |
+| backend E2E 계약 + 로직 | Stage 51 probe + node --test 3457 green |
+
+→ **자동 검증 가능 surface 전부 GREEN.**
+
+### 진짜 남은 것 (사람+브라우저+GitHub 계정 필수 — 어떤 에이전트도 불가)
+- GitHub "Authorize" 실제 클릭(OAuth grant)
+- UI 클릭 흐름(review 실행, Fix Pack 생성, comment 작성 버튼)
+- 실제 PR에 comment 게시
+- 패널 육안 확인
+
+→ `stage-52-bae-manual-ui-qa-pack.md` B~K를 Bae가 1회. OAuth는 백엔드 구성이 검증됐으니 "Authorize 후 dashboard로 복귀되는지"만 확인하면 됨.
+
 ## known issues
 
 - 라이브 URL/배포는 **Bae 작업** (에이전트 배포 불가).
