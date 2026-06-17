@@ -319,7 +319,7 @@ export function createWorkspaceGitHubRoutes(
       return json({ ok: false, error: "token_decrypt_failed" }, 503, origin);
     }
 
-    let repos: Array<{ id: number; full_name: string; owner: { login: string }; name: string; private: boolean; default_branch: string; html_url: string }>;
+    let repos: Array<{ id: number; full_name: string; owner: { login: string }; name: string; private: boolean; default_branch: string; html_url: string; permissions?: { pull?: boolean; push?: boolean; admin?: boolean } }>;
     try {
       repos = await fetchGitHubRepos(token, fetchImpl);
     } catch (err) {
@@ -336,6 +336,8 @@ export function createWorkspaceGitHubRoutes(
         private: r.private,
         defaultBranch: r.default_branch,
         htmlUrl: r.html_url,
+        // Additive (Stage 56): viewer permission bits, when GitHub provides them.
+        ...(r.permissions ? { permissions: r.permissions } : {}),
       })),
     }, 200, origin);
   });

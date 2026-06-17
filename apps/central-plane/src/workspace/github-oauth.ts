@@ -33,6 +33,9 @@ export type GitHubRepo = {
   private: boolean;
   default_branch: string;
   html_url: string;
+  // Additive (Stage 56): GitHub returns the viewer's permission bits. Lets the
+  // dashboard show whether the user can actually act on the repo.
+  permissions?: { pull?: boolean; push?: boolean; admin?: boolean };
 };
 
 export type GitHubPull = {
@@ -125,14 +128,43 @@ export async function fetchGitHubPulls(
   return resp.json() as Promise<GitHubPull[]>;
 }
 
-/** List public repos for the authenticated user. */
-export async function fetchGitHubRepos(token: string, fetchImpl: FetchLike): Promise<GitHubRepo[]> {
-  const resp = await fetchImpl(
-    `${GITHUB_API}/user/repos?sort=updated&per_page=100&visibility=public`,
-    { headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "conclave-ai" } },
-  );
-  if (!resp.ok) throw new Error(`GitHub /user/repos HTTP ${resp.status}`);
-  return resp.json() as Promise<GitHubRepo[]>;
+/** Parse the `url` of the rel="next" entry from a GitHub Link header, if present. */
+function nextLink(linkHeader: string | null): string | null {
+  if (!linkHeader) return null;
+  for (const part of linkHeader.split(",")) {
+    const m = part.match(/<([^>]+)>\s*;\s*rel="next"/);
+    if (m) return m[1] ?? null;
+  }
+  return null;
+}
+
+/**
+ * List repos the authenticated user can access, including org repos they belong to.
+ *
+ * Stage 56: the original call passed `visibility=public` with the implicit default
+ * affiliation, which surfaced only the user's own repos in practice. Be explicit:
+ * `affiliation=owner,collaborator,organization_member` so org-member and collaborator
+ * repos are included. `visibility=all` is safe under a `public_repo` token — private
+ * repos simply aren't returned by that scope, so this does NOT add private-repo support.
+ * Follows Link-header pagination up to a bounded number of pages.
+ */
+export async function fetchGitHubRepos(
+  token: string,
+  fetchImpl: FetchLike,
+  maxPages = 5,
+): Promise<GitHubRepo[]> {
+  const headers = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "conclave-ai" };
+  let url: string | null =
+    `${GITHUB_API}/user/repos?affiliation=owner,collaborator,organization_member&visibility=all&sort=updated&per_page=100`;
+  const all: GitHubRepo[] = [];
+  for (let page = 0; page < maxPages && url; page++) {
+    const resp: Response = await fetchImpl(url, { headers });
+    if (!resp.ok) throw new Error(`GitHub /user/repos HTTP ${resp.status}`);
+    const batch = (await resp.json()) as GitHubRepo[];
+    all.push(...batch);
+    url = nextLink(resp.headers.get("link"));
+  }
+  return all;
 }
 
 /** Validate that returnTo is a trusted dashboard origin. */
