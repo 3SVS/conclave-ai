@@ -128,6 +128,26 @@ export async function fetchGitHubPulls(
   return resp.json() as Promise<GitHubPull[]>;
 }
 
+/**
+ * Fetch a single repo by "owner/repo" full name. Works for any public repo the token
+ * can reach by name even when it never appears in /user/repos (e.g. an org repo the
+ * user isn't a listed member of). Returns null on 404 (missing or no access).
+ */
+export async function fetchGitHubRepoByFullName(
+  owner: string,
+  repo: string,
+  token: string,
+  fetchImpl: FetchLike,
+): Promise<GitHubRepo | null> {
+  const resp = await fetchImpl(
+    `${GITHUB_API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
+    { headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "conclave-ai" } },
+  );
+  if (resp.status === 404) return null;
+  if (!resp.ok) throw new Error(`GitHub /repos/${owner}/${repo} HTTP ${resp.status}`);
+  return resp.json() as Promise<GitHubRepo>;
+}
+
 /** Parse the `url` of the rel="next" entry from a GitHub Link header, if present. */
 function nextLink(linkHeader: string | null): string | null {
   if (!linkHeader) return null;

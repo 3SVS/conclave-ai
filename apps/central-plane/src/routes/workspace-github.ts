@@ -30,7 +30,7 @@ import {
 } from "../workspace/github-db.js";
 import {
   generateState, buildAuthUrl, exchangeCode,
-  fetchGitHubUser, fetchGitHubRepos, fetchGitHubPulls,
+  fetchGitHubUser, fetchGitHubRepos, fetchGitHubRepoByFullName, fetchGitHubPulls,
   isAllowedReturnTo, appendGitHubConnected,
 } from "../workspace/github-oauth.js";
 import { upsertProjectPR, getLinkedPRs } from "../workspace/pr-db.js";
@@ -339,6 +339,64 @@ export function createWorkspaceGitHubRoutes(
         // Additive (Stage 56): viewer permission bits, when GitHub provides them.
         ...(r.permissions ? { permissions: r.permissions } : {}),
       })),
+    }, 200, origin);
+  });
+
+  // ── GET /workspace/github/repos/lookup?userKey=...&fullName=owner/repo ─────
+  // Stage 56: org/collaborator repos the user isn't a listed member of never appear
+  // in /user/repos. This resolves a repo by full name (public-repo, by-name access),
+  // so the dashboard can offer a "type owner/repo directly" fallback in the picker.
+  app.get("/workspace/github/repos/lookup", async (c) => {
+    const origin = c.req.header("origin") ?? null;
+    const userKey = c.req.query("userKey") ?? "";
+    const fullName = (c.req.query("fullName") ?? "").trim();
+
+    if (!userKey) return json({ ok: false, error: "userKey_required" }, 400, origin);
+    const m = fullName.match(/^([^/\s]+)\/([^/\s]+)$/);
+    if (!m) return json({ ok: false, error: "invalid_full_name" }, 400, origin);
+    const owner = m[1] as string;
+    const repoName = m[2] as string;
+
+    let conn;
+    try {
+      conn = await getGitHubConnectionByUserKey(c.env, userKey);
+    } catch {
+      return json({ ok: false, error: "db_error" }, 500, origin);
+    }
+    if (!conn || !conn.accessTokenEnc) return json({ ok: false, error: "not_connected" }, 401, origin);
+
+    const kek = c.env.CONCLAVE_TOKEN_KEK;
+    if (!kek) return json({ ok: false, error: "token_unavailable" }, 503, origin);
+
+    let token: string;
+    try {
+      token = await decryptToken(conn.accessTokenEnc, kek);
+    } catch {
+      return json({ ok: false, error: "token_decrypt_failed" }, 503, origin);
+    }
+
+    let repo;
+    try {
+      repo = await fetchGitHubRepoByFullName(owner, repoName, token, fetchImpl);
+    } catch (err) {
+      return json({ ok: false, error: `github_api_failed: ${(err as Error).message}` }, 502, origin);
+    }
+    if (!repo) return json({ ok: false, error: "not_found" }, 404, origin);
+    // Stage 56 does NOT add private-repo support — surface a clear, non-fatal reason.
+    if (repo.private) return json({ ok: false, error: "private_unsupported" }, 200, origin);
+
+    return json({
+      ok: true,
+      repo: {
+        id: String(repo.id),
+        fullName: repo.full_name,
+        owner: repo.owner.login,
+        name: repo.name,
+        private: repo.private,
+        defaultBranch: repo.default_branch,
+        htmlUrl: repo.html_url,
+        ...(repo.permissions ? { permissions: repo.permissions } : {}),
+      },
     }, 200, origin);
   });
 

@@ -6,7 +6,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-const { fetchGitHubRepos } = await import("../dist/workspace/github-oauth.js");
+const { fetchGitHubRepos, fetchGitHubRepoByFullName } = await import(
+  "../dist/workspace/github-oauth.js"
+);
 
 function res(body, link) {
   return {
@@ -95,5 +97,30 @@ describe("fetchGitHubRepos (Stage 56 org repos)", () => {
     };
     await fetchGitHubRepos("tok", fetchImpl, 3);
     assert.equal(call, 3, "bounded by maxPages");
+  });
+});
+
+describe("fetchGitHubRepoByFullName (Stage 56 direct entry)", () => {
+  function res404() {
+    return { ok: false, status: 404, json: async () => ({ message: "Not Found" }), headers: { get: () => null } };
+  }
+  it("resolves an org repo by full name (the listing-omitted case)", async () => {
+    const urls = [];
+    const fetchImpl = async (url) => {
+      urls.push(url);
+      return res(orgRepo, null);
+    };
+    const repo = await fetchGitHubRepoByFullName("3SVS", "My-first-product", "tok", fetchImpl);
+    assert.match(urls[0], /\/repos\/3SVS\/My-first-product$/);
+    assert.equal(repo.full_name, "3SVS/My-first-product");
+    assert.equal(repo.owner.login, "3SVS");
+  });
+  it("returns null on 404 (missing or no access)", async () => {
+    const repo = await fetchGitHubRepoByFullName("3SVS", "nope", "tok", async () => res404());
+    assert.equal(repo, null);
+  });
+  it("throws on a non-ok, non-404 response", async () => {
+    const res500 = { ok: false, status: 500, json: async () => ({}), headers: { get: () => null } };
+    await assert.rejects(() => fetchGitHubRepoByFullName("o", "r", "tok", async () => res500));
   });
 });

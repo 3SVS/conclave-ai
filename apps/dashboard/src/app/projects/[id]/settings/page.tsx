@@ -7,6 +7,7 @@ import { getUserKey } from "@/lib/workflow-store";
 import {
   fetchGitHubStatus,
   fetchGitHubRepos,
+  lookupGitHubRepo,
   linkProjectRepo,
   fetchProjectRepo,
   startGitHubOAuth,
@@ -36,6 +37,10 @@ export default function SettingsPage() {
   const [linkedRepo, setLinkedRepo] = useState<LinkedRepo | null>(null);
   const [linkPhase, setLinkPhase] = useState<"idle" | "saving" | "done" | "error">("idle");
   const [repoSearch, setRepoSearch] = useState("");
+  // Stage 56: direct "owner/repo" entry for org/collaborator repos not in the listing.
+  const [directInput, setDirectInput] = useState("");
+  const [lookupPhase, setLookupPhase] = useState<"idle" | "loading" | "error">("idle");
+  const [lookupError, setLookupError] = useState("");
 
   // Telegram notification state
   const [tgSettings, setTgSettings] = useState<NotificationSettings | null>(null);
@@ -150,6 +155,33 @@ export default function SettingsPage() {
       setPhase("connected");
     } else {
       setLinkPhase("error");
+    }
+  }
+
+  // Stage 56: resolve "owner/repo" directly and link it (covers org/collaborator repos
+  // that GitHub's /user/repos listing omits).
+  async function handleDirectLookup() {
+    const fullName = directInput.trim();
+    if (!/^[^/\s]+\/[^/\s]+$/.test(fullName)) {
+      setLookupPhase("error");
+      setLookupError("owner/repo 형식으로 입력해주세요. 예: 3SVS/My-first-product");
+      return;
+    }
+    setLookupPhase("loading");
+    setLookupError("");
+    const res = await lookupGitHubRepo(userKey, fullName);
+    if (res.ok) {
+      setLookupPhase("idle");
+      await handleLinkRepo(res.repo);
+    } else {
+      setLookupPhase("error");
+      const msg: Record<string, string> = {
+        not_found: "저장소를 찾을 수 없어요. 공개 저장소인지, 이름이 맞는지 확인해주세요.",
+        private_unsupported: "비공개 저장소는 아직 지원하지 않아요. 공개 저장소를 입력해주세요.",
+        not_connected: "GitHub 계정을 먼저 연결해주세요.",
+        invalid_full_name: "owner/repo 형식으로 입력해주세요. 예: 3SVS/My-first-product",
+      };
+      setLookupError(msg[res.error] ?? `연결에 실패했어요 (${res.error}).`);
     }
   }
 
@@ -276,41 +308,79 @@ export default function SettingsPage() {
       )}
 
       {/* Repo selector */}
-      {phase === "selecting" && repos.length > 0 && (
+      {phase === "selecting" && (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="p-4 border-b border-gray-100">
-            <p className="text-sm font-semibold text-gray-700 mb-3">저장소 선택</p>
-            <input
-              type="text"
-              value={repoSearch}
-              onChange={(e) => setRepoSearch(e.target.value)}
-              placeholder="저장소 이름으로 검색"
-              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-            />
-          </div>
-          <div className="max-h-80 overflow-y-auto divide-y divide-gray-50">
-            {filteredRepos.slice(0, 50).map((repo) => (
-              <button
-                key={repo.id}
-                onClick={() => handleLinkRepo(repo)}
-                disabled={linkPhase === "saving"}
-                className="w-full flex items-start gap-3 px-4 py-3 hover:bg-gray-50 text-left transition-colors disabled:opacity-50"
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-800 truncate">{repo.fullName}</p>
-                  <p className="text-xs text-gray-400">{repo.defaultBranch} · {repo.private ? "private" : "public"}</p>
-                </div>
-                {linkedRepo?.fullName === repo.fullName && (
-                  <span className="text-xs text-indigo-600 font-medium flex-shrink-0">현재 선택됨</span>
+          {repos.length > 0 && (
+            <>
+              <div className="p-4 border-b border-gray-100">
+                <p className="text-sm font-semibold text-gray-700 mb-3">저장소 선택</p>
+                <input
+                  type="text"
+                  value={repoSearch}
+                  onChange={(e) => setRepoSearch(e.target.value)}
+                  placeholder="저장소 이름 또는 owner로 검색"
+                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                />
+              </div>
+              <div className="max-h-80 overflow-y-auto divide-y divide-gray-50">
+                {filteredRepos.slice(0, 50).map((repo) => (
+                  <button
+                    key={repo.id}
+                    onClick={() => handleLinkRepo(repo)}
+                    disabled={linkPhase === "saving"}
+                    className="w-full flex items-start gap-3 px-4 py-3 hover:bg-gray-50 text-left transition-colors disabled:opacity-50"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-800 truncate">{repo.fullName}</p>
+                      <p className="text-xs text-gray-400">
+                        {repo.defaultBranch} · {repo.private ? "private" : "public"}
+                      </p>
+                    </div>
+                    {linkedRepo?.fullName === repo.fullName && (
+                      <span className="text-xs text-indigo-600 font-medium flex-shrink-0">현재 선택됨</span>
+                    )}
+                  </button>
+                ))}
+                {filteredRepos.length === 0 && (
+                  <p className="text-xs text-gray-400 py-6 text-center">일치하는 저장소가 없습니다.</p>
                 )}
+              </div>
+            </>
+          )}
+
+          {/* Stage 56: direct owner/repo entry — for org/collaborator repos that
+              GitHub's /user/repos listing omits (e.g. 3SVS/My-first-product). */}
+          <div className="p-4 border-t border-gray-100 bg-gray-50/60">
+            <p className="text-sm font-semibold text-gray-700 mb-1">목록에 없는 저장소 직접 입력</p>
+            <p className="text-xs text-gray-400 mb-2">
+              조직(org) 저장소는 목록에 안 보일 수 있어요. <code className="text-gray-500">owner/repo</code> 형식으로 입력하세요. (공개 저장소만)
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={directInput}
+                onChange={(e) => setDirectInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") void handleDirectLookup(); }}
+                placeholder="예: 3SVS/My-first-product"
+                className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              />
+              <button
+                onClick={() => void handleDirectLookup()}
+                disabled={lookupPhase === "loading" || linkPhase === "saving" || !directInput.trim()}
+                className="text-sm px-4 py-2 rounded-lg font-medium bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors flex-shrink-0"
+              >
+                {lookupPhase === "loading" ? "찾는 중..." : "연결"}
               </button>
-            ))}
-            {filteredRepos.length === 0 && (
-              <p className="text-xs text-gray-400 py-6 text-center">일치하는 저장소가 없습니다.</p>
+            </div>
+            {lookupPhase === "error" && lookupError && (
+              <p className="text-xs text-red-500 mt-2">{lookupError}</p>
             )}
           </div>
+
           <div className="p-4 border-t border-gray-100 flex items-center justify-between">
-            <p className="text-xs text-gray-400">{repos.length}개 공개 저장소</p>
+            <p className="text-xs text-gray-400">
+              {repos.length > 0 ? `${repos.length}개 공개 저장소` : "목록에 표시할 저장소가 없어요"}
+            </p>
             <button onClick={() => setPhase("connected")} className="text-xs text-gray-500 hover:text-gray-700">취소</button>
           </div>
         </div>

@@ -30,7 +30,13 @@ export type GitHubRepo = {
   private: boolean;
   defaultBranch: string;
   htmlUrl: string;
+  // Additive (Stage 56): viewer permission bits, when GitHub provides them.
+  permissions?: { pull?: boolean; push?: boolean; admin?: boolean };
 };
+
+export type LookupRepoResponse =
+  | { ok: true; repo: GitHubRepo }
+  | { ok: false; error: string };
 
 export type GitHubReposResponse =
   | { ok: true; repos: GitHubRepo[] }
@@ -84,6 +90,26 @@ export async function fetchGitHubStatus(userKey: string): Promise<GitHubStatusRe
 }
 
 // ─── Repo list ────────────────────────────────────────────────────────────────
+
+/**
+ * Resolve a repo by "owner/repo" full name (Stage 56 direct-entry fallback). Lets the
+ * user connect an org/collaborator repo that never shows up in the listing.
+ */
+export async function lookupGitHubRepo(
+  userKey: string,
+  fullName: string,
+): Promise<LookupRepoResponse> {
+  try {
+    const resp = await fetch(
+      `${CENTRAL_PLANE_URL}/workspace/github/repos/lookup?userKey=${encodeURIComponent(userKey)}&fullName=${encodeURIComponent(fullName)}`,
+      { signal: AbortSignal.timeout(15000) },
+    );
+    const data = await resp.json().catch(() => ({ ok: false, error: `HTTP ${resp.status}` })) as LookupRepoResponse;
+    return data;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
 
 export async function fetchGitHubRepos(userKey: string): Promise<GitHubReposResponse> {
   try {
