@@ -1,10 +1,15 @@
-import { notFound } from "next/navigation";
-import { getProject } from "@/lib/mock-data";
+"use client";
 
-export default async function IdeaPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const project = getProject(id);
-  if (!project) notFound();
+import { useParams } from "next/navigation";
+import { getProject } from "@/lib/mock-data";
+import { getLocalProject } from "@/lib/workflow-store";
+
+export default function IdeaPage() {
+  const { id } = useParams<{ id: string }>();
+  // Read on the client so locally-created (localStorage) projects resolve,
+  // not just the bundled mock demos.
+  const project = getLocalProject(id) ?? getProject(id);
+  if (!project) return <p className="text-sm text-gray-400">프로젝트를 찾을 수 없습니다.</p>;
 
   return (
     <div className="max-w-2xl">

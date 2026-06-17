@@ -1,17 +1,19 @@
-import { notFound } from "next/navigation";
+"use client";
+
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { getProject, getProjectStats } from "@/lib/mock-data";
+import { getLocalProject } from "@/lib/workflow-store";
 import { StatCard } from "@/components/StatCard";
 import { SpecCompleteness } from "@/components/SpecCompleteness";
 
-export default async function ProjectOverviewPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
-  const project = getProject(id);
-  if (!project) notFound();
+export default function ProjectOverviewPage() {
+  const { id } = useParams<{ id: string }>();
+  // Locally-created projects live in localStorage (client-only); mock demos are
+  // bundled. A server component couldn't read localStorage → newly-created
+  // projects 404'd. Read on the client so real projects resolve.
+  const project = getLocalProject(id) ?? getProject(id);
+  if (!project) return <p className="text-sm text-gray-400">프로젝트를 찾을 수 없습니다.</p>;
   const stats = getProjectStats(project);
 
   return (
