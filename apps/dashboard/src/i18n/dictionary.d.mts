@@ -36,7 +36,11 @@ export type Dictionary = {
     groupPlan: string;
     groupReview: string;
     groupDeliver: string;
+    searchProjects: string;
+    allProjects: string;
+    noProjects: string;
   };
+  account: { workspace: string; plan: string; settings: string };
   status: Record<StatusKey, StatusEntry>;
   comparison: {
     improved: string;

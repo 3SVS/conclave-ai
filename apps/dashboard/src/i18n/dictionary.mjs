@@ -34,7 +34,11 @@ const EN = {
     groupPlan: "Plan",
     groupReview: "Review",
     groupDeliver: "Deliver",
+    searchProjects: "Search projects",
+    allProjects: "All projects",
+    noProjects: "No projects yet",
   },
+  account: { workspace: "Workspace", plan: "Free beta", settings: "Settings" },
   status: {
     passed: { label: "Passed", desc: "The PR appears to satisfy this item." },
     failed: { label: "Issue found", desc: "The PR appears to miss or break this item." },
@@ -193,7 +197,11 @@ const KO = {
     groupPlan: "기획",
     groupReview: "확인",
     groupDeliver: "내보내기",
+    searchProjects: "프로젝트 검색",
+    allProjects: "전체 프로젝트",
+    noProjects: "아직 프로젝트가 없어요",
   },
+  account: { workspace: "워크스페이스", plan: "무료 베타", settings: "설정" },
   status: {
     passed: { label: "통과", desc: "이 항목을 충족하는 것으로 보입니다." },
     failed: { label: "안 맞음", desc: "이 항목을 충족하지 못하거나 깨뜨린 것으로 보입니다." },
