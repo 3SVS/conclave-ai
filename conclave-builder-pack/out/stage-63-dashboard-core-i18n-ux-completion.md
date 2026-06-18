@@ -40,7 +40,32 @@
 ## 9. live deployment / verification
 - (배포 후 채움) Vercel 재배포 → spec/items/fixes EN 본문 + 토글 + 레이아웃 확인.
 
-## 10. Stage 64 전 결정 필요한 점
+## 10. Stage 64 전 결정 필요한 점 (pass 1 기준)
 1. **남은 깊은 화면 i18n(pass 2)**: checks → github 패널 → history/run detail → Telegram 순.
 2. (운영) Vercel 토큰 revoke + Git 연결.
 3. (선택) MCP npm 배포 / 실사용 베타.
+
+---
+
+# pass 2 (추가) — checks + Telegram
+
+커밋: `ddf0e38`.
+
+## 변경 화면 (pass 2a)
+- `/projects/:id/checks` — **Draft review** + **Pull request review** 2섹션 전면 i18n: 상태(loading/empty/error), stat 라벨, result 카드, "Next step", PR status 배지(runStatus error/running/queued), per-item 라벨 StatusBadge(백엔드 한글 userLabel 폐기), 브랜드 .card/.btn. review.basisNote·status desc 재사용.
+- `/projects/:id/settings` **Telegram 알림 + 이력** 전면 i18n: 제목/설명, Chat ID, **정책(Problems only/Always notify/Disabled)**, 켜기, 저장/테스트 상태, 이력(Sent/Skipped/Failed, PR review complete), locale-aware 날짜.
+
+## 추가 i18n namespace
+- `checks` / `runStatus` / `telegram` (EN+KO, .d.mts 동기, parity 테스트).
+
+## ★ 기존 프로젝트 저장 데이터 언어 (known issue, 마이그레이션 안 함)
+> Existing project content may remain in the language it was originally generated in. I18N applies to the dashboard interface, not stored project content. (새 프로젝트 생성물은 영어 — 백엔드 generate.ts 영어 기본.)
+
+## 남은 화면 (pass 2b — 다음)
+- `/projects/:id/github`(1379줄) 깊은 패널: run review/credit 배너/result/comment/fix instructions/comparison.
+- `/projects/:id/github/history` 목록.
+- `/projects/:id/github/history/:runId` run detail(선택 패널/비교/comment shortcut/status transition).
+- admin/* (우선순위 낮음).
+
+## test/build (pass 2a)
+- dashboard 77/77, parity 10/10, typecheck 53/53, lint green.
