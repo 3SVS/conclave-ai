@@ -49,8 +49,14 @@ Stage 59 i18n 기반 위에, Bae가 고른 **Linear형 미니멀 / neutral-first
 ## 8. test / typecheck / build
 - i18n **10/10**, dashboard **77/77**, typecheck **53/53**, lint green(pre-push verify 통과), build OK.
 
-## 9. live deployment / verification
-- (배포 후 채움) Vercel 재배포 → 딥그린 액센트/neutral/헤더/settings 영어 copy 반영 + EN/KO 토글 + 레이아웃 확인.
+## 9. live deployment / verification (완료, 2026-06-18)
+- Vercel 재배포: main `9aa790b` → `https://conclave-dashboard.vercel.app` READY, alias 갱신. CSS `a55ff4cd…`.
+- **딥그린/neutral 토큰 반영**: 배포 CSS에 brand `#326b52` 등장. **기존 indigo `#4f46e5` = 0, 보라 violet `#7c3aed`/`#8b5cf6` = 0** → 인디고/보라 primary 완전 제거 확인.
+- **AppHeader compact + EN/KO toggle**: `/projects` SSR에 영어 tagline, 번들에 토글.
+- **settings 영어화**: 번들에 "Connect repository"·"Enter a repository manually"·"Pull requests"·"Issue found"·"Not verified" 포함.
+- **라우트 200**: `/projects`·`/projects/new`·`/projects/:id/settings`·`/projects/:id/github` 모두 200(레이아웃 정상).
+- 토큰 파일 사용 후 삭제.
+- ★육안(Bae): 딥그린 톤/여백/타이포가 취향에 맞는지 + EN/KO 토글 확인.
 
 ## 10. Stage 61 전 결정 필요한 점
 1. **Vercel 재배포**(토큰) → Bae가 새 룩(딥그린/neutral) 육안 확인 → 방향 맞는지 피드백.
