@@ -96,13 +96,52 @@ const SCHEMA_DESCRIPTION = `{
   ]
 }`;
 
-function buildPrompt(req: IdeaToSpecDraftRequest): string {
-  const answersText =
-    req.answers && req.answers.length > 0
-      ? `\n사용자 답변:\n${req.answers.map((a) => `- ${a.questionId}: ${a.answer}`).join("\n")}`
-      : "";
+const SCHEMA_DESCRIPTION_EN = `{
+  "understood": {
+    "summary": "one-sentence summary (plain language)",
+    "targetUsers": ["primary user type 1", "..."],
+    "mainFlow": ["1. first step", "2. second step", "..."]
+  },
+  "questions": [
+    {
+      "id": "q1",
+      "question": "a concrete question tailored to the idea",
+      "recommendation": "recommended answer (short)",
+      "reason": "why recommended (1-2 sentences, plain language)",
+      "options": ["option 1", "option 2", "option 3"],
+      "allowCustom": true,
+      "allowLater": true
+    }
+  ],
+  "productSpec": {
+    "productName": "product name",
+    "oneLine": "one-line description",
+    "targetUsers": ["who uses it"],
+    "problem": "the problem it solves (1-2 sentences)",
+    "included": ["features in this version"],
+    "excluded": ["out of scope for this version"],
+    "userFlow": ["1. user flow step"],
+    "decisions": ["decisions made from the answers"],
+    "openQuestions": ["things still to decide"]
+  },
+  "items": [
+    {
+      "id": "req_001",
+      "title": "a must-have item (subject + verb form)",
+      "status": "not_started",
+      "criteria": ["acceptance criterion 1", "acceptance criterion 2"]
+    }
+  ]
+}`;
 
-  return `사용자가 만들고 싶은 제품 아이디어가 있습니다. 이 아이디어를 바탕으로 구조화된 제품 설명서를 한국어로 만들어주세요.
+function buildPrompt(req: IdeaToSpecDraftRequest): string {
+  // English-first product: generate in English unless the caller asks for Korean.
+  if (req.locale === "ko") {
+    const answersText =
+      req.answers && req.answers.length > 0
+        ? `\n사용자 답변:\n${req.answers.map((a) => `- ${a.questionId}: ${a.answer}`).join("\n")}`
+        : "";
+    return `사용자가 만들고 싶은 제품 아이디어가 있습니다. 이 아이디어를 바탕으로 구조화된 제품 설명서를 한국어로 만들어주세요.
 
 아이디어: ${req.idea}${answersText}
 
@@ -118,6 +157,28 @@ function buildPrompt(req: IdeaToSpecDraftRequest): string {
 다음 JSON 형식으로만 응답하세요. 마크다운 코드블록, 설명문 없이 JSON만 반환:
 
 ${SCHEMA_DESCRIPTION}`;
+  }
+
+  const answersText =
+    req.answers && req.answers.length > 0
+      ? `\nUser answers:\n${req.answers.map((a) => `- ${a.questionId}: ${a.answer}`).join("\n")}`
+      : "";
+  return `A user has a product idea they want to build. Based on this idea, create a structured product brief in English.
+
+Idea: ${req.idea}${answersText}
+
+Follow these rules strictly:
+- Write all user-facing text in natural, plain English
+- Do NOT use developer jargon like PRD, Requirement, Acceptance Criteria, FAIL, INCONCLUSIVE
+- Generate only 3-5 questions tailored to this idea (no repetitive templates)
+- Good questions change the actual product depending on the answer (scope, user flow, data retention, permissions, integrations)
+- Bad questions are abstract ("what's the long-term vision?", "how should the UX feel?")
+- Include 8-10 must-have items, each with 2-4 acceptance criteria
+- Acceptance criteria must be concrete, verifiable behaviors
+
+Respond ONLY in the following JSON format. No markdown code block, no prose — JSON only:
+
+${SCHEMA_DESCRIPTION_EN}`;
 }
 
 // ─── Anthropic fetch ──────────────────────────────────────────────────────────
@@ -323,35 +384,35 @@ function buildMockFallback(req: IdeaToSpecDraftRequest): IdeaToSpecDraftResponse
     ok: true,
     source: "mock-fallback",
     understood: {
-      summary: `이 제품은 ${shortIdea}을(를) 처리하는 앱입니다.`,
-      targetUsers: ["일반 사용자", "업무 효율을 높이고 싶은 팀"],
-      mainFlow: ["데이터 입력", "자동 처리", "결과 확인", "외부 도구로 전송"],
+      summary: `An app that handles ${shortIdea}.`,
+      targetUsers: ["General users", "Teams that want to work more efficiently"],
+      mainFlow: ["Enter data", "Process automatically", "Review the result", "Send to an external tool"],
     },
     questions: [
       {
         id: "q1",
-        question: "처리 결과를 사용자가 검토한 뒤 최종 확인하는 단계가 필요할까요?",
-        recommendation: "확인 후 진행",
-        reason: "자동 처리 결과를 한 번 검토하면 오류로 인한 문제를 줄일 수 있습니다.",
-        options: ["확인 후 진행", "자동으로 진행"],
+        question: "Should the user review and confirm the result before it proceeds?",
+        recommendation: "Confirm before proceeding",
+        reason: "Reviewing an automated result once reduces problems caused by errors.",
+        options: ["Confirm before proceeding", "Proceed automatically"],
         allowCustom: true,
         allowLater: true,
       },
       {
         id: "q2",
-        question: "처리된 데이터는 얼마나 보관해야 하나요?",
-        recommendation: "처리 후 삭제",
-        reason: "불필요한 데이터를 줄이면 보안 위험이 낮아집니다.",
-        options: ["처리 후 삭제", "일정 기간 보관", "영구 보관"],
+        question: "How long should processed data be kept?",
+        recommendation: "Delete after processing",
+        reason: "Keeping less unnecessary data lowers security risk.",
+        options: ["Delete after processing", "Keep for a period", "Keep forever"],
         allowCustom: false,
         allowLater: true,
       },
       {
         id: "q3",
-        question: "여러 사용자가 쓰는 서비스인가요, 개인용인가요?",
-        recommendation: "여러 사용자",
-        reason: "사용자 구분 방식에 따라 데이터 분리, 권한, 결제 구조가 달라집니다.",
-        options: ["여러 사용자 (팀/조직)", "개인용 단독 사용"],
+        question: "Is this a multi-user service or for personal use?",
+        recommendation: "Multi-user",
+        reason: "How users are separated changes data isolation, permissions, and billing.",
+        options: ["Multi-user (team/org)", "Personal, single user"],
         allowCustom: false,
         allowLater: true,
       },
@@ -359,25 +420,25 @@ function buildMockFallback(req: IdeaToSpecDraftRequest): IdeaToSpecDraftResponse
     productSpec: {
       productName: shortIdea,
       oneLine: req.idea.slice(0, 60),
-      targetUsers: ["일반 사용자"],
-      problem: "사용자가 제시한 문제를 해결합니다.",
-      included: ["핵심 기능 구현", "결과 확인 화면", "상태 표시", "오류 처리"],
-      excluded: ["초기 버전에서 제외된 부가 기능"],
-      userFlow: ["1. 입력 또는 등록", "2. 처리 또는 요청", "3. 결과 확인", "4. 외부 서비스 연동"],
+      targetUsers: ["General users"],
+      problem: "Solves the problem the user described.",
+      included: ["Core feature", "Result view", "Status display", "Error handling"],
+      excluded: ["Secondary features deferred from the first version"],
+      userFlow: ["1. Input or register", "2. Process or request", "3. Review the result", "4. Connect an external service"],
       decisions: [],
-      openQuestions: ["구체적인 기능 범위 결정 필요", "외부 연동 서비스 선택"],
+      openQuestions: ["Decide the concrete feature scope", "Choose the integration service"],
     },
     items: [
-      { id: "req_001", title: "핵심 기능을 사용할 수 있어야 함", status: "not_started", criteria: ["주요 동작이 정상 작동함", "기대하는 결과가 화면에 표시됨"] },
-      { id: "req_002", title: "처리 중 상태를 볼 수 있어야 함", status: "not_started", criteria: ["처리 중 로딩 또는 진행 표시가 보임", "처리 완료 시 알림 또는 화면 전환"] },
-      { id: "req_003", title: "처리 결과를 확인할 수 있어야 함", status: "not_started", criteria: ["결과 목록 또는 상세 화면이 보임", "날짜·상태 등 기본 정보 표시"] },
-      { id: "req_004", title: "결과를 외부 도구로 내보내거나 공유할 수 있어야 함", status: "not_started", criteria: ["내보내기 또는 연동 버튼 제공", "전송 성공/실패 여부 표시"] },
-      { id: "req_005", title: "다른 사용자의 데이터는 볼 수 없어야 함", status: "not_started", criteria: ["로그인한 사용자 데이터만 보임", "URL 직접 입력으로도 타인 데이터 접근 불가"] },
-      { id: "req_006", title: "잘못된 입력을 올리면 이유를 알려줘야 함", status: "not_started", criteria: ["지원하지 않는 형식은 안내 메시지 표시", "필수 항목 누락 시 어디가 빠졌는지 표시"] },
-      { id: "req_007", title: "오류 발생 시 다시 시도할 수 있어야 함", status: "not_started", criteria: ["오류 메시지와 재시도 버튼 표시", "재시도 결과가 같은 화면에 반영됨"] },
-      { id: "req_008", title: "이전 처리 내역을 볼 수 있어야 함", status: "not_started", criteria: ["날짜 순으로 기록 목록 제공", "각 기록의 상태(완료/실패 등) 표시"] },
+      { id: "req_001", title: "The core feature works end to end", status: "not_started", criteria: ["The main action works correctly", "The expected result appears on screen"] },
+      { id: "req_002", title: "Processing status is visible", status: "not_started", criteria: ["A loading or progress indicator shows while processing", "A notification or screen change on completion"] },
+      { id: "req_003", title: "The result can be reviewed", status: "not_started", criteria: ["A result list or detail view is shown", "Basic info like date and status is displayed"] },
+      { id: "req_004", title: "Results can be exported or shared to an external tool", status: "not_started", criteria: ["An export or integration button is provided", "Success/failure of the send is shown"] },
+      { id: "req_005", title: "Other users' data is not visible", status: "not_started", criteria: ["Only the signed-in user's data is shown", "Entering a URL directly cannot access another user's data"] },
+      { id: "req_006", title: "Invalid input explains why", status: "not_started", criteria: ["Unsupported formats show a clear message", "Missing required fields show what is missing"] },
+      { id: "req_007", title: "Failures can be retried", status: "not_started", criteria: ["An error message and retry button are shown", "The retry result is reflected on the same screen"] },
+      { id: "req_008", title: "Past activity can be reviewed", status: "not_started", criteria: ["A history list is provided in date order", "Each record shows its status (done/failed, etc.)"] },
     ],
-    warnings: ["임시 초안입니다. 다시 시도하면 더 맞춤형 결과를 받을 수 있습니다."],
+    warnings: ["This is a quick draft. Try again for a more tailored result."],
   };
 }
 
