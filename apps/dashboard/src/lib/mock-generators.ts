@@ -315,21 +315,21 @@ export function generateRequirements(
   return [
     {
       id: "req_001",
-      title: "핵심 기능을 사용할 수 있어야 함",
+      title: "Core feature works end to end",
       status: "not_started",
       category: "feature",
       priority: "must",
     },
     {
       id: "req_002",
-      title: "처리 결과를 확인할 수 있어야 함",
+      title: "Result is visible to the user",
       status: "not_started",
       category: "feature",
       priority: "must",
     },
     {
       id: "req_003",
-      title: "오류 발생 시 다시 시도할 수 있어야 함",
+      title: "Failures can be retried",
       status: "not_started",
       category: "error_state",
       priority: "must",

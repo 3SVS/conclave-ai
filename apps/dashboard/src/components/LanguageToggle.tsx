@@ -11,11 +11,7 @@ const OPTIONS: { value: Locale; label: string }[] = [
 export function LanguageToggle() {
   const { locale, setLocale } = useI18n();
   return (
-    <div
-      role="group"
-      aria-label="Language"
-      className="inline-flex items-center rounded-lg border border-gray-200 bg-white p-0.5"
-    >
+    <div role="group" aria-label="Language" className="inline-flex items-center gap-px rounded-md bg-gray-100 p-0.5">
       {OPTIONS.map((o) => {
         const active = locale === o.value;
         return (
@@ -24,8 +20,8 @@ export function LanguageToggle() {
             type="button"
             onClick={() => setLocale(o.value)}
             aria-pressed={active}
-            className={`px-2 py-0.5 text-xs font-medium rounded-md transition-colors ${
-              active ? "bg-gray-900 text-white" : "text-gray-500 hover:text-gray-900"
+            className={`rounded-[5px] px-2 py-0.5 text-[11px] font-medium tracking-wide transition-colors ${
+              active ? "bg-white text-gray-900 shadow-sm" : "text-gray-400 hover:text-gray-700"
             }`}
           >
             {o.label}
