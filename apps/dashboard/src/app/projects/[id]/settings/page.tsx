@@ -30,7 +30,7 @@ export default function SettingsPage() {
   const { id } = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const justConnected = searchParams?.get("github") === "connected";
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
 
   const [phase, setPhase] = useState<"loading" | "disconnected" | "connected" | "selecting">("loading");
   const [ghUser, setGhUser] = useState<GitHubUser | null>(null);
@@ -386,46 +386,40 @@ export default function SettingsPage() {
         <p className="callout callout-error">{t.github.linkFailed}</p>
       )}
 
-      {/* ─── Telegram 알림 섹션 ──────────────────────────────────────────── */}
+      {/* ─── Telegram notifications ──────────────────────────────────────── */}
       <div className="mt-10">
-        <h2 className="text-lg font-bold text-gray-900 mb-1">Telegram 알림</h2>
-        <p className="text-sm text-gray-500 mb-4">
-          Telegram에서 알림을 받으려면 Conclave 봇과 대화를 시작한 뒤, 받을 채팅 ID를 입력해주세요.
-        </p>
+        <h2 className="text-lg font-semibold tracking-tight text-gray-900">{t.telegram.title}</h2>
+        <p className="mb-4 mt-1 text-sm text-gray-500">{t.telegram.desc}</p>
 
         {!tgEnabled && (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700 mb-4">
-            서버에 Telegram 봇 토큰이 설정되지 않았어요. 관리자에게 문의해주세요.
-          </div>
+          <div className="callout mb-4 border-amber-200 bg-amber-50 text-xs text-amber-700">{t.telegram.notConfigured}</div>
         )}
 
-        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+        <div className="card space-y-4 p-5">
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">채팅 ID</label>
+            <label className="mb-1 block text-xs font-semibold text-gray-600">{t.telegram.chatId}</label>
             <input
               type="text"
               value={tgChatId}
               onChange={(e) => setTgChatId(e.target.value)}
-              placeholder="예: 123456789"
+              placeholder="e.g. 123456789"
               disabled={!tgEnabled}
-              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:opacity-50"
+              className="input disabled:opacity-50"
             />
-            <p className="text-xs text-gray-400 mt-1">
-              Telegram 봇(@userinfobot)에게 메시지를 보내면 채팅 ID를 확인할 수 있어요.
-            </p>
+            <p className="mt-1 text-xs text-gray-400">{t.telegram.chatIdHint}</p>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">알림 정책</label>
+            <label className="mb-1 block text-xs font-semibold text-gray-600">{t.telegram.policy}</label>
             <select
               value={tgPolicy}
               onChange={(e) => setTgPolicy(e.target.value as NotifyPolicy)}
               disabled={!tgEnabled}
-              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:opacity-50"
+              className="input disabled:opacity-50"
             >
-              <option value="problems_only">문제가 있을 때만 알림</option>
-              <option value="always">항상 알림</option>
-              <option value="disabled">끄기</option>
+              <option value="problems_only">{t.telegram.policyProblems}</option>
+              <option value="always">{t.telegram.policyAlways}</option>
+              <option value="disabled">{t.telegram.policyDisabled}</option>
             </select>
           </div>
 
@@ -436,89 +430,72 @@ export default function SettingsPage() {
               checked={tgEnabledToggle}
               onChange={(e) => setTgEnabledToggle(e.target.checked)}
               disabled={!tgEnabled}
-              className="rounded border-gray-300 disabled:opacity-50"
+              className="rounded border-gray-300 accent-brand-600 disabled:opacity-50"
             />
-            <label htmlFor="tg-enabled" className="text-sm text-gray-700">알림 켜기</label>
+            <label htmlFor="tg-enabled" className="text-sm text-gray-700">{t.telegram.enable}</label>
           </div>
 
           <div className="flex items-center gap-3 pt-2">
             <button
               onClick={handleSaveTgSettings}
               disabled={!tgEnabled || !tgChatId.trim() || tgSavePhase === "saving"}
-              className="bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-xl hover:bg-indigo-700 disabled:opacity-40 transition-colors"
+              className="btn btn-md btn-primary"
             >
-              {tgSavePhase === "saving" ? "저장 중..." : "저장"}
+              {tgSavePhase === "saving" ? t.telegram.saving : t.common.save}
             </button>
             {tgSettings && (
               <button
                 onClick={handleTestNotification}
                 disabled={!tgEnabled || tgTestPhase === "sending"}
-                className="border border-gray-200 text-sm text-gray-700 px-4 py-2 rounded-xl hover:bg-gray-50 disabled:opacity-40 transition-colors"
+                className="btn btn-md btn-secondary"
               >
-                {tgTestPhase === "sending" ? "보내는 중..." : "테스트 메시지 보내기"}
+                {tgTestPhase === "sending" ? t.telegram.sending : t.telegram.sendTest}
               </button>
             )}
           </div>
 
-          {tgSavePhase === "done" && (
-            <p className="text-xs text-green-600">✓ 저장됐어요.</p>
-          )}
-          {tgSavePhase === "error" && (
-            <p className="text-xs text-red-600">저장에 실패했습니다. 잠시 후 다시 시도해주세요.</p>
-          )}
-          {tgTestPhase === "sent" && (
-            <p className="text-xs text-green-600">✓ 테스트 메시지를 보냈어요. Telegram을 확인해주세요.</p>
-          )}
-          {tgTestPhase === "error" && (
-            <p className="text-xs text-red-600">{tgTestError || "전송에 실패했어요. 채팅 ID가 맞는지 확인해주세요."}</p>
-          )}
+          {tgSavePhase === "done" && <p className="text-xs text-green-600">✓ {t.telegram.saved}</p>}
+          {tgSavePhase === "error" && <p className="text-xs text-red-600">{t.telegram.saveError}</p>}
+          {tgTestPhase === "sent" && <p className="text-xs text-green-600">✓ {t.telegram.testSent}</p>}
+          {tgTestPhase === "error" && <p className="text-xs text-red-600">{tgTestError || t.telegram.testError}</p>}
         </div>
       </div>
 
-      {/* ─── 알림 이력 ──────────────────────────────────────────────────── */}
+      {/* ─── Notification history ────────────────────────────────────────── */}
       <div className="mt-8">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-base font-bold text-gray-800">알림 이력</h2>
-          <button
-            onClick={loadNotifications}
-            className="text-xs text-indigo-600 hover:underline"
-          >
-            새로고침
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="section-title">{t.telegram.historyTitle}</h2>
+          <button onClick={loadNotifications} className="text-xs text-brand-700 hover:underline">
+            {t.telegram.refresh}
           </button>
         </div>
 
-        {notifPhase === "loading" && (
-          <p className="text-xs text-gray-400">불러오는 중...</p>
-        )}
+        {notifPhase === "loading" && <p className="text-xs text-gray-400">{t.common.loading}</p>}
 
         {notifPhase === "done" && notifications.length === 0 && (
-          <p className="text-xs text-gray-400">아직 알림 이력이 없어요.</p>
+          <p className="text-xs text-gray-400">{t.telegram.noHistory}</p>
         )}
 
         {notifPhase === "done" && notifications.length > 0 && (
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="card overflow-hidden">
             <div className="divide-y divide-gray-50">
               {notifications.map((n) => (
-                <div key={n.id} className="px-4 py-3 flex items-start gap-3">
-                  <div className="flex-shrink-0 mt-0.5">
-                    {n.status === "sent" && <span className="text-green-500 text-xs font-semibold">전송됨</span>}
-                    {n.status === "skipped" && <span className="text-gray-400 text-xs">건너뜀</span>}
-                    {n.status === "error" && <span className="text-red-500 text-xs font-semibold">실패</span>}
+                <div key={n.id} className="flex items-start gap-3 px-4 py-3">
+                  <div className="mt-0.5 flex-shrink-0">
+                    {n.status === "sent" && <span className="text-xs font-semibold text-green-500">{t.telegram.sent}</span>}
+                    {n.status === "skipped" && <span className="text-xs text-gray-400">{t.telegram.skipped}</span>}
+                    {n.status === "error" && <span className="text-xs font-semibold text-red-500">{t.telegram.failed}</span>}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-gray-600 truncate">
-                      {n.eventType === "pr_review_complete" ? "PR 확인 완료 알림" : n.eventType}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs text-gray-600">
+                      {n.eventType === "pr_review_complete" ? t.telegram.prReviewComplete : n.eventType}
                       {n.destinationPreview ? ` · ${n.destinationPreview}` : ""}
                     </p>
-                    {n.messagePreview && (
-                      <p className="text-xs text-gray-400 truncate mt-0.5">{n.messagePreview}</p>
-                    )}
-                    {n.errorMessage && (
-                      <p className="text-xs text-red-400 truncate mt-0.5">{n.errorMessage}</p>
-                    )}
+                    {n.messagePreview && <p className="mt-0.5 truncate text-xs text-gray-400">{n.messagePreview}</p>}
+                    {n.errorMessage && <p className="mt-0.5 truncate text-xs text-red-400">{n.errorMessage}</p>}
                   </div>
-                  <p className="text-xs text-gray-400 flex-shrink-0">
-                    {new Date(n.createdAt).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  <p className="flex-shrink-0 font-mono text-xs text-gray-400">
+                    {new Date(n.createdAt).toLocaleString(locale === "ko" ? "ko-KR" : "en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                   </p>
                 </div>
               ))}
