@@ -15,54 +15,54 @@ import {
   buildRunDetailHref,
   buildFixPackHref,
 } from "@/lib/rerun-selection.mjs";
+import { useI18n } from "@/i18n/I18nProvider";
+import { statusLabel } from "@/i18n/dictionary.mjs";
+import type { Dictionary, Locale } from "@/i18n/dictionary.mjs";
 
-const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
-  passed:      { label: "통과",     className: "text-green-700 bg-green-50 border-green-200" },
-  failed:      { label: "안 맞음", className: "text-red-700 bg-red-50 border-red-200" },
-  inconclusive:{ label: "확인 부족",className: "text-yellow-700 bg-yellow-50 border-yellow-200" },
-  error:       { label: "실패",     className: "text-gray-600 bg-gray-50 border-gray-200" },
-  running:     { label: "실행 중", className: "text-blue-700 bg-blue-50 border-blue-200" },
-  queued:      { label: "대기 중", className: "text-gray-500 bg-gray-50 border-gray-200" },
+const STATUS_CLASS: Record<string, string> = {
+  passed: "text-green-700 bg-green-50 border-green-200",
+  failed: "text-red-700 bg-red-50 border-red-200",
+  inconclusive: "text-amber-700 bg-amber-50 border-amber-200",
+  error: "text-gray-600 bg-gray-50 border-gray-200",
+  running: "text-slate-700 bg-slate-50 border-slate-200",
+  queued: "text-gray-500 bg-gray-50 border-gray-200",
 };
 
-function StatusBadge({ status }: { status: string }) {
-  const c = STATUS_CONFIG[status] ?? { label: status, className: "text-gray-500 bg-gray-50 border-gray-200" };
+function runStatusLabel(t: Dictionary, status: string): string {
+  if (status === "passed" || status === "failed" || status === "inconclusive") return statusLabel(t, status);
+  if (status === "error") return t.runStatus.error;
+  if (status === "running") return t.runStatus.running;
+  if (status === "queued") return t.runStatus.queued;
+  return status;
+}
+
+function RunStatusBadge({ t, status }: { t: Dictionary; status: string }) {
   return (
-    <span className={`text-xs font-medium border rounded-full px-2.5 py-0.5 flex-shrink-0 ${c.className}`}>
-      {c.label}
+    <span className={`flex-shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-medium ${STATUS_CLASS[status] ?? STATUS_CLASS.queued}`}>
+      {runStatusLabel(t, status)}
     </span>
   );
 }
 
-function formatDate(iso: string): string {
+function formatDate(iso: string, locale: Locale): string {
   try {
-    const d = new Date(iso);
-    return d.toLocaleString("ko-KR", {
-      month: "short", day: "numeric",
-      hour: "2-digit", minute: "2-digit",
+    return new Date(iso).toLocaleString(locale === "ko" ? "ko-KR" : "en-US", {
+      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
     });
   } catch {
     return iso;
   }
 }
 
-function SummaryBar({ summary }: { summary: NonNullable<ProjectReviewHistoryItem["summary"]> }) {
+function SummaryBar({ t, summary }: { t: Dictionary; summary: NonNullable<ProjectReviewHistoryItem["summary"]> }) {
   const total = summary.passed + summary.failed + summary.inconclusive + summary.needsDecision;
   if (total === 0) return null;
   return (
     <div className="flex items-center gap-3 text-xs">
-      {summary.passed > 0 && (
-        <span className="text-green-600 font-medium">{summary.passed} 통과</span>
-      )}
-      {summary.failed > 0 && (
-        <span className="text-red-600 font-medium">{summary.failed} 안 맞음</span>
-      )}
-      {summary.inconclusive > 0 && (
-        <span className="text-yellow-600 font-medium">{summary.inconclusive} 확인 부족</span>
-      )}
-      {summary.needsDecision > 0 && (
-        <span className="text-slate-600 font-medium">{summary.needsDecision} 결정 필요</span>
-      )}
+      {summary.passed > 0 && <span className="font-medium text-green-600">{summary.passed} {statusLabel(t, "passed")}</span>}
+      {summary.failed > 0 && <span className="font-medium text-red-600">{summary.failed} {statusLabel(t, "failed")}</span>}
+      {summary.inconclusive > 0 && <span className="font-medium text-amber-600">{summary.inconclusive} {statusLabel(t, "inconclusive")}</span>}
+      {summary.needsDecision > 0 && <span className="font-medium text-slate-600">{summary.needsDecision} {statusLabel(t, "needs_decision")}</span>}
     </div>
   );
 }
@@ -72,8 +72,9 @@ function SummaryBar({ summary }: { summary: NonNullable<ProjectReviewHistoryItem
 // For editing which items run, the user goes to the detail page (Stage 40 picker).
 
 function QuickRerun({
-  projectId, prNumber, runId, rerunAction, userKey,
+  t, projectId, prNumber, runId, rerunAction, userKey,
 }: {
+  t: Dictionary;
   projectId: string;
   prNumber: number;
   runId: string;
@@ -106,19 +107,16 @@ function QuickRerun({
   }, [rerunAction, phase, projectId, prNumber, runId, userKey, router]);
 
   const detailLink = (
-    <Link
-      href={`/projects/${projectId}/github/history/${runId}`}
-      className="text-xs text-indigo-500 hover:text-indigo-700"
-    >
-      상세에서 항목 선택 →
+    <Link href={`/projects/${projectId}/github/history/${runId}`} className="text-xs text-brand-600 hover:text-brand-800">
+      {t.history.selectInDetail} →
     </Link>
   );
 
   if (phase === "running") {
     return (
       <div className="flex items-center gap-2 text-xs text-gray-400">
-        <div className="w-3 h-3 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin flex-shrink-0" />
-        다시 확인 중...
+        <div className="h-3 w-3 flex-shrink-0 animate-spin rounded-full border-2 border-gray-200 border-t-gray-500" />
+        {t.history.rerunning}
       </div>
     );
   }
@@ -126,7 +124,7 @@ function QuickRerun({
   if (phase === "error") {
     return (
       <div className="flex items-center gap-2">
-        <span className="text-xs text-red-600">다시 확인하지 못했어요. 상세 화면에서 다시 시도해 주세요.</span>
+        <span className="text-xs text-red-600">{t.history.rerunError}</span>
         {detailLink}
       </div>
     );
@@ -138,10 +136,9 @@ function QuickRerun({
         onClick={run}
         disabled={!enabled}
         title={enabled ? undefined : quickRerunDisabledMessage(rerunAction?.disabledReason)}
-        className="text-xs font-medium border rounded-lg px-2.5 py-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed
-          border-indigo-200 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 enabled:hover:border-indigo-300"
+        className="rounded-lg border border-brand-200 bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700 transition-colors enabled:hover:border-brand-300 enabled:hover:bg-brand-100 disabled:cursor-not-allowed disabled:opacity-40"
       >
-        남은 문제 다시 확인{enabled ? ` (${rerunAction?.recommendedItemCount})` : ""}
+        {t.history.rerunRemaining}{enabled ? ` (${rerunAction?.recommendedItemCount})` : ""}
       </button>
       {detailLink}
     </div>
@@ -152,8 +149,9 @@ function QuickRerun({
 // which auto-opens the FixPackPanel for failed/inconclusive/needs_decision items.
 // No inline picker in the list; item editing happens on the detail page.
 function QuickFixPackLink({
-  projectId, runId, rerunAction,
+  t, projectId, runId, rerunAction,
 }: {
+  t: Dictionary;
   projectId: string;
   runId: string;
   rerunAction: ProjectReviewHistoryItem["rerunAction"];
@@ -161,26 +159,24 @@ function QuickFixPackLink({
   const count = rerunAction?.recommendedItemCount ?? 0;
   if (count === 0) {
     return (
-      <span
-        title="Fix Pack으로 만들 남은 문제가 없어요."
-        className="text-xs font-medium border rounded-lg px-2.5 py-1 border-gray-200 text-gray-300 cursor-not-allowed select-none"
-      >
-        남은 문제 Fix Pack
+      <span title={t.history.fixNoItems} className="cursor-not-allowed select-none rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-300">
+        {t.history.fixRemaining}
       </span>
     );
   }
   return (
     <Link
       href={buildFixPackHref(projectId, runId)}
-      className="text-xs font-medium border rounded-lg px-2.5 py-1 transition-colors border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100"
+      className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
     >
-      남은 문제 Fix Pack ({count})
+      {t.history.fixRemaining} ({count})
     </Link>
   );
 }
 
 export default function ReviewHistoryPage() {
   const { id } = useParams<{ id: string }>();
+  const { t, locale } = useI18n();
   const project = getLocalProject(id) ?? getProject(id);
   const userKey = getUserKey();
 
@@ -204,7 +200,7 @@ export default function ReviewHistoryPage() {
     return () => { cancelled = true; };
   }, [id, userKey]);
 
-  if (!project) return <p className="text-sm text-gray-400">프로젝트를 찾을 수 없습니다.</p>;
+  if (!project) return <p className="text-sm text-gray-400">{t.common.notFound}</p>;
 
   // Group runs by PR number for display
   const byPr = new Map<number, ProjectReviewHistoryItem[]>();
@@ -219,44 +215,32 @@ export default function ReviewHistoryPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-bold text-gray-900">PR 코드 확인 기록</h2>
-          <p className="text-xs text-gray-400 mt-0.5">
-            이 프로젝트의 모든 PR 코드 확인 이력을 최신순으로 보여줍니다.
-          </p>
+          <h2 className="text-lg font-semibold tracking-tight text-gray-900">{t.history.title}</h2>
+          <p className="mt-0.5 text-xs text-gray-400">{t.history.desc}</p>
         </div>
-        <Link
-          href={`/projects/${id}/github`}
-          className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
-        >
-          ← PR 확인 화면
+        <Link href={`/projects/${id}/github`} className="text-xs font-medium text-brand-700 hover:text-brand-800">
+          ← {t.history.backToPr}
         </Link>
       </div>
 
       {/* Loading */}
       {phase === "loading" && (
         <div className="flex items-center gap-2 text-sm text-gray-400">
-          <div className="w-4 h-4 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin flex-shrink-0" />
-          기록을 불러오는 중...
+          <div className="h-4 w-4 flex-shrink-0 animate-spin rounded-full border-2 border-gray-200 border-t-gray-500" />
+          {t.history.loading}
         </div>
       )}
 
       {/* Error */}
-      {phase === "error" && (
-        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">
-          기록을 불러오지 못했습니다.
-        </div>
-      )}
+      {phase === "error" && <div className="callout callout-error">{t.history.loadError}</div>}
 
       {/* Empty */}
       {phase === "done" && runs.length === 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
-          <p className="text-sm font-medium text-gray-600 mb-1">아직 확인 기록이 없어요.</p>
-          <p className="text-xs text-gray-400 mb-4">PR을 연결하고 코드 확인을 실행하면 여기에 쌓입니다.</p>
-          <Link
-            href={`/projects/${id}/github`}
-            className="inline-block bg-gray-900 text-white text-sm font-medium px-5 py-2.5 rounded-xl hover:bg-gray-800 transition-colors"
-          >
-            PR 연결 및 코드 확인 →
+        <div className="card p-10 text-center">
+          <p className="mb-1 text-sm font-medium text-gray-600">{t.history.emptyTitle}</p>
+          <p className="mb-4 text-xs text-gray-400">{t.history.emptyBody}</p>
+          <Link href={`/projects/${id}/github`} className="btn btn-md btn-primary">
+            {t.checks.connectPr} →
           </Link>
         </div>
       )}
@@ -292,44 +276,29 @@ export default function ReviewHistoryPage() {
                     </span>
                     <span className="text-xs text-gray-400 truncate">{run.repoFullName}</span>
                   </div>
-                  <StatusBadge status={run.status} />
+                  <RunStatusBadge t={t} status={run.status} />
                 </div>
 
-                {run.summary && <SummaryBar summary={run.summary} />}
+                {run.summary && <SummaryBar t={t} summary={run.summary} />}
 
                 {run.status === "error" && run.errorMessage && (
-                  <p className="text-xs text-gray-400 mt-1">오류: {run.errorMessage}</p>
+                  <p className="mt-1 text-xs text-gray-400">{t.runStatus.error}: {run.errorMessage}</p>
                 )}
 
-                <div className="flex items-center justify-between mt-1.5">
-                  <span className="text-xs text-gray-400">{formatDate(run.createdAt)}</span>
-                  <span className="text-xs text-gray-300">
-                    {run.selectedItemCount}개 항목
-                  </span>
+                <div className="mt-1.5 flex items-center justify-between">
+                  <span className="font-mono text-xs text-gray-400">{formatDate(run.createdAt, locale)}</span>
+                  <span className="text-xs text-gray-300">{run.selectedItemCount} {t.history.items}</span>
                 </div>
 
                 <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
                   {userKey ? (
                     <>
-                      <QuickRerun
-                        projectId={id}
-                        prNumber={run.prNumber}
-                        runId={run.id}
-                        rerunAction={run.rerunAction}
-                        userKey={userKey}
-                      />
-                      <QuickFixPackLink
-                        projectId={id}
-                        runId={run.id}
-                        rerunAction={run.rerunAction}
-                      />
+                      <QuickRerun t={t} projectId={id} prNumber={run.prNumber} runId={run.id} rerunAction={run.rerunAction} userKey={userKey} />
+                      <QuickFixPackLink t={t} projectId={id} runId={run.id} rerunAction={run.rerunAction} />
                     </>
                   ) : (
-                    <Link
-                      href={`/projects/${id}/github/history/${run.id}`}
-                      className="text-xs text-indigo-500 hover:text-indigo-700"
-                    >
-                      상세 보기 →
+                    <Link href={`/projects/${id}/github/history/${run.id}`} className="text-xs text-brand-600 hover:text-brand-800">
+                      {t.history.openRunDetails} →
                     </Link>
                   )}
                 </div>
@@ -342,17 +311,17 @@ export default function ReviewHistoryPage() {
       {/* PR-grouped summary */}
       {phase === "done" && runs.length > 0 && byPr.size > 1 && (
         <section className="mt-6">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">PR별 확인 횟수</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <h3 className="mb-3 section-title">{t.history.runsPerPr}</h3>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {[...byPr.entries()].map(([prNum, prRuns]) => {
               const latest = prRuns[0];
               return (
-                <div key={prNum} className="bg-white border border-gray-200 rounded-xl px-3 py-2.5">
-                  <div className="flex items-center justify-between mb-1">
+                <div key={prNum} className="card px-3 py-2.5">
+                  <div className="mb-1 flex items-center justify-between">
                     <span className="text-xs font-bold text-gray-700">PR #{prNum}</span>
-                    {latest && <StatusBadge status={latest.status} />}
+                    {latest && <RunStatusBadge t={t} status={latest.status} />}
                   </div>
-                  <p className="text-xs text-gray-400">총 {prRuns.length}회 확인</p>
+                  <p className="text-xs text-gray-400">{prRuns.length} {t.history.totalRuns}</p>
                 </div>
               );
             })}
