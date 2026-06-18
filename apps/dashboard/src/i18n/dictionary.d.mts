@@ -115,6 +115,43 @@ export type Dictionary = {
     saveNote: string;
     customInput: string;
   };
+  spec: {
+    title: string;
+    reviewNote: string;
+    completeness: string;
+    goal: string;
+    included: string;
+    excluded: string;
+    openDecisions: string;
+  };
+  items: {
+    title: string;
+    subtitle: string;
+    criteria: string;
+    evidence: string;
+    ctaQuestion: string;
+    ctaButton: string;
+  };
+  priority: { must: string; should: string; could: string };
+  fixesScreen: {
+    title: string;
+    reviewFirst: string;
+    allPassed: string;
+    analyzing: string;
+    getDecisionHelp: string;
+    createInstructions: string;
+    collapse: string;
+    expand: string;
+    summary: string;
+    needsAction: string;
+    goToChecks: string;
+    exportQuestion: string;
+    reanalyze: string;
+    draftNote: string;
+    tasks: string;
+    doneWhen: string;
+    doNotDo: string;
+  };
   github: {
     connectTitle: string;
     connectIntro: string;

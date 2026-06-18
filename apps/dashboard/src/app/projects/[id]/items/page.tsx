@@ -5,45 +5,44 @@ import { getProject } from "@/lib/mock-data";
 import { getLocalProject } from "@/lib/workflow-store";
 import { ACCEPTANCE_CRITERIA } from "@/lib/mock-generators";
 import { StatusBadge } from "@/components/StatusBadge";
-import { PRIORITY_LABEL } from "@/lib/labels";
+import { useI18n } from "@/i18n/I18nProvider";
 
 export default function ItemsPage() {
   const { id } = useParams<{ id: string }>();
+  const { t } = useI18n();
   const project = getLocalProject(id) ?? getProject(id);
-  if (!project) return <p className="text-sm text-gray-400">프로젝트를 찾을 수 없습니다.</p>;
+  if (!project) return <p className="text-sm text-gray-400">{t.common.notFound}</p>;
 
   return (
     <div className="max-w-3xl">
-      <h1 className="text-xl font-bold text-gray-900 mb-1">꼭 들어가야 할 것</h1>
-      <p className="text-sm text-gray-500 mb-8">
-        제품 설명서에서 도출된 {project.requirements.length}개 항목
-      </p>
+      <h1 className="page-title">{t.items.title}</h1>
+      <p className="page-subtitle mb-8">{t.items.subtitle}</p>
 
       <div className="space-y-3">
         {project.requirements.map((req) => (
-          <div key={req.id} className="bg-white rounded-xl border border-gray-200 p-5">
-            <div className="flex items-start gap-3 mb-3">
-              <span className="text-xs font-mono text-gray-300 mt-0.5 w-14 flex-shrink-0">
+          <div key={req.id} className="card p-5">
+            <div className="mb-3 flex items-start gap-3">
+              <span className="mt-0.5 w-14 flex-shrink-0 font-mono text-xs text-gray-300">
                 {req.id}
               </span>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-800 mb-2">{req.title}</p>
-                <div className="flex items-center gap-2 flex-wrap">
+              <div className="min-w-0 flex-1">
+                <p className="mb-2 text-sm font-medium text-gray-800">{req.title}</p>
+                <div className="flex flex-wrap items-center gap-2">
                   <StatusBadge status={req.status} />
-                  <span className="text-xs text-gray-400">{PRIORITY_LABEL[req.priority]}</span>
+                  <span className="text-xs text-gray-400">{t.priority[req.priority]}</span>
                 </div>
               </div>
             </div>
 
             {ACCEPTANCE_CRITERIA[req.id] && (
               <div className="ml-17 pl-14">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">
-                  완성 기준
+                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                  {t.items.criteria}
                 </p>
                 <ul className="space-y-1">
                   {ACCEPTANCE_CRITERIA[req.id].map((c, i) => (
                     <li key={i} className="flex gap-2 text-xs text-gray-500">
-                      <span className="text-gray-300 mt-0.5">-</span> {c}
+                      <span className="mt-0.5 text-gray-300">-</span> {c}
                     </li>
                   ))}
                 </ul>
@@ -51,21 +50,18 @@ export default function ItemsPage() {
             )}
 
             {req.evidence && (
-              <p className="mt-3 ml-14 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 leading-relaxed">
-                확인 근거: {req.evidence}
+              <p className="ml-14 mt-3 rounded-lg bg-gray-50 px-3 py-2 text-xs leading-relaxed text-gray-500">
+                {t.items.evidence}: {req.evidence}
               </p>
             )}
           </div>
         ))}
       </div>
 
-      <div className="mt-6 bg-indigo-50 border border-indigo-100 rounded-xl px-5 py-4 flex items-center justify-between">
-        <p className="text-sm text-indigo-800">항목을 확인하고 개발 AI에 넘길 준비가 됐나요?</p>
-        <a
-          href={`/projects/${id}/export`}
-          className="text-sm text-indigo-600 font-medium hover:text-indigo-800"
-        >
-          개발 AI에게 넘길 패키지 만들기 →
+      <div className="mt-6 flex items-center justify-between rounded-lg border border-brand-100 bg-brand-50 px-5 py-4">
+        <p className="text-sm text-brand-800">{t.items.ctaQuestion}</p>
+        <a href={`/projects/${id}/export`} className="text-sm font-medium text-brand-700 hover:text-brand-800">
+          {t.items.ctaButton} →
         </a>
       </div>
     </div>

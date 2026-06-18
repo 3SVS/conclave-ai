@@ -4,41 +4,44 @@ import { useParams } from "next/navigation";
 import { getProject } from "@/lib/mock-data";
 import { getLocalProject } from "@/lib/workflow-store";
 import { SpecCompleteness } from "@/components/SpecCompleteness";
+import { useI18n } from "@/i18n/I18nProvider";
 
 export default function SpecPage() {
   const { id } = useParams<{ id: string }>();
+  const { t } = useI18n();
   const project = getLocalProject(id) ?? getProject(id);
-  if (!project) return <NotFound />;
+  if (!project) return <p className="text-sm text-gray-400">{t.common.notFound}</p>;
 
   const { spec } = project;
 
   return (
     <div className="max-w-2xl">
-      <div className="flex items-center justify-between mb-1">
-        <h1 className="text-xl font-bold text-gray-900">제품 설명서</h1>
-        <span className="text-sm text-gray-500">완성도</span>
+      <div className="mb-1 flex items-center justify-between">
+        <h1 className="page-title">{t.spec.title}</h1>
+        <span className="text-sm text-gray-500">{t.spec.completeness}</span>
       </div>
+      <p className="page-subtitle mb-6">{t.spec.reviewNote}</p>
       <div className="mb-8">
         <SpecCompleteness value={spec.completeness} />
       </div>
 
       <div className="space-y-5">
-        <Section title="목표">
-          <p className="text-sm text-gray-700 leading-relaxed">{spec.goal}</p>
+        <Section title={t.spec.goal}>
+          <p className="text-sm leading-relaxed text-gray-700">{spec.goal}</p>
         </Section>
 
-        <Section title="이번 버전에 포함">
+        <Section title={t.spec.included}>
           <ul className="space-y-1.5">
             {spec.included.map((item, i) => (
               <li key={i} className="flex gap-2 text-sm text-gray-700">
-                <span className="text-green-500 mt-0.5">•</span> {item}
+                <span className="mt-0.5 text-green-500">•</span> {item}
               </li>
             ))}
           </ul>
         </Section>
 
         {spec.excluded.length > 0 && (
-          <Section title="이번 버전에서 제외">
+          <Section title={t.spec.excluded}>
             <ul className="space-y-1.5">
               {spec.excluded.map((item, i) => (
                 <li key={i} className="flex gap-2 text-sm text-gray-500">
@@ -50,20 +53,16 @@ export default function SpecPage() {
         )}
 
         {spec.openDecisions.length > 0 && (
-          <Section title="아직 결정 필요">
+          <Section title={t.spec.openDecisions}>
             <ul className="space-y-2">
               {spec.openDecisions.map((d, i) => (
                 <li key={i} className="flex gap-2 text-sm text-slate-700">
-                  <span className="text-slate-400 mt-0.5">!</span> {d}
+                  <span className="mt-0.5 text-slate-400">!</span> {d}
                 </li>
               ))}
             </ul>
           </Section>
         )}
-      </div>
-
-      <div className="mt-6 text-xs text-gray-400 bg-gray-100 rounded-lg px-4 py-3">
-        Stage 3에서 맞춤 질문 답변을 바탕으로 이 설명서가 자동으로 완성됩니다.
       </div>
     </div>
   );
@@ -71,13 +70,9 @@ export default function SpecPage() {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5">
-      <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">{title}</h2>
+    <div className="card p-5">
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">{title}</h2>
       {children}
     </div>
   );
-}
-
-function NotFound() {
-  return <p className="text-sm text-gray-400">프로젝트를 찾을 수 없습니다.</p>;
 }
