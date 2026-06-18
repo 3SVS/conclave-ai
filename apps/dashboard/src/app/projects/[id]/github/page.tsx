@@ -32,6 +32,7 @@ import {
   type CreditEnforcementResult,
 } from "@/lib/workspace-github-api";
 import { StatusBadge } from "@/components/StatusBadge";
+import { StatusText } from "@/components/StatusText";
 import type { ItemStatus } from "@/lib/labels";
 
 export default function GitHubPage() {
@@ -817,7 +818,7 @@ function PRCommentPanel({
               className="w-4 h-4 rounded accent-indigo-600 cursor-pointer flex-shrink-0"
             />
             <span className={`text-xs font-medium border rounded-full px-2 py-0.5 flex-shrink-0 ${STATUS_COLORS[r.status] ?? ""}`}>
-              {r.userLabel}
+              <StatusText status={r.status} />
             </span>
             <span className="text-sm text-gray-700 truncate">{r.title}</span>
           </label>
@@ -1049,7 +1050,7 @@ function FixBriefPanel({
               className="w-4 h-4 rounded accent-indigo-600 cursor-pointer flex-shrink-0"
             />
             <span className={`text-xs font-medium border rounded-full px-2 py-0.5 flex-shrink-0 ${STATUS_COLORS[r.status] ?? ""}`}>
-              {r.userLabel}
+              <StatusText status={r.status} />
             </span>
             <span className="text-sm text-gray-700 truncate">{r.title}</span>
           </label>
@@ -1208,7 +1209,7 @@ function ReviewResultPanel({ run, onRerun }: { run: ReviewRun; onRerun: () => vo
                 className="w-full text-left px-3 py-2.5 flex items-center gap-2 hover:bg-gray-50 transition-colors"
               >
                 <span className={`text-xs font-medium border rounded-full px-2 py-0.5 flex-shrink-0 ${STATUS_COLORS[r.status] ?? ""}`}>
-                  {r.userLabel}
+                  <StatusText status={r.status} />
                 </span>
                 <span className="text-sm text-gray-800 flex-1 truncate">{r.title}</span>
                 <span className="text-gray-400 text-xs flex-shrink-0">{expanded === r.itemId ? "▲" : "▼"}</span>
