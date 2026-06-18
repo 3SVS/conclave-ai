@@ -65,7 +65,12 @@ export type Dictionary = {
     retry: string;
     notFound: string;
     project: string;
+    view: string;
+    viewAll: string;
+    more: string;
   };
+  overview: { specCompleteness: string; resultsSummary: string; mustHaves: string };
+  idea: { subtitle: string; yourInput: string; understood: string; excluded: string };
   github: {
     connectTitle: string;
     connectIntro: string;

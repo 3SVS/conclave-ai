@@ -73,6 +73,20 @@ const EN = {
     retry: "Try again",
     notFound: "Not found.",
     project: "Project",
+    view: "View",
+    viewAll: "View all",
+    more: "more",
+  },
+  overview: {
+    specCompleteness: "Product brief completeness",
+    resultsSummary: "Review summary",
+    mustHaves: "Must-have items",
+  },
+  idea: {
+    subtitle: "What Conclave understood from your input.",
+    yourInput: "Your idea",
+    understood: "What Conclave understood",
+    excluded: "Out of scope",
   },
   github: {
     connectTitle: "Connect repository",
@@ -178,6 +192,20 @@ const KO = {
     retry: "다시 시도",
     notFound: "찾을 수 없습니다.",
     project: "프로젝트",
+    view: "보기",
+    viewAll: "전체 보기",
+    more: "개 더",
+  },
+  overview: {
+    specCompleteness: "제품 설명서 완성도",
+    resultsSummary: "확인 결과 요약",
+    mustHaves: "꼭 들어가야 할 것",
+  },
+  idea: {
+    subtitle: "입력한 내용을 Conclave가 어떻게 이해했는지 보여줘요.",
+    yourInput: "입력한 아이디어",
+    understood: "Conclave가 이해한 내용",
+    excluded: "포함하지 않는 것",
   },
   github: {
     connectTitle: "저장소 연결",
