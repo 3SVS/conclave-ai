@@ -371,6 +371,19 @@ importers:
         specifier: ^5.7.0
         version: 5.9.3
 
+  packages/mcp-workspace:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@3.25.76)
+      zod:
+        specifier: ^3.24.0
+        version: 3.25.76
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
   packages/observability-langfuse:
     dependencies:
       '@conclave-ai/core':

@@ -24,6 +24,7 @@ import {
 import {
   upsertProject,
   getProject,
+  listProjectsByUser,
   saveCheckRun,
   saveFixSuggestion as saveFixSuggestionToDb,
 } from "../workspace/db.js";
@@ -270,6 +271,24 @@ export function createWorkspaceRoutes(): Hono<{ Bindings: Env }> {
     } catch (err) {
       console.error("[workspace/projects] save failed:", err);
       return new Response(JSON.stringify({ ok: false, error: "save_failed" }), { status: 500, headers: { "content-type": "application/json", ...headers } });
+    }
+  });
+
+  // ── GET /workspace/projects?userKey=... ──────────────────────────────────────
+  // userKey-scoped project list (powers the MCP list_projects tool).
+  app.get("/workspace/projects", async (c) => {
+    const origin = c.req.header("origin") ?? null;
+    const headers = corsHeaders(origin);
+    const userKey = c.req.query("userKey") ?? "";
+    if (!userKey) {
+      return new Response(JSON.stringify({ ok: false, error: "userKey_required" }), { status: 400, headers: { "content-type": "application/json", ...headers } });
+    }
+    try {
+      const projects = await listProjectsByUser(c.env, userKey);
+      return new Response(JSON.stringify({ ok: true, projects }), { status: 200, headers: { "content-type": "application/json", ...headers } });
+    } catch (err) {
+      console.error("[workspace/projects] list failed:", err);
+      return new Response(JSON.stringify({ ok: false, error: "fetch_failed" }), { status: 500, headers: { "content-type": "application/json", ...headers } });
     }
   });
 

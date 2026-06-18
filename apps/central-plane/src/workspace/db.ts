@@ -116,6 +116,28 @@ export async function getProject(env: Env, id: string): Promise<DbProject | null
   };
 }
 
+/** List a user's projects (lightweight summary, newest first). userKey-scoped. */
+export async function listProjectsByUser(
+  env: Env,
+  userKey: string,
+  limit = 100,
+): Promise<Array<{ id: string; title: string; idea: string; createdAt: string; updatedAt: string }>> {
+  const { results } = await env.DB.prepare(
+    `SELECT id, title, idea, created_at, updated_at
+     FROM workspace_projects WHERE user_key = ?
+     ORDER BY updated_at DESC LIMIT ?`,
+  )
+    .bind(userKey, limit)
+    .all<{ id: string; title: string; idea: string; created_at: string; updated_at: string }>();
+  return (results ?? []).map((r) => ({
+    id: r.id,
+    title: r.title,
+    idea: r.idea,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }));
+}
+
 // ─── Check runs ───────────────────────────────────────────────────────────────
 
 export async function saveCheckRun(
