@@ -69,3 +69,23 @@
 
 ## test/build (pass 2a)
 - dashboard 77/77, parity 10/10, typecheck 53/53, lint green.
+
+---
+
+# pass 2b — review history list
+
+커밋: `3f1d337`.
+
+## 변경 화면
+- `/projects/:id/github/history` 전면 i18n: 헤더(Review history / "Track how this PR changes across review runs."), loading/error/empty 상태, run 카드(locale 날짜, summary bar, "N items", run status 배지=statusLabel+runStatus), quick actions(Re-run remaining issues / Create fix instructions / Open run details / Select items in run details), PR별 요약. 브랜드 .card/.btn, statusLabel로 백엔드 한글 라벨 폐기.
+
+## 추가 i18n
+- `history` 네임스페이스 확장(backToPr/loading/loadError/rerun*/fix*/items/runsPerPr/totalRuns). parity 통과.
+
+## ★ 남은 화면 (pass 2c — 다음, 가장 큼)
+- `/projects/:id/github`(1375줄, **126 한글**) 깊은 패널: PR 목록/연결/run review/credit 배너/result 패널/comment 패널/fix instructions 패널/comparison.
+- `/projects/:id/github/history/:runId`(1253줄, **149 한글**) run detail: 선택 picker/비교 패널/comment shortcut/status transition.
+- 합계 ≈275 문자열 — 별도 큰 패스 필요.
+
+## test/build (pass 2b)
+- dashboard 77/77, parity 10/10, typecheck 53/53, lint green.
