@@ -73,7 +73,7 @@ export default function ProjectsPage() {
                   <span className="font-medium text-green-600">{statusLabel(t, "passed")} {stats.passed}</span>
                   <span className="font-medium text-red-600">{statusLabel(t, "failed")} {stats.failed}</span>
                   <span className="font-medium text-amber-600">{statusLabel(t, "inconclusive")} {stats.inconclusive}</span>
-                  <span className="font-medium text-violet-600">{statusLabel(t, "needs_decision")} {stats.needsDecision}</span>
+                  <span className="font-medium text-slate-600">{statusLabel(t, "needs_decision")} {stats.needsDecision}</span>
                   <span className="text-gray-400">{statusLabel(t, "not_started")} {stats.notStarted}</span>
                 </div>
               </Link>

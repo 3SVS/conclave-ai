@@ -22,13 +22,15 @@ export const STATUS_LABEL: Record<ItemStatus, string> = {
   building: "만드는 중",
 };
 
+// Status colors carry meaning only — calm, low-chroma. needs_decision/building use
+// slate (info) instead of bright violet/blue (Stage 60 restrained-accent rule).
 export const STATUS_COLOR: Record<ItemStatus, { bg: string; text: string; border: string }> = {
   passed: { bg: "bg-green-50", text: "text-green-700", border: "border-green-200" },
   failed: { bg: "bg-red-50", text: "text-red-700", border: "border-red-200" },
   inconclusive: { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200" },
-  needs_decision: { bg: "bg-violet-50", text: "text-violet-700", border: "border-violet-200" },
+  needs_decision: { bg: "bg-slate-50", text: "text-slate-600", border: "border-slate-200" },
   not_started: { bg: "bg-gray-50", text: "text-gray-500", border: "border-gray-200" },
-  building: { bg: "bg-blue-50", text: "text-blue-700", border: "border-blue-200" },
+  building: { bg: "bg-slate-50", text: "text-slate-600", border: "border-slate-200" },
 };
 
 export const PRIORITY_LABEL: Record<ItemPriority, string> = {

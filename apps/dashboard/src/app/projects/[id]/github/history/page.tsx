@@ -61,7 +61,7 @@ function SummaryBar({ summary }: { summary: NonNullable<ProjectReviewHistoryItem
         <span className="text-yellow-600 font-medium">{summary.inconclusive} 확인 부족</span>
       )}
       {summary.needsDecision > 0 && (
-        <span className="text-violet-600 font-medium">{summary.needsDecision} 결정 필요</span>
+        <span className="text-slate-600 font-medium">{summary.needsDecision} 결정 필요</span>
       )}
     </div>
   );

@@ -33,8 +33,8 @@ export default function ProjectOverviewPage() {
           {project.spec.openDecisions.length > 0 && (
             <div className="mt-4 space-y-2">
               {project.spec.openDecisions.map((d, i) => (
-                <div key={i} className="flex gap-2 text-sm text-violet-700">
-                  <span className="text-violet-400 mt-0.5">•</span>
+                <div key={i} className="flex gap-2 text-sm text-slate-700">
+                  <span className="text-slate-400 mt-0.5">•</span>
                   <span>{d}</span>
                 </div>
               ))}
@@ -54,7 +54,7 @@ export default function ProjectOverviewPage() {
           <StatCard label="통과" value={stats.passed} colorClass="text-green-600" />
           <StatCard label="안 맞음" value={stats.failed} colorClass="text-red-600" />
           <StatCard label="확인 부족" value={stats.inconclusive} colorClass="text-amber-600" />
-          <StatCard label="결정 필요" value={stats.needsDecision} colorClass="text-violet-600" />
+          <StatCard label="결정 필요" value={stats.needsDecision} colorClass="text-slate-600" />
         </div>
       </section>
 
@@ -88,7 +88,7 @@ function StatusDot({ status }: { status: string }) {
     passed: "bg-green-500",
     failed: "bg-red-500",
     inconclusive: "bg-amber-400",
-    needs_decision: "bg-violet-500",
+    needs_decision: "bg-slate-500",
     not_started: "bg-gray-300",
     building: "bg-blue-400",
   };

@@ -182,7 +182,7 @@ export default function ChecksPage() {
               <StatCard label="통과" value={results.summary.passed} colorClass="text-green-600" />
               <StatCard label="안 맞음" value={results.summary.failed} colorClass="text-red-600" />
               <StatCard label="확인 부족" value={results.summary.inconclusive} colorClass="text-amber-600" />
-              <StatCard label="결정 필요" value={results.summary.needsDecision} colorClass="text-violet-600" />
+              <StatCard label="결정 필요" value={results.summary.needsDecision} colorClass="text-slate-600" />
             </div>
           </>
         )}
@@ -281,7 +281,7 @@ export default function ChecksPage() {
                   <StatCard label="통과" value={latestPrReview.summary.passed} colorClass="text-green-600" />
                   <StatCard label="안 맞음" value={latestPrReview.summary.failed} colorClass="text-red-600" />
                   <StatCard label="확인 부족" value={latestPrReview.summary.inconclusive} colorClass="text-amber-600" />
-                  <StatCard label="결정 필요" value={latestPrReview.summary.needsDecision ?? 0} colorClass="text-violet-600" />
+                  <StatCard label="결정 필요" value={latestPrReview.summary.needsDecision ?? 0} colorClass="text-slate-600" />
                 </div>
               )}
 

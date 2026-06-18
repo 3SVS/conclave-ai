@@ -33,10 +33,12 @@ import {
 } from "@/lib/workspace-github-api";
 import { StatusBadge } from "@/components/StatusBadge";
 import { StatusText } from "@/components/StatusText";
+import { useI18n } from "@/i18n/I18nProvider";
 import type { ItemStatus } from "@/lib/labels";
 
 export default function GitHubPage() {
   const { id } = useParams<{ id: string }>();
+  const { t } = useI18n();
   const project = getLocalProject(id) ?? getProject(id);
   const userKey = getUserKey();
 
@@ -186,28 +188,21 @@ export default function GitHubPage() {
     }
   }
 
-  if (!project) return <p className="text-sm text-gray-400">프로젝트를 찾을 수 없습니다.</p>;
+  if (!project) return <p className="text-sm text-gray-400">{t.common.notFound}</p>;
 
   return (
     <div className="max-w-3xl space-y-6">
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900 mb-1">PR 연결</h1>
-          <p className="text-sm text-gray-500">
-            연결된 저장소의 Pull Request를 선택하고, 관련 항목과 연결합니다.
-          </p>
+          <h1 className="page-title">{t.nav.github}</h1>
+          <p className="page-subtitle">{t.review.basisNote}</p>
         </div>
         <Link
           href={`/projects/${id}/github/history`}
-          className="text-xs text-gray-400 hover:text-indigo-600 font-medium flex-shrink-0 mt-1"
+          className="mt-1 flex-shrink-0 text-xs font-medium text-gray-400 hover:text-brand-700"
         >
-          확인 기록 보기 →
+          {t.github.viewHistory} →
         </Link>
-      </div>
-
-      {/* Stage note */}
-      <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-xs text-blue-700">
-        연결된 GitHub PR의 변경 내용을 기준으로 확인합니다. 제품 설명서 기준 사전 확인과 다를 수 있어요.
       </div>
 
       {/* Loading */}

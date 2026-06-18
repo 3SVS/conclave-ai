@@ -460,11 +460,11 @@ function SpecPreview({
         )}
 
         {productSpec.openQuestions.length > 0 && (
-          <div className="mt-4 bg-violet-50 rounded-lg p-4">
-            <p className="text-xs font-semibold text-violet-600 uppercase tracking-wide mb-2">아직 결정 필요</p>
+          <div className="mt-4 bg-slate-50 rounded-lg p-4">
+            <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">아직 결정 필요</p>
             <ul className="space-y-1">
               {productSpec.openQuestions.map((d, i) => (
-                <li key={i} className="flex gap-2 text-sm text-violet-700">
+                <li key={i} className="flex gap-2 text-sm text-slate-700">
                   <span className="mt-0.5">!</span> {d}
                 </li>
               ))}

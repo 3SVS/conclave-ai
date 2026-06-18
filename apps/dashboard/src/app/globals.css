@@ -1,3 +1,88 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    /* warm-neutral, calm workspace surface */
+    background-color: #fafafa;
+  }
+  /* Linear-like tight, confident headings */
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.011em;
+  }
+  /* restrained, brand-tinted focus ring everywhere */
+  :focus-visible {
+    outline: 2px solid theme("colors.brand.500");
+    outline-offset: 1px;
+  }
+  ::selection {
+    background-color: theme("colors.brand.100");
+  }
+}
+
+@layer components {
+  /* Surface card — thin hairline border, minimal radius, no heavy shadow */
+  .card {
+    @apply rounded-lg border border-gray-200 bg-white;
+  }
+
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-sm {
+    @apply px-2.5 py-1.5 text-xs;
+  }
+  .btn-md {
+    @apply px-3.5 py-2;
+  }
+  .btn-primary {
+    @apply bg-brand-600 text-white hover:bg-brand-700;
+  }
+  .btn-secondary {
+    @apply border border-gray-200 bg-white text-gray-700 hover:bg-gray-50;
+  }
+  .btn-ghost {
+    @apply text-gray-500 hover:bg-gray-100 hover:text-gray-900;
+  }
+
+  /* Inputs */
+  .input {
+    @apply w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100;
+  }
+
+  /* Callouts (empty / error / info) */
+  .callout {
+    @apply rounded-lg border px-4 py-3 text-sm;
+  }
+  .callout-error {
+    @apply border-red-200 bg-red-50 text-red-700;
+  }
+  .callout-info {
+    @apply border-slate-200 bg-slate-50 text-slate-600;
+  }
+  .empty-state {
+    @apply rounded-lg border border-dashed border-gray-300 bg-white px-6 py-14 text-center;
+  }
+
+  /* Page + section headers — consistent hierarchy */
+  .page-title {
+    @apply text-xl font-semibold tracking-tight text-gray-900;
+  }
+  .page-subtitle {
+    @apply mt-1 text-sm text-gray-500;
+  }
+  .section-title {
+    @apply text-sm font-semibold text-gray-800;
+  }
+  .section-desc {
+    @apply mt-0.5 text-xs text-gray-500;
+  }
+}

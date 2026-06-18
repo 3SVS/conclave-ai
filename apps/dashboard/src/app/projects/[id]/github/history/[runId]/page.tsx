@@ -53,7 +53,7 @@ const STATUS_CFG: Record<string, { label: string; badge: string }> = {
   passed:        { label: "통과",     badge: "text-green-700 bg-green-50 border-green-200" },
   failed:        { label: "안 맞음", badge: "text-red-700 bg-red-50 border-red-200" },
   inconclusive:  { label: "확인 부족",badge: "text-yellow-700 bg-yellow-50 border-yellow-200" },
-  needs_decision:{ label: "결정 필요",badge: "text-violet-700 bg-violet-50 border-violet-200" },
+  needs_decision:{ label: "결정 필요",badge: "text-slate-700 bg-slate-50 border-slate-200" },
   error:         { label: "실패",     badge: "text-gray-600 bg-gray-50 border-gray-200" },
   running:       { label: "실행 중", badge: "text-blue-700 bg-blue-50 border-blue-200" },
   queued:        { label: "대기 중", badge: "text-gray-500 bg-gray-50 border-gray-200" },
@@ -84,7 +84,7 @@ function SummaryCards({ summary }: { summary: PRReviewRunDetail["summary"] }) {
     { label: "통과",      value: summary.passed,        color: "text-green-600" },
     { label: "안 맞음",  value: summary.failed,        color: "text-red-600" },
     { label: "확인 부족", value: summary.inconclusive,  color: "text-yellow-600" },
-    { label: "결정 필요", value: summary.needsDecision, color: "text-violet-600" },
+    { label: "결정 필요", value: summary.needsDecision, color: "text-slate-600" },
   ];
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -477,7 +477,7 @@ const CMP_STATUS_COLORS: Record<string, string> = {
   passed:         "text-green-600",
   failed:         "text-red-600",
   inconclusive:   "text-yellow-600",
-  needs_decision: "text-violet-600",
+  needs_decision: "text-slate-600",
 };
 
 const STATUS_KO: Record<string, string> = {

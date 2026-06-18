@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { getUserKey } from "@/lib/workflow-store";
+import { useI18n } from "@/i18n/I18nProvider";
 import {
   fetchGitHubStatus,
   fetchGitHubRepos,
@@ -29,6 +30,7 @@ export default function SettingsPage() {
   const { id } = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const justConnected = searchParams?.get("github") === "connected";
+  const { t } = useI18n();
 
   const [phase, setPhase] = useState<"loading" | "disconnected" | "connected" | "selecting">("loading");
   const [ghUser, setGhUser] = useState<GitHubUser | null>(null);
@@ -176,12 +178,12 @@ export default function SettingsPage() {
     } else {
       setLookupPhase("error");
       const msg: Record<string, string> = {
-        not_found: "저장소를 찾을 수 없어요. 공개 저장소인지, 이름이 맞는지 확인해주세요.",
-        private_unsupported: "비공개 저장소는 아직 지원하지 않아요. 공개 저장소를 입력해주세요.",
-        not_connected: "GitHub 계정을 먼저 연결해주세요.",
-        invalid_full_name: "owner/repo 형식으로 입력해주세요. 예: 3SVS/My-first-product",
+        not_found: t.github.errorNotFound,
+        private_unsupported: t.github.errorPrivate,
+        not_connected: t.github.errorNotConnected,
+        invalid_full_name: t.github.errorInvalidName,
       };
-      setLookupError(msg[res.error] ?? `연결에 실패했어요 (${res.error}).`);
+      setLookupError(msg[res.error] ?? t.github.linkFailed);
     }
   }
 
@@ -202,84 +204,71 @@ export default function SettingsPage() {
   return (
     <div className="max-w-2xl space-y-6">
       <div>
-        <h1 className="text-xl font-bold text-gray-900 mb-1">저장소 연결</h1>
-        <p className="text-sm text-gray-500">
-          이 프로젝트를 실제 코드 저장소와 연결하면, 다음 단계에서 PR 확인까지 이어갈 수 있어요.
-        </p>
-      </div>
-
-      {/* Stage note */}
-      <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700">
-        아직 PR을 확인하거나 코드를 검사하지는 않아요. 이번 단계에서는 프로젝트와 저장소만 연결합니다.
+        <h1 className="page-title">{t.github.connectTitle}</h1>
+        <p className="page-subtitle">{t.github.connectIntro}</p>
       </div>
 
       {/* Just connected banner */}
       {justConnected && (
-        <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700">
-          ✓ GitHub 계정이 연결됐어요! 이제 저장소를 선택하세요.
+        <div className="callout border-green-200 bg-green-50 text-green-700">
+          {t.github.connected}
         </div>
       )}
 
       {/* Loading */}
       {phase === "loading" && (
-        <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
-          <div className="w-5 h-5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-sm text-gray-400">연결 상태를 확인하는 중입니다...</p>
+        <div className="card p-8 text-center">
+          <div className="mx-auto mb-3 h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
+          <p className="text-sm text-gray-400">{t.common.loading}</p>
         </div>
       )}
 
       {/* Not connected */}
       {phase === "disconnected" && (
-        <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
-          <div className="text-4xl mb-3">🔗</div>
-          <p className="text-sm font-medium text-gray-700 mb-1">GitHub 저장소 연결</p>
-          <p className="text-xs text-gray-400 mb-5">
-            GitHub 계정을 연결하면 저장소 목록에서 이 프로젝트에 맞는 저장소를 선택할 수 있어요.
-          </p>
-          <button
-            onClick={handleConnectGitHub}
-            className="bg-gray-900 text-white text-sm font-medium px-6 py-2.5 rounded-xl hover:bg-gray-800 transition-colors"
-          >
-            GitHub로 연결
+        <div className="card p-8 text-center">
+          <p className="mb-1 text-sm font-medium text-gray-800">{t.github.connectGithub}</p>
+          <p className="mx-auto mb-5 max-w-sm text-xs text-gray-500">{t.github.connectHint}</p>
+          <button onClick={handleConnectGitHub} className="btn btn-md btn-primary">
+            {t.github.connectGithub}
           </button>
         </div>
       )}
 
       {/* Connected — show user + linked repo */}
       {(phase === "connected" || phase === "selecting") && ghUser && (
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <div className="flex items-center gap-3 mb-4">
+        <div className="card p-5">
+          <div className="mb-4 flex items-center gap-3">
             {ghUser.avatarUrl && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={ghUser.avatarUrl} alt={ghUser.login} className="w-8 h-8 rounded-full" />
+              <img src={ghUser.avatarUrl} alt={ghUser.login} className="h-8 w-8 rounded-full" />
             )}
             <div>
               <p className="text-sm font-medium text-gray-800">{ghUser.name ?? ghUser.login}</p>
-              <p className="text-xs text-gray-400">@{ghUser.login} · GitHub 연결됨</p>
+              <p className="text-xs text-gray-400">@{ghUser.login} · {t.github.connectedAs}</p>
             </div>
             <button
               onClick={handleConnectGitHub}
-              className="ml-auto text-xs text-gray-400 hover:text-gray-600 underline"
+              className="ml-auto text-xs text-gray-400 underline hover:text-gray-600"
             >
-              계정 변경
+              {t.github.connectGithub}
             </button>
           </div>
 
           {/* Currently linked repo */}
           {linkedRepo && phase !== "selecting" && (
-            <div className="bg-gray-50 rounded-lg px-4 py-3 mb-4">
-              <p className="text-xs font-semibold text-gray-500 mb-1">연결된 저장소</p>
+            <div className="mb-4 rounded-md bg-gray-50 px-4 py-3">
+              <p className="mb-1 text-xs font-semibold text-gray-500">{t.github.connectedRepo}</p>
               <div className="flex items-center gap-2">
                 <a
                   href={linkedRepo.htmlUrl ?? `https://github.com/${linkedRepo.fullName}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sm font-medium text-indigo-600 hover:underline"
+                  className="text-sm font-medium text-brand-700 hover:underline"
                 >
                   {linkedRepo.fullName}
                 </a>
                 {linkedRepo.private && (
-                  <span className="text-xs text-gray-400 bg-gray-200 px-1.5 py-0.5 rounded">private</span>
+                  <span className="rounded bg-gray-200 px-1.5 py-0.5 text-xs text-gray-400">private</span>
                 )}
                 {linkedRepo.defaultBranch && (
                   <span className="text-xs text-gray-400">→ {linkedRepo.defaultBranch}</span>
@@ -293,16 +282,16 @@ export default function SettingsPage() {
             <button
               onClick={loadRepos}
               disabled={reposPhase === "loading"}
-              className="text-sm px-4 py-2 rounded-xl font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              className="btn btn-md btn-secondary"
             >
-              {linkedRepo ? "연결된 저장소 변경" : "저장소 선택"}
+              {linkedRepo ? t.github.changeRepo : t.github.selectRepo}
             </button>
           )}
           {reposPhase === "loading" && (
-            <p className="text-xs text-gray-400 mt-2">저장소 목록을 불러오는 중...</p>
+            <p className="mt-2 text-xs text-gray-400">{t.common.loading}</p>
           )}
           {reposPhase === "error" && (
-            <p className="text-xs text-red-500 mt-2">저장소 목록을 불러오지 못했습니다. GitHub 토큰이 설정되지 않았을 수 있어요.</p>
+            <p className="mt-2 text-xs text-red-500">{t.github.reposLoadError}</p>
           )}
         </div>
       )}
@@ -312,14 +301,14 @@ export default function SettingsPage() {
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           {repos.length > 0 && (
             <>
-              <div className="p-4 border-b border-gray-100">
-                <p className="text-sm font-semibold text-gray-700 mb-3">저장소 선택</p>
+              <div className="border-b border-gray-100 p-4">
+                <p className="mb-3 text-sm font-semibold text-gray-700">{t.github.selectRepo}</p>
                 <input
                   type="text"
                   value={repoSearch}
                   onChange={(e) => setRepoSearch(e.target.value)}
-                  placeholder="저장소 이름 또는 owner로 검색"
-                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                  placeholder={t.github.searchPlaceholder}
+                  className="input"
                 />
               </div>
               <div className="max-h-80 overflow-y-auto divide-y divide-gray-50">
@@ -337,67 +326,64 @@ export default function SettingsPage() {
                       </p>
                     </div>
                     {linkedRepo?.fullName === repo.fullName && (
-                      <span className="text-xs text-indigo-600 font-medium flex-shrink-0">현재 선택됨</span>
+                      <span className="flex-shrink-0 text-xs font-medium text-brand-700">✓</span>
                     )}
                   </button>
                 ))}
                 {filteredRepos.length === 0 && (
-                  <p className="text-xs text-gray-400 py-6 text-center">일치하는 저장소가 없습니다.</p>
+                  <p className="py-6 text-center text-xs text-gray-400">{t.github.noMatch}</p>
                 )}
               </div>
             </>
           )}
 
-          {/* Stage 56: direct owner/repo entry — for org/collaborator repos that
-              GitHub's /user/repos listing omits (e.g. 3SVS/My-first-product). */}
-          <div className="p-4 border-t border-gray-100 bg-gray-50/60">
-            <p className="text-sm font-semibold text-gray-700 mb-1">목록에 없는 저장소 직접 입력</p>
-            <p className="text-xs text-gray-400 mb-2">
-              조직(org) 저장소는 목록에 안 보일 수 있어요. <code className="text-gray-500">owner/repo</code> 형식으로 입력하세요. (공개 저장소만)
-            </p>
+          {/* Direct owner/repo entry — for org/collaborator repos GitHub's listing omits. */}
+          <div className="border-t border-gray-100 bg-gray-50/60 p-4">
+            <p className="mb-1 text-sm font-semibold text-gray-700">{t.github.manualTitle}</p>
+            <p className="mb-2 text-xs text-gray-400">{t.github.manualHint}</p>
             <div className="flex gap-2">
               <input
                 type="text"
                 value={directInput}
                 onChange={(e) => setDirectInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") void handleDirectLookup(); }}
-                placeholder="예: 3SVS/My-first-product"
-                className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                placeholder={t.github.manualPlaceholder}
+                className="input flex-1"
               />
               <button
                 onClick={() => void handleDirectLookup()}
                 disabled={lookupPhase === "loading" || linkPhase === "saving" || !directInput.trim()}
-                className="text-sm px-4 py-2 rounded-lg font-medium bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors flex-shrink-0"
+                className="btn btn-md btn-primary flex-shrink-0"
               >
-                {lookupPhase === "loading" ? "찾는 중..." : "연결"}
+                {lookupPhase === "loading" ? t.github.finding : t.github.connect}
               </button>
             </div>
             {lookupPhase === "error" && lookupError && (
-              <p className="text-xs text-red-500 mt-2">{lookupError}</p>
+              <p className="mt-2 text-xs text-red-500">{lookupError}</p>
             )}
           </div>
 
-          <div className="p-4 border-t border-gray-100 flex items-center justify-between">
+          <div className="flex items-center justify-between border-t border-gray-100 p-4">
             <p className="text-xs text-gray-400">
-              {repos.length > 0 ? `${repos.length}개 공개 저장소` : "목록에 표시할 저장소가 없어요"}
+              {repos.length > 0 ? `${repos.length} ${t.github.publicReposCount}` : t.github.noReposListed}
             </p>
-            <button onClick={() => setPhase("connected")} className="text-xs text-gray-500 hover:text-gray-700">취소</button>
+            <button onClick={() => setPhase("connected")} className="text-xs text-gray-500 hover:text-gray-700">
+              {t.common.cancel}
+            </button>
           </div>
         </div>
       )}
 
       {linkPhase === "done" && (
-        <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700">
-          ✓ 저장소가 연결됐어요.
-          <Link href={`/projects/${id}/export`} className="ml-3 underline text-green-600">
-            만들기 패키지로 이동 →
+        <div className="callout border-green-200 bg-green-50 text-green-700">
+          {t.github.connectedRepo} ✓
+          <Link href={`/projects/${id}/export`} className="ml-3 text-green-700 underline">
+            {t.nav.export} →
           </Link>
         </div>
       )}
       {linkPhase === "error" && (
-        <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
-          저장소 연결에 실패했습니다. 잠시 후 다시 시도해주세요.
-        </p>
+        <p className="callout callout-error">{t.github.linkFailed}</p>
       )}
 
       {/* ─── Telegram 알림 섹션 ──────────────────────────────────────────── */}

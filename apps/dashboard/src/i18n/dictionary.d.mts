@@ -66,6 +66,44 @@ export type Dictionary = {
     notFound: string;
     project: string;
   };
+  github: {
+    connectTitle: string;
+    connectIntro: string;
+    connectGithub: string;
+    connectHint: string;
+    connectedAs: string;
+    connected: string;
+    selectRepo: string;
+    changeRepo: string;
+    connectedRepo: string;
+    searchPlaceholder: string;
+    noMatch: string;
+    publicReposCount: string;
+    noReposListed: string;
+    manualTitle: string;
+    manualHint: string;
+    manualPlaceholder: string;
+    connect: string;
+    finding: string;
+    linkFailed: string;
+    runReview: string;
+    reRunRemaining: string;
+    createFixInstructions: string;
+    viewHistory: string;
+    errorNotFound: string;
+    errorPrivate: string;
+    errorNotConnected: string;
+    errorInvalidName: string;
+    reposLoadError: string;
+  };
+  review: { resultsTitle: string; basisNote: string };
+  history: {
+    title: string;
+    desc: string;
+    comparisonDesc: string;
+    emptyTitle: string;
+    emptyBody: string;
+  };
   errors: { generic: string; loadFailed: string };
 };
 

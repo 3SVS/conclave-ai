@@ -64,6 +64,22 @@ describe("i18n dictionary", () => {
     }
   });
 
+  it("core GitHub-workflow / review / history keys exist in both locales", () => {
+    for (const loc of LOCALES) {
+      const d = getDictionary(loc);
+      for (const k of [
+        "connectGithub", "manualTitle", "manualHint", "runReview",
+        "createFixInstructions", "viewHistory", "errorPrivate", "reposLoadError",
+      ]) {
+        assert.ok(d.github[k] && d.github[k].length > 0, `${loc}.github.${k} missing`);
+      }
+      assert.ok(d.review.resultsTitle.length > 0, `${loc}.review.resultsTitle missing`);
+      for (const k of ["title", "desc", "emptyTitle", "emptyBody"]) {
+        assert.ok(d.history[k] && d.history[k].length > 0, `${loc}.history.${k} missing`);
+      }
+    }
+  });
+
   it("normalizeLocale falls back to en for unknown values", () => {
     assert.equal(normalizeLocale("ko"), "ko");
     assert.equal(normalizeLocale("en"), "en");

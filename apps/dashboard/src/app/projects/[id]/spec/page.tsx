@@ -53,8 +53,8 @@ export default function SpecPage() {
           <Section title="아직 결정 필요">
             <ul className="space-y-2">
               {spec.openDecisions.map((d, i) => (
-                <li key={i} className="flex gap-2 text-sm text-violet-700">
-                  <span className="text-violet-400 mt-0.5">!</span> {d}
+                <li key={i} className="flex gap-2 text-sm text-slate-700">
+                  <span className="text-slate-400 mt-0.5">!</span> {d}
                 </li>
               ))}
             </ul>
