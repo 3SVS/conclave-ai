@@ -32,6 +32,10 @@ export type Dictionary = {
     settings: string;
     github: string;
     backToProjects: string;
+    newProject: string;
+    groupPlan: string;
+    groupReview: string;
+    groupDeliver: string;
   };
   status: Record<StatusKey, StatusEntry>;
   comparison: {

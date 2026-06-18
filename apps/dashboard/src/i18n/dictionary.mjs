@@ -30,6 +30,10 @@ const EN = {
     settings: "Repository",
     github: "Pull requests",
     backToProjects: "Projects",
+    newProject: "New project",
+    groupPlan: "Plan",
+    groupReview: "Review",
+    groupDeliver: "Deliver",
   },
   status: {
     passed: { label: "Passed", desc: "The PR appears to satisfy this item." },
@@ -149,6 +153,10 @@ const KO = {
     settings: "저장소",
     github: "Pull Request",
     backToProjects: "프로젝트",
+    newProject: "새 프로젝트",
+    groupPlan: "기획",
+    groupReview: "확인",
+    groupDeliver: "내보내기",
   },
   status: {
     passed: { label: "통과", desc: "이 항목을 충족하는 것으로 보입니다." },
