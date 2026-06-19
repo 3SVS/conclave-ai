@@ -763,6 +763,7 @@ const EN = {
     acNextAction: "Next action",
     acSendToComment: "Post this comparison as a PR comment",
     acNeedLineage: "To include this in a PR comment, the run must come from a re-check.",
+    rerunDoneCount: "Re-checked {n} selected items.",
   },
   history: {
     title: "Review history",
@@ -775,6 +776,7 @@ const EN = {
     loadError: "Could not load history.",
     rerunRemaining: "Re-run remaining issues",
     rerunNoItems: "No remaining issues to re-run.",
+    rerunDisabledNoResults: "No review results, so it can't be re-checked.",
     rerunning: "Re-running…",
     rerunError: "Could not re-run. Try again from the run details.",
     selectInDetail: "Select items in run details",
@@ -1538,6 +1540,7 @@ const KO = {
     acNextAction: "다음 조치",
     acSendToComment: "이 비교 결과를 PR comment로 남기기",
     acNeedLineage: "PR comment에 포함하려면 다시 확인으로 생성된 기록이 필요해요.",
+    rerunDoneCount: "선택한 {n}개 항목을 다시 확인했습니다.",
   },
   history: {
     title: "확인 기록",
@@ -1550,6 +1553,7 @@ const KO = {
     loadError: "기록을 불러오지 못했습니다.",
     rerunRemaining: "남은 문제 다시 확인",
     rerunNoItems: "다시 확인할 남은 문제가 없어요.",
+    rerunDisabledNoResults: "확인 결과가 없어 다시 확인할 수 없어요.",
     rerunning: "다시 확인 중…",
     rerunError: "다시 확인하지 못했어요. 상세 화면에서 다시 시도해 주세요.",
     selectInDetail: "상세에서 항목 선택",

@@ -22,7 +22,6 @@ import {
   nonPassedRerunItemIds,
   toggleItemSelection,
   canRerun,
-  formatSelectedCountMessage,
 } from "@/lib/rerun-selection.mjs";
 import {
   buildReviewSelectionStorageKey,
@@ -517,7 +516,7 @@ function ComparisonPanel({ cmp, newRunId, projectId, selectedCount }: {
         <div>
           <p className="text-sm font-semibold text-gray-800">{t.runDetail.cmpTitle}</p>
           {typeof selectedCount === "number" && selectedCount > 0 && (
-            <p className="text-xs text-indigo-600 mt-0.5">{formatSelectedCountMessage(selectedCount)}</p>
+            <p className="text-xs text-indigo-600 mt-0.5">{t.runDetail.rerunDoneCount.replace("{n}", String(selectedCount))}</p>
           )}
           <p className="text-xs text-gray-400 mt-0.5">{cmp.summaryText}</p>
         </div>
@@ -917,7 +916,7 @@ function RerunPanel({
         )}
         {newRunId && !comparison && (
           <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700 flex items-center justify-between">
-            <span>{formatSelectedCountMessage(submittedCount)}</span>
+            <span>{t.runDetail.rerunDoneCount.replace("{n}", String(submittedCount))}</span>
             <Link
               href={`/projects/${projectId}/github/history/${newRunId}`}
               className="text-xs text-green-600 underline ml-2"

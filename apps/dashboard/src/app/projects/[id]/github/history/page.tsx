@@ -11,7 +11,6 @@ import {
   type ProjectReviewHistoryItem,
 } from "@/lib/workspace-github-api";
 import {
-  quickRerunDisabledMessage,
   buildRunDetailHref,
   buildFixPackHref,
 } from "@/lib/rerun-selection.mjs";
@@ -135,7 +134,7 @@ function QuickRerun({
       <button
         onClick={run}
         disabled={!enabled}
-        title={enabled ? undefined : quickRerunDisabledMessage(rerunAction?.disabledReason)}
+        title={enabled ? undefined : (rerunAction?.disabledReason === "results_unavailable" ? t.history.rerunDisabledNoResults : t.history.rerunNoItems)}
         className="rounded-lg border border-brand-200 bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700 transition-colors enabled:hover:border-brand-300 enabled:hover:bg-brand-100 disabled:cursor-not-allowed disabled:opacity-40"
       >
         {t.history.rerunRemaining}{enabled ? ` (${rerunAction?.recommendedItemCount})` : ""}

@@ -721,6 +721,7 @@ export type Dictionary = {
     acNextAction: string;
     acSendToComment: string;
     acNeedLineage: string;
+    rerunDoneCount: string;
   };
   history: {
     title: string;
@@ -733,6 +734,7 @@ export type Dictionary = {
     loadError: string;
     rerunRemaining: string;
     rerunNoItems: string;
+    rerunDisabledNoResults: string;
     rerunning: string;
     rerunError: string;
     selectInDetail: string;
