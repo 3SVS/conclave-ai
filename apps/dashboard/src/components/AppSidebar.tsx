@@ -57,7 +57,7 @@ export function AppSidebar() {
 
   const groups = [
     { label: t.nav.groupPlan, items: [["", t.nav.overview], ["idea", t.nav.idea], ["spec", t.nav.spec], ["items", t.nav.items]] },
-    { label: t.nav.groupReview, items: [["github", t.nav.github], ["checks", t.nav.checks], ["benchmark", t.nav.benchmark]] },
+    { label: t.nav.groupReview, items: [["github", t.nav.github], ["checks", t.nav.checks], ["experiment", t.nav.experiment], ["benchmark", t.nav.benchmark]] },
     { label: t.nav.groupDeliver, items: [["fixes", t.nav.fixes], ["export", t.nav.export]] },
   ] as const;
 
