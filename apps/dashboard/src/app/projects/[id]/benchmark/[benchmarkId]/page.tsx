@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { getProject } from "@/lib/mock-data";
@@ -12,7 +12,8 @@ import {
   resolveBenchmarkPrTarget,
   buildBenchmarkPrCommentMarkdown,
 } from "@/lib/agent-benchmark-comment.mjs";
-import { buildBenchmarkMatrix } from "@/lib/agent-benchmark-matrix.mjs";
+import { buildBenchmarkMatrix, filterMatrixRows } from "@/lib/agent-benchmark-matrix.mjs";
+import type { BenchmarkMatrix } from "@/lib/agent-benchmark-matrix.mjs";
 import type {
   AgentCandidate,
   CandidateMode,
@@ -169,6 +170,15 @@ export default function BenchmarkDetailPage() {
   const matrix = result.itemOutcomesByCandidate
     ? buildBenchmarkMatrix({ candidates, itemOutcomesByCandidate: result.itemOutcomesByCandidate })
     : null;
+  // Stage 70: compact matrix insight lines for copy summary / PR comment.
+  const matrixInsightLines = matrix
+    ? [
+        t.benchmark.matrixItemsCompared.replace("{n}", String(matrix.itemsCompared)),
+        matrix.disagreementCount > 0
+          ? t.benchmark.matrixInsightDiffered.replace("{n}", String(matrix.disagreementCount))
+          : t.benchmark.matrixInsightNoDiff,
+      ]
+    : [];
 
   const rationaleLines = (result.recommendation?.rationale ?? [])
     .filter((r) => r.code !== "no_clear_winner")
@@ -209,6 +219,8 @@ export default function BenchmarkDetailPage() {
       blockersHeading: t.benchmark.blockersTitle,
       blockerLines,
       noBlockersLine: t.benchmark.noRemainingBlockers,
+      matrixHeading: t.benchmark.matrixTitle,
+      matrixLines: matrixInsightLines,
     });
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
@@ -262,6 +274,8 @@ export default function BenchmarkDetailPage() {
       blockersHeading: t.benchmark.blockersTitle,
       blockerLines,
       noBlockersLine: t.benchmark.noRemainingBlockers,
+      matrixHeading: t.benchmark.matrixTitle,
+      matrixLines: matrixInsightLines,
       noteHeading: t.benchmark.prNoteHeading,
       noteText: t.benchmark.intro,
     });
@@ -472,61 +486,9 @@ export default function BenchmarkDetailPage() {
         </section>
       )}
 
-      {/* Acceptance item matrix (Stage 69) */}
+      {/* Acceptance item matrix (Stage 69/70) */}
       {matrix ? (
-        <section className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-          <div className="border-b border-gray-100 px-5 py-3">
-            <h3 className="text-sm font-semibold text-gray-800">{t.benchmark.matrixTitle}</h3>
-            <p className="mt-0.5 text-xs text-gray-400">{t.benchmark.matrixDesc}</p>
-            <div className="mt-1.5 flex flex-wrap gap-x-3 text-[11px] text-gray-400">
-              <span>{t.benchmark.matrixItemsCompared.replace("{n}", String(matrix.itemsCompared))}</span>
-              {matrix.disagreementCount > 0 && (
-                <span className="text-amber-600">{t.benchmark.matrixDisagreements.replace("{n}", String(matrix.disagreementCount))}</span>
-              )}
-            </div>
-          </div>
-          {matrix.rows.length > 0 && (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50 text-[11px] uppercase tracking-wide text-gray-400">
-                    <th className="px-4 py-2 text-left font-medium" />
-                    {candidates.map((c) => (
-                      <th key={c.id} className="px-4 py-2 text-left font-medium">
-                        <span className="block text-gray-600">{c.label}</span>
-                        <span className="block font-normal normal-case text-gray-300">{modeLabel(t, c.mode)} · {sourceLabel(t, c.source)}</span>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {matrix.rows.map((row) => (
-                    <tr key={row.itemId} className={`border-t border-gray-100 ${row.hasDisagreement ? "bg-amber-50/40" : ""}`}>
-                      <td className="px-4 py-2.5">
-                        <span className="text-gray-800">{row.title}</span>
-                        {row.hasDisagreement && (
-                          <span className="ml-2 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
-                            {t.benchmark.differentResults}
-                          </span>
-                        )}
-                      </td>
-                      {candidates.map((c) => {
-                        const s = row.statusesByCandidate[c.id] ?? "missing";
-                        return (
-                          <td key={c.id} className="px-4 py-2.5">
-                            <span className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-medium ${MATRIX_BADGE[s] ?? MATRIX_BADGE.missing}`}>
-                              {matrixStatusLabel(t, s)}
-                            </span>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+        <MatrixSection matrix={matrix} candidates={candidates} t={t} />
       ) : (
         <section className="rounded-xl border border-gray-100 bg-gray-50 px-5 py-4">
           <p className="text-sm font-medium text-gray-700">{t.benchmark.matrixUnavailable}</p>
@@ -605,5 +567,130 @@ function Stat({ label, value, strong = false }: { label: string; value: string; 
       <p className="text-[11px] text-gray-400">{label}</p>
       <p className={`${strong ? "text-base font-bold text-gray-900" : "text-sm font-medium text-gray-700"}`}>{value}</p>
     </div>
+  );
+}
+
+// Stage 70: matrix with disagreement-only filter + per-row evidence drilldown.
+function MatrixSection({
+  matrix,
+  candidates,
+  t,
+}: {
+  matrix: BenchmarkMatrix;
+  candidates: AgentCandidate[];
+  t: Dictionary;
+}) {
+  const [differentOnly, setDifferentOnly] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const rows = filterMatrixRows(matrix.rows, { differentOnly });
+
+  return (
+    <section className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+      <div className="border-b border-gray-100 px-5 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-800">{t.benchmark.matrixTitle}</h3>
+            <p className="mt-0.5 text-xs text-gray-400">{t.benchmark.matrixDesc}</p>
+            <div className="mt-1.5 flex flex-wrap gap-x-3 text-[11px] text-gray-400">
+              <span>{t.benchmark.matrixItemsCompared.replace("{n}", String(matrix.itemsCompared))}</span>
+              {matrix.disagreementCount > 0 && (
+                <span className="text-amber-600">{t.benchmark.matrixDisagreements.replace("{n}", String(matrix.disagreementCount))}</span>
+              )}
+            </div>
+          </div>
+          <label className="flex flex-shrink-0 cursor-pointer items-center gap-1.5 text-xs text-gray-600">
+            <input
+              type="checkbox"
+              checked={differentOnly}
+              onChange={(e) => setDifferentOnly(e.target.checked)}
+              className="accent-indigo-600"
+            />
+            {t.benchmark.showDifferentOnly}
+          </label>
+        </div>
+      </div>
+
+      {rows.length > 0 ? (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 text-[11px] uppercase tracking-wide text-gray-400">
+                <th className="px-4 py-2 text-left font-medium" />
+                {candidates.map((c) => (
+                  <th key={c.id} className="px-4 py-2 text-left font-medium">
+                    <span className="block text-gray-600">{c.label}</span>
+                    <span className="block font-normal normal-case text-gray-300">{modeLabel(t, c.mode)} · {sourceLabel(t, c.source)}</span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <Fragment key={row.itemId}>
+                  <tr className={`border-t border-gray-100 ${row.hasDisagreement ? "bg-amber-50/40" : ""}`}>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-800">{row.title}</span>
+                        {row.hasDisagreement && (
+                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                            {t.benchmark.differentResults}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setExpanded(expanded === row.itemId ? null : row.itemId)}
+                        className="mt-0.5 text-[11px] text-indigo-600 hover:underline"
+                      >
+                        {expanded === row.itemId ? t.benchmark.hideEvidence : t.benchmark.viewEvidence}
+                      </button>
+                    </td>
+                    {candidates.map((c) => {
+                      const s = row.statusesByCandidate[c.id] ?? "missing";
+                      return (
+                        <td key={c.id} className="px-4 py-2.5">
+                          <span className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-medium ${MATRIX_BADGE[s] ?? MATRIX_BADGE.missing}`}>
+                            {matrixStatusLabel(t, s)}
+                          </span>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  {expanded === row.itemId && (
+                    <tr className="border-t border-gray-100 bg-gray-50">
+                      <td colSpan={candidates.length + 1} className="px-4 py-3">
+                        <div className="space-y-2">
+                          {candidates.map((c) => {
+                            const s = row.statusesByCandidate[c.id] ?? "missing";
+                            const ev = row.evidenceByCandidate?.[c.id];
+                            return (
+                              <div key={c.id}>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-medium text-gray-700">{c.label}</span>
+                                  <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${MATRIX_BADGE[s] ?? MATRIX_BADGE.missing}`}>
+                                    {matrixStatusLabel(t, s)}
+                                  </span>
+                                </div>
+                                <p className={`mt-0.5 text-xs ${ev ? "text-gray-600" : "text-gray-400"}`}>
+                                  {ev ?? t.benchmark.noEvidenceStored}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="px-5 py-6 text-center">
+          <p className="text-sm font-medium text-gray-700">{t.benchmark.noDifferentResults}</p>
+          <p className="mt-0.5 text-xs text-gray-400">{t.benchmark.noDifferentResultsBody}</p>
+        </div>
+      )}
+    </section>
   );
 }

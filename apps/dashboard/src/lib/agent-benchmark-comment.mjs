@@ -39,6 +39,9 @@ export function buildBenchmarkPrCommentMarkdown(parts) {
     blockersHeading,
     blockerLines = [],
     noBlockersLine,
+    // Stage 70: optional compact matrix insight (omitted for older benchmarks).
+    matrixHeading,
+    matrixLines = [],
     noteHeading,
     noteText,
   } = parts;
@@ -75,6 +78,12 @@ export function buildBenchmarkPrCommentMarkdown(parts) {
     }
   } else {
     out.push(noBlockersLine);
+  }
+
+  // Stage 70: compact matrix insight (counts only — never the full table).
+  if (matrixHeading && matrixLines.length > 0) {
+    out.push("", `### ${matrixHeading}`, "");
+    for (const line of matrixLines) out.push(`- ${line}`);
   }
 
   out.push("", `### ${noteHeading}`, "", noteText);

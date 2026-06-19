@@ -41,6 +41,28 @@ test("no-clear-winner case: no Why section, recommendation reads no clear winner
   assert.match(text, /\nRemaining blockers:\nNo remaining blockers found/);
 });
 
+test("compact matrix insight appended when matrixLines provided", () => {
+  const text = buildBenchmarkSummaryText({
+    ...base,
+    recommendationLine: "Recommendation: Multi-agent",
+    whyLines: ["x"],
+    blockerLines: [],
+    matrixHeading: "Acceptance item matrix",
+    matrixLines: ["9 items compared", "3 items had different results across candidates"],
+  });
+  assert.match(text, /\nAcceptance item matrix:\n- 9 items compared\n- 3 items had different results across candidates/);
+});
+
+test("matrix section omitted when no matrixLines (backward compatible)", () => {
+  const text = buildBenchmarkSummaryText({
+    ...base,
+    recommendationLine: "Recommendation: Multi-agent",
+    whyLines: ["x"],
+    blockerLines: [],
+  });
+  assert.doesNotMatch(text, /Acceptance item matrix/);
+});
+
 test("deterministic: same input → identical output", () => {
   const input = { ...base, recommendationLine: "Recommendation: Multi-agent", whyLines: ["x"], blockerLines: [] };
   assert.equal(buildBenchmarkSummaryText(input), buildBenchmarkSummaryText(input));

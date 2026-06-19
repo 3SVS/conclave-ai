@@ -24,3 +24,12 @@ export function buildBenchmarkMatrix(input: {
   candidates: AgentCandidate[];
   itemOutcomesByCandidate?: Record<string, BenchmarkCandidateItemOutcome[]>;
 }): BenchmarkMatrix;
+
+export function filterMatrixRows(
+  rows: BenchmarkItemMatrixRow[],
+  opts?: { differentOnly?: boolean },
+): BenchmarkItemMatrixRow[];
+
+export function getMatrixInsights(
+  matrix: BenchmarkMatrix | null | undefined,
+): { itemsCompared: number; disagreementCount: number };

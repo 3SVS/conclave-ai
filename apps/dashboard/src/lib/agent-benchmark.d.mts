@@ -127,6 +127,8 @@ export type BenchmarkSummaryParts = {
   blockersHeading: string;
   blockerLines?: string[];
   noBlockersLine: string;
+  matrixHeading?: string;
+  matrixLines?: string[];
 };
 export function buildBenchmarkSummaryText(parts: BenchmarkSummaryParts): string;
 

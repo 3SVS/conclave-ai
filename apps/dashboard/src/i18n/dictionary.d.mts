@@ -871,6 +871,14 @@ export type Dictionary = {
     matrixUnavailable: string;
     matrixUnavailableBody: string;
     missingResult: string;
+    showDifferentOnly: string;
+    noDifferentResults: string;
+    noDifferentResultsBody: string;
+    viewEvidence: string;
+    hideEvidence: string;
+    noEvidenceStored: string;
+    matrixInsightDiffered: string;
+    matrixInsightNoDiff: string;
   };
   errors: { generic: string; loadFailed: string };
 };

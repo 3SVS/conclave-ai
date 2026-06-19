@@ -265,6 +265,9 @@ export function buildBenchmarkSummaryText(parts) {
     blockersHeading,
     blockerLines = [],
     noBlockersLine,
+    // Stage 70: optional compact matrix insight (omitted for older benchmarks).
+    matrixHeading,
+    matrixLines = [],
   } = parts;
 
   const out = [heading, "", projectLine, benchmarkLine, recommendationLine, "", `${candidatesHeading}:`];
@@ -280,6 +283,11 @@ export function buildBenchmarkSummaryText(parts) {
     for (const line of blockerLines) out.push(`- ${line}`);
   } else {
     out.push(noBlockersLine);
+  }
+
+  if (matrixHeading && matrixLines.length > 0) {
+    out.push("", `${matrixHeading}:`);
+    for (const line of matrixLines) out.push(`- ${line}`);
   }
 
   return out.join("\n");

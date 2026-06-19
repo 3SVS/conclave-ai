@@ -92,3 +92,17 @@ export function buildBenchmarkMatrix({ candidates, itemOutcomesByCandidate }) {
     disagreementCount: rows.filter((r) => r.hasDisagreement).length,
   };
 }
+
+/** Stage 70: filter matrix rows to only those where candidates disagree. */
+export function filterMatrixRows(rows, { differentOnly } = {}) {
+  if (!differentOnly) return rows ?? [];
+  return (rows ?? []).filter((r) => r.hasDisagreement);
+}
+
+/** Stage 70: compact insight counts for copy summary / PR comment. */
+export function getMatrixInsights(matrix) {
+  return {
+    itemsCompared: matrix?.itemsCompared ?? 0,
+    disagreementCount: matrix?.disagreementCount ?? 0,
+  };
+}

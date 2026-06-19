@@ -40,6 +40,8 @@ export type BenchmarkPrCommentParts = {
   blockersHeading: string;
   blockerLines?: BenchmarkCommentBlockerLine[];
   noBlockersLine: string;
+  matrixHeading?: string;
+  matrixLines?: string[];
   noteHeading: string;
   noteText: string;
 };

@@ -1,7 +1,7 @@
 // Stage 69: candidate × acceptance-item matrix helper.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildBenchmarkMatrix } from "../src/lib/agent-benchmark-matrix.mjs";
+import { buildBenchmarkMatrix, filterMatrixRows, getMatrixInsights } from "../src/lib/agent-benchmark-matrix.mjs";
 
 const cand = (id) => ({ id, label: id, mode: "single_agent", source: "manual" });
 
@@ -78,4 +78,53 @@ test("empty outcomes → available true, zero rows", () => {
   const m = buildBenchmarkMatrix({ candidates: [cand("a"), cand("b")], itemOutcomesByCandidate: { a: [], b: [] } });
   assert.equal(m.available, true);
   assert.equal(m.itemsCompared, 0);
+});
+
+test("filterMatrixRows differentOnly returns only disagreement rows", () => {
+  const m = buildBenchmarkMatrix({
+    candidates: [cand("a"), cand("b")],
+    itemOutcomesByCandidate: {
+      a: [{ candidateId: "a", itemId: "i1", title: "X", status: "passed" }, { candidateId: "a", itemId: "i2", title: "Y", status: "failed" }],
+      b: [{ candidateId: "b", itemId: "i1", title: "X", status: "passed" }, { candidateId: "b", itemId: "i2", title: "Y", status: "passed" }],
+    },
+  });
+  assert.equal(filterMatrixRows(m.rows, { differentOnly: false }).length, 2);
+  const only = filterMatrixRows(m.rows, { differentOnly: true });
+  assert.equal(only.length, 1);
+  assert.equal(only[0].itemId, "i2");
+});
+
+test("filterMatrixRows differentOnly → empty when all agree", () => {
+  const m = buildBenchmarkMatrix({
+    candidates: [cand("a"), cand("b")],
+    itemOutcomesByCandidate: {
+      a: [{ candidateId: "a", itemId: "i1", title: "X", status: "passed" }],
+      b: [{ candidateId: "b", itemId: "i1", title: "X", status: "passed" }],
+    },
+  });
+  assert.deepEqual(filterMatrixRows(m.rows, { differentOnly: true }), []);
+});
+
+test("getMatrixInsights returns compact counts", () => {
+  const m = buildBenchmarkMatrix({
+    candidates: [cand("a"), cand("b")],
+    itemOutcomesByCandidate: {
+      a: [{ candidateId: "a", itemId: "i1", title: "X", status: "passed" }, { candidateId: "a", itemId: "i2", title: "Y", status: "failed" }],
+      b: [{ candidateId: "b", itemId: "i1", title: "X", status: "passed" }, { candidateId: "b", itemId: "i2", title: "Y", status: "passed" }],
+    },
+  });
+  assert.deepEqual(getMatrixInsights(m), { itemsCompared: 2, disagreementCount: 1 });
+  assert.deepEqual(getMatrixInsights(null), { itemsCompared: 0, disagreementCount: 0 });
+});
+
+test("evidenceByCandidate present only when evidence stored", () => {
+  const m = buildBenchmarkMatrix({
+    candidates: [cand("a"), cand("b")],
+    itemOutcomesByCandidate: {
+      a: [{ candidateId: "a", itemId: "i1", title: "X", status: "failed", evidence: "missing guard" }],
+      b: [{ candidateId: "b", itemId: "i1", title: "X", status: "passed" }],
+    },
+  });
+  assert.equal(m.rows[0].evidenceByCandidate.a, "missing guard");
+  assert.equal(m.rows[0].evidenceByCandidate.b, undefined);
 });

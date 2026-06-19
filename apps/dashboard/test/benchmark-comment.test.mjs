@@ -99,6 +99,30 @@ test("item-level blockers: bold status + indented evidence sub-line", () => {
   assert.match(md, /- \*\*Not verified:\*\* Error handling could not be confirmed from the diff\./);
 });
 
+test("compact matrix insight section (counts only, never a table)", () => {
+  const md = buildBenchmarkPrCommentMarkdown({
+    ...baseParts,
+    recommendationValue: "Multi-agent",
+    whyLines: ["x"],
+    blockerLines: [],
+    matrixHeading: "Acceptance item matrix",
+    matrixLines: ["9 items compared", "3 items had different results across candidates"],
+  });
+  assert.match(md, /### Acceptance item matrix\n\n- 9 items compared\n- 3 items had different results across candidates/);
+  // never the full matrix table
+  assert.doesNotMatch(md, /Acceptance item matrix[\s\S]*\| --- \| --- \| ---: \|/);
+});
+
+test("matrix section omitted when no matrixLines (backward compatible)", () => {
+  const md = buildBenchmarkPrCommentMarkdown({
+    ...baseParts,
+    recommendationValue: "Multi-agent",
+    whyLines: ["x"],
+    blockerLines: [],
+  });
+  assert.doesNotMatch(md, /Acceptance item matrix/);
+});
+
 test("no token / userKey leakage in markdown", () => {
   const md = buildBenchmarkPrCommentMarkdown({
     ...baseParts,
