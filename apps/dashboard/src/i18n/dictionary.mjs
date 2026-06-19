@@ -87,6 +87,7 @@ const EN = {
     view: "View",
     viewAll: "View all",
     more: "more",
+    rateLimited: "Too many requests. Please wait a moment and try again.",
   },
   overview: {
     specCompleteness: "Product brief completeness",
@@ -864,6 +865,7 @@ const KO = {
     view: "보기",
     viewAll: "전체 보기",
     more: "개 더",
+    rateLimited: "요청이 너무 많습니다. 잠시 후 다시 시도해주세요.",
   },
   overview: {
     specCompleteness: "제품 설명서 완성도",

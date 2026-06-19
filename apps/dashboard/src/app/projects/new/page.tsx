@@ -55,7 +55,7 @@ export default function NewProjectPage() {
       setIsFallback(res.data.source === "mock-fallback");
       setStep(2);
     } else if (res.error === "rate_limited") {
-      setRateLimitMsg(res.message);
+      setRateLimitMsg(t.common.rateLimited);
     } else {
       setResult(res.fallback);
       setIsFallback(true);
@@ -78,7 +78,7 @@ export default function NewProjectPage() {
       setIsFallback(res.data.source === "mock-fallback");
       setStep(4);
     } else if (res.error === "rate_limited") {
-      setRateLimitMsg(res.message);
+      setRateLimitMsg(t.common.rateLimited);
     } else {
       setSpecResult(res.fallback);
       setIsFallback(true);

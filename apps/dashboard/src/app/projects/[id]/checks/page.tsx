@@ -104,7 +104,7 @@ export default function ChecksPage() {
     const res = await callCheckDraftApi({ projectId: id, productSpec, items });
     if (!res.ok) {
       if (res.error === "rate_limited") {
-        setRateLimitMsg(res.message);
+        setRateLimitMsg(t.common.rateLimited);
         setPhase(results ? "done" : "idle");
       } else {
         setPhase("error");
@@ -114,7 +114,7 @@ export default function ChecksPage() {
     setResults(res);
     setPhase("done");
     saveExtendedProjectData(id, { checkResults: res });
-  }, [id, project, results]);
+  }, [id, project, results, t]);
 
   if (!project) return <p className="text-sm text-gray-400">{t.common.notFound}</p>;
 

@@ -79,6 +79,7 @@ export type Dictionary = {
     view: string;
     viewAll: string;
     more: string;
+    rateLimited: string;
   };
   overview: { specCompleteness: string; resultsSummary: string; mustHaves: string };
   idea: { subtitle: string; yourInput: string; understood: string; excluded: string };
