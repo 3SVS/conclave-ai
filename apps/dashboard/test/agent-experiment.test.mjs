@@ -6,6 +6,8 @@ import {
   getExperimentTemplate,
   buildCandidatePrompt,
   buildAllPromptsText,
+  canSaveExperiment,
+  experimentCandidateStatus,
 } from "../src/lib/agent-experiment.mjs";
 
 test("three built-in templates exist with expected modes + candidate counts", () => {
@@ -75,4 +77,18 @@ test("no token / userKey leakage in generated prompt text", () => {
   const p = buildCandidatePrompt(promptParts);
   const all = buildAllPromptsText({ heading: "X", candidatePrefix: "Candidate", candidates: [{ label: "A", prompt: p }] });
   assert.doesNotMatch(all, /userKey|uk_|token|Bearer|ghp_|vcp_/i);
+});
+
+test("canSaveExperiment requires a title and a known template", () => {
+  assert.equal(canSaveExperiment("", "multi_agent_split"), false);
+  assert.equal(canSaveExperiment("   ", "multi_agent_split"), false);
+  assert.equal(canSaveExperiment("My experiment", "nope"), false);
+  assert.equal(canSaveExperiment("My experiment", "multi_agent_split"), true);
+});
+
+test("experimentCandidateStatus derives from current links", () => {
+  assert.equal(experimentCandidateStatus({}), "planned");
+  assert.equal(experimentCandidateStatus({ pullRequestNumber: 7 }), "pr_linked");
+  assert.equal(experimentCandidateStatus({ pullRequestNumber: 7, reviewRunId: "wprr_x" }), "reviewed");
+  assert.equal(experimentCandidateStatus({ reviewRunId: "wprr_x", benchmarkId: "wabm_y" }), "benchmarked");
 });

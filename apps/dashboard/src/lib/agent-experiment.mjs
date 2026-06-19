@@ -43,6 +43,19 @@ export function getExperimentTemplate(id) {
   return EXPERIMENT_TEMPLATES.find((t) => t.id === id) ?? null;
 }
 
+/** Stage 72: the Save button is enabled only with a title and a known template. */
+export function canSaveExperiment(title, templateId) {
+  return Boolean(title && title.trim()) && EXPERIMENT_TEMPLATES.some((t) => t.id === templateId);
+}
+
+/** Stage 72: a candidate's status derived from its current links (mirrors server). */
+export function experimentCandidateStatus(links) {
+  if (links?.benchmarkId) return "benchmarked";
+  if (links?.reviewRunId) return "reviewed";
+  if (typeof links?.pullRequestNumber === "number") return "pr_linked";
+  return "planned";
+}
+
 /**
  * Assemble one candidate's deterministic prompt from already-localized parts.
  * Empty acceptance/constraints lists simply render no bullets.

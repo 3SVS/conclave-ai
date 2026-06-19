@@ -41,6 +41,12 @@ export type AgentExperimentPlan = {
 export const EXPERIMENT_TEMPLATES: ExperimentTemplate[];
 
 export function getExperimentTemplate(id: string): ExperimentTemplate | null;
+export function canSaveExperiment(title: string, templateId: string): boolean;
+export function experimentCandidateStatus(links: {
+  pullRequestNumber?: number;
+  reviewRunId?: string;
+  benchmarkId?: string;
+}): "planned" | "pr_linked" | "reviewed" | "benchmarked";
 
 export type CandidatePromptParts = {
   roleInstruction: string;

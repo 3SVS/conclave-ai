@@ -36,6 +36,7 @@ import { createWorkspaceAdminStatsRoutes } from "./routes/workspace-admin-stats.
 import { createWorkspaceAdminCreditsRoutes } from "./routes/workspace-admin-credits.js";
 import { createWorkspaceCreditsRoutes } from "./routes/workspace-credits.js";
 import { createWorkspaceBenchmarkRoutes } from "./routes/workspace-benchmark.js";
+import { createWorkspaceExperimentRoutes } from "./routes/workspace-experiment.js";
 import type { FetchLike } from "./github.js";
 
 /**
@@ -144,6 +145,8 @@ export function createApp(opts: { fetch?: FetchLike } = {}): Hono<{ Bindings: En
   app.route("/", createWorkspaceCreditsRoutes());
   // Stage 65 — Persisted Multi-Agent Build Benchmark.
   app.route("/", createWorkspaceBenchmarkRoutes());
+  // Stage 72 — Persisted Manual Multi-Agent Experiments.
+  app.route("/", createWorkspaceExperimentRoutes());
   app.onError((err, c) => {
     console.error("central-plane error:", err);
     return c.json({ error: err.message || "internal error" }, 500);
