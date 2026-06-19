@@ -1,0 +1,74 @@
+{
+  "_comment": "Stage 65 shared golden fixture. Asserted by BOTH apps/central-plane/test/agent-benchmark.test.mjs (dist .ts) AND apps/dashboard/test/agent-benchmark-parity.test.mjs (.mjs). Keep the two implementations in lock-step: if you change benchmark logic, update both and this fixture.",
+  "cases": [
+    {
+      "name": "multi-agent beats single-agent; aligned acceptance sets",
+      "candidates": [
+        { "id": "a", "label": "Single agent", "mode": "single_agent", "source": "claude_code" },
+        { "id": "b", "label": "Multi-agent", "mode": "multi_agent", "source": "codex" }
+      ],
+      "countsByCandidate": {
+        "a": { "passed": 5, "failed": 2, "inconclusive": 2, "needsDecision": 0 },
+        "b": { "passed": 7, "failed": 1, "inconclusive": 1, "needsDecision": 0 }
+      },
+      "selectedItemIdsByCandidate": { "a": ["i1", "i2"], "b": ["i2", "i1"] },
+      "expected": {
+        "scores": { "a": 7, "b": 17 },
+        "winnerCandidateId": "b",
+        "noClearWinner": false,
+        "alignment": { "aligned": true }
+      }
+    },
+    {
+      "name": "tie returns no clear winner",
+      "candidates": [
+        { "id": "a", "label": "A", "mode": "single_agent", "source": "manual" },
+        { "id": "b", "label": "B", "mode": "multi_agent", "source": "manual" }
+      ],
+      "countsByCandidate": {
+        "a": { "passed": 5, "failed": 2, "inconclusive": 1, "needsDecision": 1 },
+        "b": { "passed": 5, "failed": 2, "inconclusive": 1, "needsDecision": 1 }
+      },
+      "selectedItemIdsByCandidate": { "a": ["i1"], "b": ["i1"] },
+      "expected": {
+        "scores": { "a": 6, "b": 6 },
+        "winnerCandidateId": null,
+        "noClearWinner": true,
+        "alignment": { "aligned": true }
+      }
+    },
+    {
+      "name": "misaligned acceptance sets are flagged",
+      "candidates": [
+        { "id": "a", "label": "A", "mode": "single_agent", "source": "manual" },
+        { "id": "b", "label": "B", "mode": "reviewer_agent", "source": "cursor" }
+      ],
+      "countsByCandidate": {
+        "a": { "passed": 3 },
+        "b": { "passed": 5 }
+      },
+      "selectedItemIdsByCandidate": { "a": ["i1", "i2"], "b": ["i1", "i3"] },
+      "expected": {
+        "scores": { "a": 9, "b": 15 },
+        "winnerCandidateId": "b",
+        "noClearWinner": false,
+        "alignment": { "aligned": false, "differingCandidateIds": ["b"] }
+      }
+    },
+    {
+      "name": "single candidate yields no recommendation and is trivially aligned",
+      "candidates": [
+        { "id": "a", "label": "A", "mode": "single_agent", "source": "manual" }
+      ],
+      "countsByCandidate": { "a": { "passed": 4, "failed": 1 } },
+      "selectedItemIdsByCandidate": { "a": ["i1"] },
+      "expected": {
+        "scores": { "a": 9 },
+        "winnerCandidateId": null,
+        "noClearWinner": false,
+        "hasRecommendation": false,
+        "alignment": { "aligned": true }
+      }
+    }
+  ]
+}

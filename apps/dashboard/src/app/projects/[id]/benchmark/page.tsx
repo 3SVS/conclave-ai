@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { getProject } from "@/lib/mock-data";
@@ -11,6 +11,7 @@ import {
 } from "@/lib/workspace-github-api";
 import {
   buildBenchmarkResult,
+  canSaveBenchmark,
   CANDIDATE_MODES,
   CANDIDATE_SOURCES,
 } from "@/lib/agent-benchmark.mjs";
@@ -22,6 +23,11 @@ import type {
   BenchmarkRationaleItem,
   BenchmarkBlockerItem,
 } from "@/lib/agent-benchmark.mjs";
+import {
+  saveBenchmark,
+  listSavedBenchmarks,
+  type SavedBenchmarkListItem,
+} from "@/lib/workspace-benchmark-api";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { Dictionary, Locale } from "@/i18n/dictionary.mjs";
 
@@ -100,6 +106,17 @@ export default function BenchmarkPage() {
   const [runs, setRuns] = useState<ProjectReviewHistoryItem[]>([]);
   const [configs, setConfigs] = useState<CandidateConfig[]>([]);
 
+  // Stage 65: persistence
+  const [title, setTitle] = useState("");
+  const [savePhase, setSavePhase] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saved, setSaved] = useState<SavedBenchmarkListItem[]>([]);
+
+  const loadSaved = useCallback(async () => {
+    if (!userKey) return;
+    const res = await listSavedBenchmarks(id, userKey);
+    if (res.ok) setSaved(res.benchmarks);
+  }, [id, userKey]);
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -114,8 +131,9 @@ export default function BenchmarkPage() {
       }
     }
     load();
+    void loadSaved();
     return () => { cancelled = true; };
-  }, [id, userKey]);
+  }, [id, userKey, loadSaved]);
 
   if (!project) return <p className="text-sm text-gray-400">{t.common.notFound}</p>;
 
@@ -158,6 +176,36 @@ export default function BenchmarkPage() {
     .map((c) => ({ candidate: c, metrics: result.metricsByCandidate[c.id]! }))
     .sort((a, b) => b.metrics.score - a.metrics.score);
   const winnerId = result.recommendation?.winnerCandidateId;
+
+  // Preview-only acceptance-set signal: the history list exposes counts, not the
+  // item ids, so we approximate by comparing selectedItemCount. The authoritative
+  // alignment is computed server-side and stored on the saved benchmark.
+  const previewAligned = (() => {
+    if (configs.length < 2) return true;
+    const counts = configs.map((c) => runById.get(c.runId)?.selectedItemCount ?? -1);
+    return counts.every((n) => n === counts[0]);
+  })();
+
+  async function handleSave() {
+    if (!userKey || !canSaveBenchmark(configs.length)) return;
+    setSavePhase("saving");
+    const payload = configs.map((c) => ({
+      id: c.runId,
+      label: c.label.trim() || modeLabel(t, c.mode),
+      mode: c.mode,
+      source: c.source,
+      reviewRunId: c.runId,
+    }));
+    const res = await saveBenchmark(id, { userKey, title: title.trim() || undefined, candidates: payload });
+    if (res.ok) {
+      setSavePhase("saved");
+      setTitle("");
+      await loadSaved();
+      setTimeout(() => setSavePhase("idle"), 2500);
+    } else {
+      setSavePhase("error");
+    }
+  }
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -290,6 +338,13 @@ export default function BenchmarkPage() {
           {/* Metrics + comparison + recommendation */}
           {configs.length >= 2 && (
             <>
+              {/* Acceptance set warning (preview heuristic) */}
+              {!previewAligned && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                  {t.benchmark.acceptanceSetWarning}
+                </div>
+              )}
+
               {/* Metrics cards */}
               <section>
                 <h3 className="mb-3 text-sm font-semibold text-gray-700">{t.benchmark.metricsTitle}</h3>
@@ -394,8 +449,69 @@ export default function BenchmarkPage() {
                 <p className="text-sm font-semibold text-gray-700">{t.benchmark.nextActionTitle}</p>
                 <p className="mt-0.5 text-xs text-gray-500">{t.benchmark.nextActionBody}</p>
               </section>
+
+              {/* Save */}
+              <section className="rounded-xl border border-gray-200 bg-white p-5">
+                <h3 className="text-sm font-semibold text-gray-800">{t.benchmark.createBenchmark}</h3>
+                <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <input
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder={t.benchmark.titlePlaceholder}
+                    maxLength={120}
+                    className="flex-1 rounded-md border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                  />
+                  <button
+                    onClick={handleSave}
+                    disabled={!canSaveBenchmark(configs.length) || savePhase === "saving"}
+                    className="flex-shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-40"
+                  >
+                    {savePhase === "saving" ? t.benchmark.saving : t.benchmark.save}
+                  </button>
+                </div>
+                {savePhase === "saved" && <p className="mt-2 text-xs text-green-600">{t.benchmark.saved}</p>}
+                {savePhase === "error" && <p className="mt-2 text-xs text-red-500">{t.benchmark.saveError}</p>}
+              </section>
             </>
           )}
+
+          {/* Saved benchmarks */}
+          <section className="rounded-xl border border-gray-200 bg-white p-5">
+            <h3 className="text-sm font-semibold text-gray-800">{t.benchmark.savedBenchmarks}</h3>
+            {saved.length === 0 ? (
+              <p className="mt-2 text-xs text-gray-400">{t.benchmark.noSavedBenchmarks}</p>
+            ) : (
+              <ul className="mt-3 space-y-1.5">
+                {saved.map((b) => {
+                  const winnerLabel = b.noClearWinner
+                    ? t.benchmark.noClearWinner
+                    : b.winnerCandidateId
+                      ? runById.get(b.winnerCandidateId)
+                        ? t.benchmark.runMeta
+                            .replace("{pr}", String(runById.get(b.winnerCandidateId)!.prNumber))
+                            .replace("{date}", formatDate(runById.get(b.winnerCandidateId)!.createdAt, locale))
+                        : b.winnerCandidateId
+                      : "";
+                  return (
+                    <li key={b.id} className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-medium text-gray-700">{b.title || t.benchmark.savedBenchmarks}</p>
+                        <p className="truncate text-[11px] text-gray-400">
+                          {t.benchmark.savedAt.replace("{date}", formatDate(b.createdAt, locale))} · {winnerLabel}
+                        </p>
+                      </div>
+                      <Link
+                        href={b.winnerCandidateId ? `/projects/${id}/github/history/${b.winnerCandidateId}` : `/projects/${id}/benchmark`}
+                        className="flex-shrink-0 rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                      >
+                        {t.benchmark.open}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
         </>
       )}
     </div>

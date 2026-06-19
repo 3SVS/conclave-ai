@@ -35,6 +35,7 @@ import { createWorkspaceNotificationRoutes } from "./routes/workspace-notificati
 import { createWorkspaceAdminStatsRoutes } from "./routes/workspace-admin-stats.js";
 import { createWorkspaceAdminCreditsRoutes } from "./routes/workspace-admin-credits.js";
 import { createWorkspaceCreditsRoutes } from "./routes/workspace-credits.js";
+import { createWorkspaceBenchmarkRoutes } from "./routes/workspace-benchmark.js";
 import type { FetchLike } from "./github.js";
 
 /**
@@ -141,6 +142,8 @@ export function createApp(opts: { fetch?: FetchLike } = {}): Hono<{ Bindings: En
   app.route("/", createWorkspaceAdminCreditsRoutes());
   // Stage 33 — User-facing credit balance + top-up request endpoints.
   app.route("/", createWorkspaceCreditsRoutes());
+  // Stage 65 — Persisted Multi-Agent Build Benchmark.
+  app.route("/", createWorkspaceBenchmarkRoutes());
   app.onError((err, c) => {
     console.error("central-plane error:", err);
     return c.json({ error: err.message || "internal error" }, 500);

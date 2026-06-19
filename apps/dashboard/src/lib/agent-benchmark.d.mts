@@ -62,17 +62,29 @@ export type AgentBenchmarkRecommendation = {
   blockers: BenchmarkBlockerItem[];
 };
 
+export type AcceptanceSetAlignment = {
+  aligned: boolean;
+  warning?: string;
+  baselineItemIds?: string[];
+  differingCandidateIds?: string[];
+};
+
 export type AgentBenchmarkResult = {
   projectId: string;
   candidates: AgentCandidate[];
   metricsByCandidate: Record<string, AgentCandidateMetrics>;
   recommendation?: AgentBenchmarkRecommendation;
+  acceptanceSetAlignment?: AcceptanceSetAlignment;
 };
 
 export type RankedCandidate = { candidate: AgentCandidate; metrics: AgentCandidateMetrics };
 
 export const CANDIDATE_MODES: CandidateMode[];
 export const CANDIDATE_SOURCES: CandidateSource[];
+export const MIN_CANDIDATES: number;
+export const MAX_CANDIDATES: number;
+
+export function canSaveBenchmark(candidateCount: number): boolean;
 
 export function computeCandidateMetrics(counts: ReviewSummaryCounts | undefined | null): AgentCandidateMetrics;
 export function rankCandidates(
@@ -84,3 +96,7 @@ export function buildBenchmarkResult(input: {
   candidates: AgentCandidate[];
   countsByCandidate: Record<string, ReviewSummaryCounts>;
 }): AgentBenchmarkResult;
+export function computeAcceptanceSetAlignment(
+  candidates: AgentCandidate[],
+  selectedItemIdsByCandidate: Record<string, string[]>,
+): AcceptanceSetAlignment;

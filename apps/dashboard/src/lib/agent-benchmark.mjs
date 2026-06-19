@@ -24,6 +24,15 @@ export const CANDIDATE_MODES = ["single_agent", "multi_agent", "reviewer_agent",
 /** Candidate sources — which tool produced the implementation. */
 export const CANDIDATE_SOURCES = ["claude_code", "codex", "cursor", "manual", "other"];
 
+/** Minimum / maximum candidates for a saveable benchmark. */
+export const MIN_CANDIDATES = 2;
+export const MAX_CANDIDATES = 5;
+
+/** Whether a benchmark with this many candidates can be saved (2–5). */
+export function canSaveBenchmark(candidateCount) {
+  return candidateCount >= MIN_CANDIDATES && candidateCount <= MAX_CANDIDATES;
+}
+
 /** Coerce to a non-negative integer; undefined/NaN/negatives become 0. */
 function count(value) {
   const n = Math.floor(Number(value));
@@ -182,4 +191,40 @@ export function buildBenchmarkResult({ projectId, candidates, countsByCandidate 
     blockers,
   };
   return result;
+}
+
+/** Sorted unique item ids — compare acceptance sets order-independently. */
+function normalizedSet(ids) {
+  return [...new Set((ids ?? []).map(String))].sort();
+}
+
+/**
+ * Same-acceptance-set guard. Candidates whose review run covered a different
+ * set of acceptance items are not directly comparable; flag misalignment so
+ * the UI can warn. Baseline = the first candidate's set. Mirrors central-plane
+ * `computeAcceptanceSetAlignment` (kept in lock-step by the shared golden
+ * fixture).
+ */
+export function computeAcceptanceSetAlignment(candidates, selectedItemIdsByCandidate) {
+  const list = candidates ?? [];
+  if (list.length < 2) return { aligned: true };
+
+  const baseline = normalizedSet((selectedItemIdsByCandidate ?? {})[list[0].id]);
+  const baselineKey = baseline.join(" ");
+
+  const differingCandidateIds = [];
+  for (const c of list) {
+    const key = normalizedSet((selectedItemIdsByCandidate ?? {})[c.id]).join(" ");
+    if (key !== baselineKey) differingCandidateIds.push(c.id);
+  }
+
+  if (differingCandidateIds.length === 0) {
+    return { aligned: true, baselineItemIds: baseline };
+  }
+  return {
+    aligned: false,
+    warning: "acceptance_set_mismatch",
+    baselineItemIds: baseline,
+    differingCandidateIds,
+  };
 }

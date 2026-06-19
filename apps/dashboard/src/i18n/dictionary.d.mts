@@ -807,6 +807,17 @@ export type Dictionary = {
     nextActionTitle: string;
     nextActionBody: string;
     viewRun: string;
+    createBenchmark: string;
+    titlePlaceholder: string;
+    save: string;
+    saving: string;
+    saved: string;
+    saveError: string;
+    savedBenchmarks: string;
+    noSavedBenchmarks: string;
+    savedAt: string;
+    open: string;
+    acceptanceSetWarning: string;
   };
   errors: { generic: string; loadFailed: string };
 };
