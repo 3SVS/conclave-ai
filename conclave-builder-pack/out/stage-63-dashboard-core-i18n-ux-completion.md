@@ -108,3 +108,32 @@
 
 ## test/build (pass 2c)
 - dashboard 77/77, parity 10/10, typecheck 53/53, lint green.
+
+---
+
+# pass 2d — github 깊은 패널 + run detail (마지막 깊은 화면)
+
+커밋: `6964ffa` (github 패널) · `da5e814` (run detail) · `211decb` (settings 누락 2건).
+
+## 변경 화면
+- `/projects/:id/github` **깊은 패널** 전면 i18n:
+  - **ReviewResultPanel** — "Review result: {status}", 요약 라인(statusLabel 기반), basisNote, evidence, "Next", 하드코딩 한글 RUN_STATUS_LABEL 제거 → `statusText`(statusLabel + runStatus fallback).
+  - **PRCommentPanel** — title/desc, public-only, include-comparison, mode(new/update), preview/post, scope error, success, 과거 코멘트 목록/상태(Posted/Failed), 에러 폴백.
+  - **FixBriefPanel** — title/desc, target(Claude/Codex), generate, files-created, copy/copy-all, download ZIP, usage note.
+  - **ComparisonPanel**(이전 pass에서 일부) + **CreditDryRunBanner**(product-friendly: blocked/covered/estimated + "Credit charging is disabled during beta", 내부 billing flag 숨김).
+- `/projects/:id/github/history/:runId` **run detail** 전면 i18n: 헤더/소스 라벨/lineage 배지/run meta, SummaryCards, ResultCard, **ReviewItemSelectionPanel**(추천/전체/통과제외/모두해제 + 선택수 + storage note), **RerunPanel**, **FixPackPanel**, **CommentPanel**, **ComparisonPanel**(specific-run), **AutoComparisonPanel**(status transition pill/evidence/next-action/send-to-comment), 모든 한글 상태맵(STATUS_CFG/STATUS_KO/AUTO_COMPARE_ERROR_KO) 제거 → `statusText`/dict. 날짜 locale-aware(ko-KR/en-US). 한글 dev 주석도 영어화.
+- `/projects/:id/settings` — pass 2a에서 누락된 에러 폴백 2건(텔레그램 테스트 전송 실패, repo lookup 형식 안내) → 기존 telegram.testError / github.errorInvalidName 재사용.
+
+## 추가 i18n namespace
+- `review`(resultLabel/recheck/evidenceLabel/nextLabel 확장) · `comment` · `fixBrief` · `runDetail`(~75 keys) — EN+KO, .d.mts 동기, key-parity 10/10.
+- **중복 `comparison` namespace 정리**: 이번 pass에서 잘못 추가한 중복 블록 제거, Stage 60 기존 블록에 title/desc/noComparison만 추가.
+
+## ★ 남은 i18n (pass 2d 범위 밖 — 후속)
+- `/projects/:id/credits`(신규 크레딧 화면) · `/projects/:id/export`(빌더 팩) · `admin/credits` · `admin/usage`. 베타 핵심 흐름(기획→확인→PR→run detail)은 모두 영어 기본+토글 완료.
+- 기존 프로젝트 저장 데이터 언어(생성 시점) — 마이그레이션 안 함(known issue 유지).
+
+## test / typecheck / build (pass 2d)
+- dashboard 77/77, i18n parity 10/10, typecheck clean, build green(16 routes), lint clean(기존 export/page useEffect 경고만 잔존).
+
+## 배포 / 검증
+- (배포 후 채움) Vercel 재배포 → github 깊은 패널 + run detail EN 본문 + EN/KO 토글 + locale 날짜 라이브 확인.
