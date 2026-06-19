@@ -12,9 +12,9 @@ const { createApp } = await import("../dist/router.js");
 const USER = "uk_owner";
 const PROJECT = "proj_exp";
 
-function makeRun(id, { projectId = PROJECT, userKey = USER } = {}) {
+function makeRun(id, { projectId = PROJECT, userKey = USER, summary = {}, results = [] } = {}) {
   return { id, project_id: projectId, user_key: userKey, repo_full_name: "owner/repo", pr_number: 1,
-    linked_pr_id: null, selected_item_ids_json: "[]", status: "failed", result_json: JSON.stringify({ results: [], summary: {} }),
+    linked_pr_id: null, selected_item_ids_json: '["i1"]', status: "failed", result_json: JSON.stringify({ results, summary }),
     error_message: null, rerun_of_review_run_id: null, created_at: "2026-06-20T00:00:00Z", updated_at: "2026-06-20T00:00:00Z" };
 }
 
@@ -22,6 +22,7 @@ function makeDb({ runs = new Map(), benchmarks = [], experiments = [], candidate
   return {
     _experiments: experiments,
     _candidates: candidates,
+    _benchmarks: benchmarks,
     prepare(sql) {
       function handler(args) {
         return {
@@ -35,6 +36,17 @@ function makeDb({ runs = new Map(), benchmarks = [], experiments = [], candidate
               const [id, experiment_id, candidate_id, label, mode, role, suggested_agent, created_at, updated_at] = args;
               candidates.push({ id, experiment_id, candidate_id, label, mode, role, suggested_agent, status: "planned",
                 pull_request_number: null, review_run_id: null, benchmark_id: null, created_at, updated_at });
+              return { meta: { changes: 1 } };
+            }
+            if (sql.includes("INSERT INTO workspace_agent_benchmarks")) {
+              const [id, project_id, user_key, title, , , candidate_count, winner_candidate_id, no_clear_winner, result_json, source_experiment_id] = args;
+              benchmarks.push({ id, project_id, user_key, title, candidate_count, winner_candidate_id, no_clear_winner, result_json, source_experiment_id });
+              return { meta: { changes: 1 } };
+            }
+            if (sql.includes("UPDATE workspace_agent_experiments")) {
+              const [status, now, id] = args;
+              const exp = experiments.find((e) => e.id === id);
+              if (exp) { exp.status = status; exp.updated_at = now; }
               return { meta: { changes: 1 } };
             }
             if (sql.includes("UPDATE workspace_agent_experiment_candidates")) {
@@ -225,4 +237,75 @@ test("GET list: missing userKey → 400", async () => {
   const { status, json } = await req(makeEnv(), "GET", `/workspace/projects/${PROJECT}/agent-experiments`);
   assert.equal(status, 400);
   assert.equal(json.error, "userKey_required");
+});
+
+// ─── Stage 73: benchmark from experiment ──────────────────────────────────────
+
+async function createExp(env) {
+  const created = await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments`, {
+    userKey: USER, title: "Exp", templateId: "multi_agent_split",
+    candidates: [
+      { id: "a", label: "Builder A", mode: "multi_agent", role: "builder", suggestedAgent: "claude_code" },
+      { id: "b", label: "Builder B", mode: "multi_agent", role: "builder", suggestedAgent: "codex" },
+    ],
+  });
+  return { eid: created.json.experiment.id, cands: created.json.experiment.candidates };
+}
+
+async function link(env, eid, candRowId, runId) {
+  return req(env, "PATCH", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/candidates/${candRowId}`, {
+    userKey: USER, reviewRunId: runId,
+  });
+}
+
+test("POST benchmark from experiment: success links benchmark + status", async () => {
+  const runs = new Map([
+    ["wprr_1", makeRun("wprr_1", { summary: { passed: 5, failed: 2 }, results: [{ itemId: "i1", title: "X", status: "failed" }] })],
+    ["wprr_2", makeRun("wprr_2", { summary: { passed: 8 }, results: [{ itemId: "i1", title: "X", status: "passed" }] })],
+  ]);
+  const env = makeEnv({ runs });
+  const { eid, cands } = await createExp(env);
+  await link(env, eid, cands[0].id, "wprr_1");
+  await link(env, eid, cands[1].id, "wprr_2");
+
+  const res = await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/benchmark`, { userKey: USER });
+  assert.equal(res.status, 201);
+  assert.equal(res.json.benchmark.sourceExperimentId, eid);
+  assert.equal(res.json.benchmark.candidateCount, 2);
+  assert.equal(res.json.benchmark.winnerCandidateId, "b"); // run2 (score 24) beats run1 (score 9)
+  assert.equal(res.json.experiment.status, "benchmarked");
+  assert.ok(res.json.experiment.candidates.every((c) => c.status === "benchmarked"));
+  assert.ok(res.json.experiment.candidates.every((c) => c.benchmarkId === res.json.benchmark.id));
+});
+
+test("POST benchmark from experiment: missing userKey → 400", async () => {
+  const env = makeEnv();
+  const { eid } = await createExp(env);
+  const res = await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/benchmark`, {});
+  assert.equal(res.status, 400);
+  assert.equal(res.json.error, "userKey_required");
+});
+
+test("POST benchmark from experiment: fewer than 2 linked runs → 400", async () => {
+  const runs = new Map([["wprr_1", makeRun("wprr_1", { summary: { passed: 1 } })]]);
+  const env = makeEnv({ runs });
+  const { eid, cands } = await createExp(env);
+  await link(env, eid, cands[0].id, "wprr_1"); // only one linked
+  const res = await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/benchmark`, { userKey: USER });
+  assert.equal(res.status, 400);
+  assert.equal(res.json.error, "not_enough_linked_runs");
+});
+
+test("POST benchmark from experiment: other user → 403", async () => {
+  const runs = new Map([
+    ["wprr_1", makeRun("wprr_1", { summary: { passed: 1 } })],
+    ["wprr_2", makeRun("wprr_2", { summary: { passed: 2 } })],
+  ]);
+  const env = makeEnv({ runs });
+  const { eid, cands } = await createExp(env);
+  await link(env, eid, cands[0].id, "wprr_1");
+  await link(env, eid, cands[1].id, "wprr_2");
+  const res = await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/benchmark`, { userKey: "uk_intruder" });
+  assert.equal(res.status, 403);
+  assert.equal(res.json.error, "forbidden");
 });

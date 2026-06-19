@@ -14,7 +14,18 @@
 import { Hono } from "hono";
 import type { Env } from "../env.js";
 import { getReviewRunById } from "../workspace/pr-review-db.js";
-import { getAgentBenchmarkById } from "../workspace/agent-benchmark-db.js";
+import { getAgentBenchmarkById, insertAgentBenchmark } from "../workspace/agent-benchmark-db.js";
+import {
+  buildBenchmarkResult,
+  computeAcceptanceSetAlignment,
+} from "../workspace/agent-benchmark.js";
+import type {
+  AgentCandidate,
+  CandidateMode,
+  CandidateSource,
+  ReviewSummaryCounts,
+  ReviewItemInput,
+} from "../workspace/agent-benchmark.js";
 import {
   insertExperiment,
   listExperiments,
@@ -22,7 +33,29 @@ import {
   listExperimentCandidates,
   getCandidateById,
   updateCandidateLink,
+  updateExperimentStatus,
 } from "../workspace/agent-experiment-db.js";
+
+/** Parse a review run's stored summary counts. */
+function parseSummaryCounts(resultJson: string | undefined): ReviewSummaryCounts {
+  if (!resultJson) return {};
+  try {
+    return (JSON.parse(resultJson) as { summary?: ReviewSummaryCounts }).summary ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/** Parse a review run's stored per-item results. */
+function parseResultItems(resultJson: string | undefined): ReviewItemInput[] {
+  if (!resultJson) return [];
+  try {
+    const parsed = JSON.parse(resultJson) as { results?: unknown };
+    return Array.isArray(parsed.results) ? (parsed.results as ReviewItemInput[]) : [];
+  } catch {
+    return [];
+  }
+}
 
 const TEMPLATE_IDS = ["single_agent_baseline", "multi_agent_split", "builder_reviewer"];
 const MODES = ["single_agent", "multi_agent", "reviewer_agent", "hybrid"];
@@ -223,6 +256,112 @@ export function createWorkspaceExperimentRoutes(): Hono<{ Bindings: Env }> {
     } catch (err) {
       console.error("[workspace/agent-experiments PATCH candidate] failed:", err);
       return c.json({ ok: false, error: "update_failed" }, 500);
+    }
+  });
+
+  // ── POST create benchmark from experiment (Stage 73 handoff) ─────────────────
+  // Reuses the Stage 65 benchmark calculation; does not duplicate it.
+  app.post("/workspace/projects/:id/agent-experiments/:experimentId/benchmark", async (c) => {
+    const projectId = c.req.param("id");
+    const experimentId = c.req.param("experimentId");
+
+    let b: { userKey?: string };
+    try {
+      b = await c.req.json();
+    } catch {
+      return c.json({ ok: false, error: "invalid_json" }, 400);
+    }
+    const userKey = typeof b.userKey === "string" ? b.userKey : "";
+    if (!userKey) return c.json({ ok: false, error: "userKey_required" }, 400);
+
+    try {
+      const exp = await getExperimentById(c.env, experimentId);
+      if (!exp || exp.projectId !== projectId) return c.json({ ok: false, error: "not_found" }, 404);
+      if (exp.userKey !== userKey) return c.json({ ok: false, error: "forbidden" }, 403);
+
+      const allCandidates = await listExperimentCandidates(c.env, experimentId);
+      const linked = allCandidates.filter((cc) => cc.reviewRunId);
+      if (linked.length < 2) return c.json({ ok: false, error: "not_enough_linked_runs" }, 400);
+
+      const candidates: AgentCandidate[] = [];
+      const countsByCandidate: Record<string, ReviewSummaryCounts> = {};
+      const itemResultsByCandidate: Record<string, ReviewItemInput[]> = {};
+      const selectedItemIdsByCandidate: Record<string, string[]> = {};
+
+      for (const cc of linked) {
+        const run = await getReviewRunById(c.env, cc.reviewRunId!).catch(() => null);
+        if (!run) return c.json({ ok: false, error: "review_run_not_found" }, 400);
+        if (run.projectId !== projectId || run.userKey !== userKey) {
+          return c.json({ ok: false, error: "review_run_mismatch" }, 400);
+        }
+        candidates.push({
+          id: cc.candidateId,
+          label: cc.label,
+          mode: cc.mode as CandidateMode,
+          source: cc.suggestedAgent as CandidateSource,
+          reviewRunId: cc.reviewRunId,
+          pullRequestNumber: cc.pullRequestNumber ?? run.prNumber,
+        });
+        countsByCandidate[cc.candidateId] = parseSummaryCounts(run.resultJson);
+        selectedItemIdsByCandidate[cc.candidateId] = run.selectedItemIds;
+        itemResultsByCandidate[cc.candidateId] = parseResultItems(run.resultJson);
+      }
+
+      const result = buildBenchmarkResult({ projectId, candidates, countsByCandidate, itemResultsByCandidate });
+      result.acceptanceSetAlignment = computeAcceptanceSetAlignment(candidates, selectedItemIdsByCandidate);
+      const winnerCandidateId = result.recommendation?.winnerCandidateId;
+      const noClearWinner = result.recommendation !== undefined && result.recommendation.winnerCandidateId === undefined;
+
+      const saved = await insertAgentBenchmark(c.env, {
+        projectId,
+        userKey,
+        title: `${exp.title} — benchmark`,
+        candidateCount: candidates.length,
+        winnerCandidateId,
+        noClearWinner,
+        resultJson: JSON.stringify(result),
+        sourceExperimentId: experimentId,
+      });
+
+      for (const cc of linked) {
+        await updateCandidateLink(c.env, cc.id, {
+          pullRequestNumber: cc.pullRequestNumber,
+          reviewRunId: cc.reviewRunId,
+          benchmarkId: saved.id,
+          status: "benchmarked",
+        });
+      }
+      await updateExperimentStatus(c.env, experimentId, "benchmarked");
+
+      const candidatesAfter = await listExperimentCandidates(c.env, experimentId);
+      return c.json(
+        {
+          ok: true,
+          benchmark: {
+            id: saved.id,
+            projectId,
+            title: saved.title,
+            candidateCount: saved.candidateCount,
+            winnerCandidateId,
+            noClearWinner,
+            sourceExperimentId: experimentId,
+            result,
+          },
+          experiment: {
+            id: exp.id,
+            projectId,
+            title: exp.title,
+            templateId: exp.templateId,
+            status: "benchmarked",
+            createdAt: exp.createdAt,
+            candidates: candidatesAfter,
+          },
+        },
+        201,
+      );
+    } catch (err) {
+      console.error("[workspace/agent-experiments benchmark POST] failed:", err);
+      return c.json({ ok: false, error: "benchmark_from_experiment_failed" }, 500);
     }
   });
 

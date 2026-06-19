@@ -56,6 +56,31 @@ export function experimentCandidateStatus(links) {
   return "planned";
 }
 
+/** Stage 73: experiment candidates that have a linked review run. */
+export function linkedExperimentCandidates(candidates) {
+  return (candidates ?? []).filter((c) => c.reviewRunId);
+}
+
+/** Stage 73: a benchmark needs at least 2 candidates with linked review runs. */
+export function canCreateBenchmarkFromExperiment(candidates) {
+  return linkedExperimentCandidates(candidates).length >= 2;
+}
+
+/**
+ * Stage 73: map an experiment's linked candidates to benchmark candidates.
+ * suggestedAgent maps 1:1 to the benchmark source enum.
+ */
+export function mapExperimentCandidatesToBenchmark(candidates) {
+  return linkedExperimentCandidates(candidates).map((c) => ({
+    id: c.candidateId,
+    label: c.label,
+    mode: c.mode,
+    source: c.suggestedAgent,
+    reviewRunId: c.reviewRunId,
+    ...(typeof c.pullRequestNumber === "number" ? { pullRequestNumber: c.pullRequestNumber } : {}),
+  }));
+}
+
 /**
  * Assemble one candidate's deterministic prompt from already-localized parts.
  * Empty acceptance/constraints lists simply render no bullets.

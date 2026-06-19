@@ -104,6 +104,28 @@ export async function getExperiment(
   }
 }
 
+export type BenchmarkFromExperimentResponse =
+  | { ok: true; benchmark: { id: string; title?: string; sourceExperimentId?: string }; experiment: SavedExperiment }
+  | { ok: false; error: string };
+
+export async function createBenchmarkFromExperiment(
+  projectId: string,
+  experimentId: string,
+  userKey: string,
+): Promise<BenchmarkFromExperimentResponse> {
+  try {
+    const resp = await fetch(`${base(projectId)}/${encodeURIComponent(experimentId)}/benchmark`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userKey }),
+      signal: AbortSignal.timeout(12000),
+    });
+    return (await resp.json()) as BenchmarkFromExperimentResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
 export async function patchExperimentCandidate(
   projectId: string,
   experimentId: string,

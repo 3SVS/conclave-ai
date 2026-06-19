@@ -228,6 +228,7 @@ export function createWorkspaceBenchmarkRoutes(): Hono<{ Bindings: Env }> {
           candidateCount: row.candidateCount,
           winnerCandidateId: row.winnerCandidateId,
           noClearWinner: row.noClearWinner,
+          sourceExperimentId: row.sourceExperimentId,
           result,
         },
       });

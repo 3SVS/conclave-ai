@@ -10,6 +10,7 @@ import {
   buildCandidatePrompt,
   buildAllPromptsText,
   canSaveExperiment,
+  canCreateBenchmarkFromExperiment,
 } from "@/lib/agent-experiment.mjs";
 import type {
   AgentExperimentRole,
@@ -20,6 +21,7 @@ import {
   listExperiments,
   getExperiment,
   patchExperimentCandidate,
+  createBenchmarkFromExperiment,
   type SavedExperimentListItem,
   type SavedExperiment,
   type ExperimentCandidate,
@@ -111,11 +113,19 @@ export default function ExperimentPage() {
   const [saved, setSaved] = useState<SavedExperimentListItem[]>([]);
   const [openExp, setOpenExp] = useState<SavedExperiment | null>(null);
   const [reviewRuns, setReviewRuns] = useState<ProjectReviewHistoryItem[]>([]);
+  const [benchPhase, setBenchPhase] = useState<"idle" | "creating" | "done" | "error">("idle");
 
   const loadSaved = useCallback(async () => {
     if (!userKey) return;
     const res = await listExperiments(id, userKey);
     if (res.ok) setSaved(res.experiments);
+  }, [id, userKey]);
+
+  const openExperiment = useCallback(async (experimentId: string) => {
+    if (!userKey) return;
+    setBenchPhase("idle");
+    const res = await getExperiment(id, experimentId, userKey);
+    if (res.ok) setOpenExp(res.experiment);
   }, [id, userKey]);
 
   useEffect(() => {
@@ -124,7 +134,10 @@ export default function ExperimentPage() {
       const res = await listProjectReviewHistory(id, userKey ?? "", { limit: 50 });
       if (res.ok) setReviewRuns(res.runs);
     })();
-  }, [id, userKey, loadSaved]);
+    // Stage 73: deep-link from a benchmark's "Source experiment" → auto-open it.
+    const qp = new URLSearchParams(window.location.search).get("experiment");
+    if (qp) void openExperiment(qp);
+  }, [id, userKey, loadSaved, openExperiment]);
 
   if (!project) return <p className="text-sm text-gray-400">{t.common.notFound}</p>;
 
@@ -191,10 +204,17 @@ export default function ExperimentPage() {
     }
   }
 
-  async function handleOpenExperiment(experimentId: string) {
-    if (!userKey) return;
-    const res = await getExperiment(id, experimentId, userKey);
-    if (res.ok) setOpenExp(res.experiment);
+  async function handleCreateBenchmark() {
+    if (!userKey || !openExp) return;
+    setBenchPhase("creating");
+    const res = await createBenchmarkFromExperiment(id, openExp.id, userKey);
+    if (res.ok) {
+      setOpenExp(res.experiment);
+      setBenchPhase("done");
+      await loadSaved();
+    } else {
+      setBenchPhase("error");
+    }
   }
 
   async function handlePatchCandidate(
@@ -314,7 +334,7 @@ export default function ExperimentPage() {
                   <p className="truncate text-xs font-medium text-gray-700">{e.title}</p>
                   <p className="truncate text-[11px] text-gray-400">{templateTitle(t, e.templateId)} · {e.candidateCount} · {expDate(e.createdAt, locale)}</p>
                 </div>
-                <button onClick={() => handleOpenExperiment(e.id)} className="flex-shrink-0 rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:bg-gray-50">
+                <button onClick={() => openExperiment(e.id)} className="flex-shrink-0 rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:bg-gray-50">
                   {t.experiment.open}
                 </button>
               </li>
@@ -333,6 +353,39 @@ export default function ExperimentPage() {
               <CandidateLinkCard key={c.id} candidate={c} reviewRuns={reviewRuns} onPatch={handlePatchCandidate} t={t} locale={locale} />
             ))}
           </div>
+
+          {/* Benchmark handoff */}
+          {(() => {
+            const linkedBenchmarkId = openExp.candidates.find((c) => c.benchmarkId)?.benchmarkId;
+            const canCreate = canCreateBenchmarkFromExperiment(openExp.candidates);
+            return (
+              <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-4">
+                <p className="text-sm font-semibold text-gray-800">{t.experiment.benchmarkHandoff}</p>
+                <p className="mt-0.5 text-xs text-gray-400">{t.experiment.benchmarkHandoffDesc}</p>
+                {linkedBenchmarkId ? (
+                  <div className="mt-2">
+                    <p className="text-xs text-green-600">{benchPhase === "done" ? t.experiment.benchmarkCreated : t.experiment.benchmarkLinked}</p>
+                    <Link href={`/projects/${id}/benchmark/${linkedBenchmarkId}`} className="mt-1 inline-block rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50">
+                      {t.experiment.openBenchmarkResult}
+                    </Link>
+                  </div>
+                ) : canCreate ? (
+                  <div className="mt-2">
+                    <button
+                      onClick={handleCreateBenchmark}
+                      disabled={benchPhase === "creating"}
+                      className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-40"
+                    >
+                      {benchPhase === "creating" ? t.experiment.creatingBenchmark : t.experiment.createBenchmarkFromExperiment}
+                    </button>
+                    {benchPhase === "error" && <p className="mt-1 text-xs text-red-500">{t.experiment.benchmarkFromExpError}</p>}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-amber-700">{t.experiment.benchmarkNeedsTwo}</p>
+                )}
+              </div>
+            );
+          })()}
         </section>
       )}
 

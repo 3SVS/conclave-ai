@@ -40,6 +40,7 @@ export type SavedBenchmark = {
   candidateCount: number;
   winnerCandidateId?: string;
   noClearWinner: boolean;
+  sourceExperimentId?: string;
   result: AgentBenchmarkResult;
 };
 

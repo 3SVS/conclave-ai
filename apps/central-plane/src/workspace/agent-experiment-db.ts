@@ -239,6 +239,14 @@ export async function getCandidateById(env: Env, candidateId: string): Promise<D
   return row ? mapCand(row) : null;
 }
 
+export async function updateExperimentStatus(env: Env, id: string, status: string, now?: string): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE workspace_agent_experiments SET status = ?, updated_at = ? WHERE id = ?`,
+  )
+    .bind(status, now ?? new Date().toISOString(), id)
+    .run();
+}
+
 export async function updateCandidateLink(
   env: Env,
   candidateId: string,

@@ -880,6 +880,8 @@ export type Dictionary = {
     noEvidenceStored: string;
     matrixInsightDiffered: string;
     matrixInsightNoDiff: string;
+    sourceExperiment: string;
+    openExperiment: string;
   };
   experiment: {
     title: string;
@@ -958,6 +960,15 @@ export type Dictionary = {
     statReviewed: string;
     statBenchmarked: string;
     statDraft: string;
+    benchmarkHandoff: string;
+    benchmarkHandoffDesc: string;
+    createBenchmarkFromExperiment: string;
+    benchmarkNeedsTwo: string;
+    benchmarkCreated: string;
+    benchmarkLinked: string;
+    openBenchmarkResult: string;
+    benchmarkFromExpError: string;
+    creatingBenchmark: string;
   };
   errors: { generic: string; loadFailed: string };
 };

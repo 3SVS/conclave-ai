@@ -18,6 +18,7 @@ export type DbAgentBenchmark = {
   winnerCandidateId?: string;
   noClearWinner: boolean;
   resultJson: string;
+  sourceExperimentId?: string;
 };
 
 export type AgentBenchmarkListItem = {
@@ -40,6 +41,7 @@ type RawRow = {
   winner_candidate_id: string | null;
   no_clear_winner: number;
   result_json: string;
+  source_experiment_id: string | null;
 };
 
 function randId(): string {
@@ -58,6 +60,7 @@ export async function insertAgentBenchmark(
     winnerCandidateId?: string;
     noClearWinner: boolean;
     resultJson: string;
+    sourceExperimentId?: string;
     now?: string;
   },
 ): Promise<DbAgentBenchmark> {
@@ -67,8 +70,8 @@ export async function insertAgentBenchmark(
   await env.DB.prepare(
     `INSERT INTO workspace_agent_benchmarks
        (id, project_id, user_key, title, created_at, updated_at,
-        candidate_count, winner_candidate_id, no_clear_winner, result_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        candidate_count, winner_candidate_id, no_clear_winner, result_json, source_experiment_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       id,
@@ -81,6 +84,7 @@ export async function insertAgentBenchmark(
       input.winnerCandidateId ?? null,
       input.noClearWinner ? 1 : 0,
       input.resultJson,
+      input.sourceExperimentId ?? null,
     )
     .run();
 
@@ -95,6 +99,7 @@ export async function insertAgentBenchmark(
     winnerCandidateId: input.winnerCandidateId,
     noClearWinner: input.noClearWinner,
     resultJson: input.resultJson,
+    sourceExperimentId: input.sourceExperimentId,
   };
 }
 
@@ -128,7 +133,7 @@ export async function listAgentBenchmarks(
 export async function getAgentBenchmarkById(env: Env, id: string): Promise<DbAgentBenchmark | null> {
   const row = (await env.DB.prepare(
     `SELECT id, project_id, user_key, title, created_at, updated_at,
-            candidate_count, winner_candidate_id, no_clear_winner, result_json
+            candidate_count, winner_candidate_id, no_clear_winner, result_json, source_experiment_id
        FROM workspace_agent_benchmarks
       WHERE id = ?`,
   )
@@ -147,5 +152,6 @@ export async function getAgentBenchmarkById(env: Env, id: string): Promise<DbAge
     winnerCandidateId: row.winner_candidate_id ?? undefined,
     noClearWinner: row.no_clear_winner === 1,
     resultJson: row.result_json,
+    sourceExperimentId: row.source_experiment_id ?? undefined,
   };
 }

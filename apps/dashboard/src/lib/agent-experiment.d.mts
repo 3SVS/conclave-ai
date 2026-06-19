@@ -48,6 +48,26 @@ export function experimentCandidateStatus(links: {
   benchmarkId?: string;
 }): "planned" | "pr_linked" | "reviewed" | "benchmarked";
 
+type LinkableCandidate = {
+  candidateId: string;
+  label: string;
+  mode: string;
+  suggestedAgent: string;
+  pullRequestNumber?: number;
+  reviewRunId?: string;
+  benchmarkId?: string;
+};
+export function linkedExperimentCandidates<T extends LinkableCandidate>(candidates: T[]): T[];
+export function canCreateBenchmarkFromExperiment(candidates: LinkableCandidate[]): boolean;
+export function mapExperimentCandidatesToBenchmark(candidates: LinkableCandidate[]): Array<{
+  id: string;
+  label: string;
+  mode: string;
+  source: string;
+  reviewRunId?: string;
+  pullRequestNumber?: number;
+}>;
+
 export type CandidatePromptParts = {
   roleInstruction: string;
   contextHeading: string;

@@ -320,10 +320,15 @@ export default function BenchmarkDetailPage() {
       </div>
 
       {/* Meta */}
-      <div className="flex flex-wrap gap-x-5 gap-y-1 rounded-xl border border-gray-200 bg-white px-4 py-3 text-xs text-gray-500">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 rounded-xl border border-gray-200 bg-white px-4 py-3 text-xs text-gray-500">
         {data.title && <span className="font-medium text-gray-700">{data.title}</span>}
         <span>{t.benchmark.createdLabel}: {formatDate(data.createdAt, locale)}</span>
         <span>{t.benchmark.detailCandidates}: {data.candidateCount}</span>
+        {data.sourceExperimentId && (
+          <Link href={`/projects/${id}/experiment?experiment=${encodeURIComponent(data.sourceExperimentId)}`} className="text-indigo-600 hover:underline">
+            {t.benchmark.sourceExperiment}: {t.benchmark.openExperiment}
+          </Link>
+        )}
       </div>
 
       {/* Acceptance set alignment */}

@@ -8,6 +8,9 @@ import {
   buildAllPromptsText,
   canSaveExperiment,
   experimentCandidateStatus,
+  linkedExperimentCandidates,
+  canCreateBenchmarkFromExperiment,
+  mapExperimentCandidatesToBenchmark,
 } from "../src/lib/agent-experiment.mjs";
 
 test("three built-in templates exist with expected modes + candidate counts", () => {
@@ -91,4 +94,23 @@ test("experimentCandidateStatus derives from current links", () => {
   assert.equal(experimentCandidateStatus({ pullRequestNumber: 7 }), "pr_linked");
   assert.equal(experimentCandidateStatus({ pullRequestNumber: 7, reviewRunId: "wprr_x" }), "reviewed");
   assert.equal(experimentCandidateStatus({ reviewRunId: "wprr_x", benchmarkId: "wabm_y" }), "benchmarked");
+});
+
+const expCands = [
+  { candidateId: "a", label: "Builder A", mode: "multi_agent", suggestedAgent: "claude_code", reviewRunId: "wprr_1", pullRequestNumber: 3 },
+  { candidateId: "b", label: "Builder B", mode: "multi_agent", suggestedAgent: "codex", reviewRunId: "wprr_2" },
+  { candidateId: "c", label: "Builder C", mode: "multi_agent", suggestedAgent: "cursor" }, // not linked
+];
+
+test("canCreateBenchmarkFromExperiment requires 2+ linked review runs", () => {
+  assert.equal(canCreateBenchmarkFromExperiment(expCands), true);
+  assert.equal(canCreateBenchmarkFromExperiment([expCands[0], expCands[2]]), false); // only 1 linked
+  assert.equal(linkedExperimentCandidates(expCands).length, 2);
+});
+
+test("mapExperimentCandidatesToBenchmark maps only linked candidates to benchmark shape", () => {
+  const mapped = mapExperimentCandidatesToBenchmark(expCands);
+  assert.equal(mapped.length, 2);
+  assert.deepEqual(mapped[0], { id: "a", label: "Builder A", mode: "multi_agent", source: "claude_code", reviewRunId: "wprr_1", pullRequestNumber: 3 });
+  assert.deepEqual(mapped[1], { id: "b", label: "Builder B", mode: "multi_agent", source: "codex", reviewRunId: "wprr_2" });
 });
