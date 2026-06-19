@@ -846,6 +846,18 @@ export type Dictionary = {
     summaryRecommendation: string;
     summaryCandidates: string;
     summaryCandidateLine: string;
+    shareTitle: string;
+    prIntro: string;
+    prNoteHeading: string;
+    previewPrComment: string;
+    commentPreviewTitle: string;
+    postToPr: string;
+    postWarning: string;
+    prPosting: string;
+    postedToGithub: string;
+    postCommentError: string;
+    prViewComment: string;
+    mixedPrNote: string;
   };
   errors: { generic: string; loadFailed: string };
 };

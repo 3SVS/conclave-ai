@@ -6,7 +6,12 @@ import Link from "next/link";
 import { getProject } from "@/lib/mock-data";
 import { getLocalProject, getUserKey } from "@/lib/workflow-store";
 import { getSavedBenchmark, type SavedBenchmark } from "@/lib/workspace-benchmark-api";
+import { postPRComment } from "@/lib/workspace-github-api";
 import { buildBenchmarkSummaryText } from "@/lib/agent-benchmark.mjs";
+import {
+  resolveBenchmarkPrTarget,
+  buildBenchmarkPrCommentMarkdown,
+} from "@/lib/agent-benchmark-comment.mjs";
 import type {
   AgentCandidate,
   CandidateMode,
@@ -77,6 +82,10 @@ export default function BenchmarkDetailPage() {
   const [phase, setPhase] = useState<"loading" | "done" | "not_found" | "error">("loading");
   const [data, setData] = useState<SavedBenchmark | null>(null);
   const [copied, setCopied] = useState(false);
+  // Stage 67: PR comment share
+  const [previewMd, setPreviewMd] = useState<string | null>(null);
+  const [postPhase, setPostPhase] = useState<"idle" | "posting" | "posted" | "error">("idle");
+  const [postedUrl, setPostedUrl] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -177,6 +186,71 @@ export default function BenchmarkDetailPage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }).catch(() => {});
+  }
+
+  // ── PR comment share (Stage 67) ──
+  const prTarget = resolveBenchmarkPrTarget(candidates);
+
+  function buildCommentMarkdown(): string {
+    const rows = ranked.map(({ candidate, metrics }) => ({
+      label: candidate.label,
+      mode: modeLabel(t, candidate.mode),
+      passed: metrics.passed,
+      total: metrics.totalItems,
+      critical: metrics.criticalIssueCount,
+      notVerified: metrics.notVerifiedCount,
+      score: metrics.score,
+    }));
+    const blockerLines = winnerBlocker
+      ? [
+          winnerBlocker.failed > 0 ? `${statusLabel(t, "failed")}: ${winnerBlocker.failed}` : null,
+          winnerBlocker.needsDecision > 0 ? `${statusLabel(t, "needs_decision")}: ${winnerBlocker.needsDecision}` : null,
+          winnerBlocker.inconclusive > 0 ? `${statusLabel(t, "inconclusive")}: ${winnerBlocker.inconclusive}` : null,
+        ].filter((l): l is string => l !== null)
+      : [];
+    return buildBenchmarkPrCommentMarkdown({
+      heading: t.benchmark.summaryHeading,
+      intro: t.benchmark.prIntro,
+      alignmentWarning: alignment && !alignment.aligned ? t.benchmark.acceptanceSetWarning : null,
+      recommendationLabel: t.benchmark.summaryRecommendation,
+      recommendationValue: winner ? winner.label : t.benchmark.noClearWinner,
+      noClearWinnerBody: winner ? null : t.benchmark.noClearWinnerBody,
+      columns: {
+        candidate: t.benchmark.colCandidate,
+        mode: t.benchmark.colMode,
+        passed: t.benchmark.colPassed,
+        critical: t.benchmark.colCritical,
+        notVerified: t.benchmark.colNotVerified,
+        score: t.benchmark.colScore,
+      },
+      rows,
+      whyHeading: t.benchmark.why,
+      whyLines: rationaleLines,
+      blockersHeading: t.benchmark.blockersTitle,
+      blockerLines,
+      noBlockersLine: t.benchmark.noRemainingBlockers,
+      noteHeading: t.benchmark.prNoteHeading,
+      noteText: t.benchmark.intro,
+    });
+  }
+
+  function handlePreviewComment() {
+    setPreviewMd(buildCommentMarkdown());
+    setPostPhase("idle");
+    setPostedUrl(null);
+  }
+
+  async function handlePostComment() {
+    if (!userKey || !previewMd || !prTarget.canPost) return;
+    setPostPhase("posting");
+    const reviewRunId = ranked[0]?.candidate.reviewRunId ?? candidates[0]?.reviewRunId;
+    const res = await postPRComment(id, prTarget.prNumber, { userKey, body: previewMd, reviewRunId });
+    if (res.ok) {
+      setPostedUrl((res as { comment?: { githubCommentUrl?: string } }).comment?.githubCommentUrl ?? null);
+      setPostPhase("posted");
+    } else {
+      setPostPhase("error");
+    }
   }
 
   return (
@@ -357,6 +431,48 @@ export default function BenchmarkDetailPage() {
             </li>
           ))}
         </ul>
+      </section>
+
+      {/* Share — PR comment (Stage 67: preview-first, explicit confirm) */}
+      <section className="rounded-xl border border-gray-200 bg-white p-5">
+        <h3 className="text-sm font-semibold text-gray-800">{t.benchmark.shareTitle}</h3>
+        {!prTarget.canPost ? (
+          <p className="mt-2 text-xs text-gray-500">{t.benchmark.mixedPrNote}</p>
+        ) : !previewMd ? (
+          <button
+            onClick={handlePreviewComment}
+            className="mt-2 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
+          >
+            {t.benchmark.previewPrComment}
+          </button>
+        ) : postPhase === "posted" ? (
+          <div className="mt-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+            {t.benchmark.postedToGithub}
+            {postedUrl && (
+              <a href={postedUrl} target="_blank" rel="noopener noreferrer" className="ml-2 underline hover:text-green-900">
+                {t.benchmark.prViewComment}
+              </a>
+            )}
+          </div>
+        ) : (
+          <div className="mt-2 space-y-2">
+            <p className="text-xs font-medium text-gray-500">{t.benchmark.commentPreviewTitle}</p>
+            <div className="max-h-72 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <pre className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-gray-700">{previewMd}</pre>
+            </div>
+            <p className="text-xs text-amber-700">{t.benchmark.postWarning}</p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handlePostComment}
+                disabled={postPhase === "posting"}
+                className="rounded-lg bg-gray-900 px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-gray-800 disabled:opacity-40"
+              >
+                {postPhase === "posting" ? t.benchmark.prPosting : t.benchmark.postToPr}
+              </button>
+              {postPhase === "error" && <span className="text-xs text-red-500">{t.benchmark.postCommentError}</span>}
+            </div>
+          </div>
+        )}
       </section>
     </div>
   );
