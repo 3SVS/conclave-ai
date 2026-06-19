@@ -501,7 +501,7 @@ export default function BenchmarkPage() {
                         </p>
                       </div>
                       <Link
-                        href={b.winnerCandidateId ? `/projects/${id}/github/history/${b.winnerCandidateId}` : `/projects/${id}/benchmark`}
+                        href={`/projects/${id}/benchmark/${b.id}`}
                         className="flex-shrink-0 rounded-lg border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:bg-gray-50"
                       >
                         {t.benchmark.open}

@@ -86,6 +86,21 @@ export const MAX_CANDIDATES: number;
 
 export function canSaveBenchmark(candidateCount: number): boolean;
 
+export type BenchmarkSummaryParts = {
+  heading: string;
+  projectLine: string;
+  benchmarkLine: string;
+  recommendationLine: string;
+  candidatesHeading: string;
+  candidateLines?: string[];
+  whyHeading: string;
+  whyLines?: string[];
+  blockersHeading: string;
+  blockerLines?: string[];
+  noBlockersLine: string;
+};
+export function buildBenchmarkSummaryText(parts: BenchmarkSummaryParts): string;
+
 export function computeCandidateMetrics(counts: ReviewSummaryCounts | undefined | null): AgentCandidateMetrics;
 export function rankCandidates(
   candidates: AgentCandidate[],

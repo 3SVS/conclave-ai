@@ -193,6 +193,45 @@ export function buildBenchmarkResult({ projectId, candidates, countsByCandidate 
   return result;
 }
 
+/**
+ * Deterministic, copy-pasteable benchmark summary text. NO LLM — a pure
+ * assembler. The caller passes already-localized lines/labels (so the text
+ * follows the UI language); this function only fixes the structure, spacing,
+ * and bullet prefixes, and drops empty sections.
+ */
+export function buildBenchmarkSummaryText(parts) {
+  const {
+    heading,
+    projectLine,
+    benchmarkLine,
+    recommendationLine,
+    candidatesHeading,
+    candidateLines = [],
+    whyHeading,
+    whyLines = [],
+    blockersHeading,
+    blockerLines = [],
+    noBlockersLine,
+  } = parts;
+
+  const out = [heading, "", projectLine, benchmarkLine, recommendationLine, "", `${candidatesHeading}:`];
+  for (const line of candidateLines) out.push(`- ${line}`);
+
+  if (whyLines.length > 0) {
+    out.push("", `${whyHeading}:`);
+    for (const line of whyLines) out.push(`- ${line}`);
+  }
+
+  out.push("", `${blockersHeading}:`);
+  if (blockerLines.length > 0) {
+    for (const line of blockerLines) out.push(`- ${line}`);
+  } else {
+    out.push(noBlockersLine);
+  }
+
+  return out.join("\n");
+}
+
 /** Sorted unique item ids — compare acceptance sets order-independently. */
 function normalizedSet(ids) {
   return [...new Set((ids ?? []).map(String))].sort();
