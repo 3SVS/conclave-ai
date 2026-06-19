@@ -106,7 +106,7 @@ export default function SettingsPage() {
       void loadNotifications();
     } else {
       setTgTestPhase("error");
-      setTgTestError(res.message ?? res.error ?? "전송 실패");
+      setTgTestError(res.message ?? res.error ?? t.telegram.testError);
     }
   }
 
@@ -166,7 +166,7 @@ export default function SettingsPage() {
     const fullName = directInput.trim();
     if (!/^[^/\s]+\/[^/\s]+$/.test(fullName)) {
       setLookupPhase("error");
-      setLookupError("owner/repo 형식으로 입력해주세요. 예: 3SVS/My-first-product");
+      setLookupError(t.github.errorInvalidName);
       return;
     }
     setLookupPhase("loading");
