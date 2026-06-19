@@ -36,6 +36,18 @@ import {
   buildComparisonCommentInput,
 } from "@/lib/review-run-comparison.mjs";
 import type { ReviewRunComparison, ReviewRunComparisonItem } from "@/lib/review-run-comparison.mjs";
+import { useI18n } from "@/i18n/I18nProvider";
+import { statusLabel } from "@/i18n/dictionary.mjs";
+import type { Dictionary, Locale } from "@/i18n/dictionary.mjs";
+
+// Run status → label. statusLabel covers passed/failed/inconclusive/needs_decision;
+// run-only states (error/running/queued) fall back to the runStatus namespace.
+function statusText(t: Dictionary, status: string): string {
+  if (status === "error") return t.runStatus.error;
+  if (status === "running") return t.runStatus.running;
+  if (status === "queued") return t.runStatus.queued;
+  return statusLabel(t, status);
+}
 
 // Stage 44: localStorage, guarded for SSR / private-mode / blocked storage.
 function getReviewSelectionStorage(): StorageLike | null {
@@ -49,28 +61,32 @@ function getReviewSelectionStorage(): StorageLike | null {
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
-const STATUS_CFG: Record<string, { label: string; badge: string }> = {
-  passed:        { label: "통과",     badge: "text-green-700 bg-green-50 border-green-200" },
-  failed:        { label: "안 맞음", badge: "text-red-700 bg-red-50 border-red-200" },
-  inconclusive:  { label: "확인 부족",badge: "text-yellow-700 bg-yellow-50 border-yellow-200" },
-  needs_decision:{ label: "결정 필요",badge: "text-slate-700 bg-slate-50 border-slate-200" },
-  error:         { label: "실패",     badge: "text-gray-600 bg-gray-50 border-gray-200" },
-  running:       { label: "실행 중", badge: "text-blue-700 bg-blue-50 border-blue-200" },
-  queued:        { label: "대기 중", badge: "text-gray-500 bg-gray-50 border-gray-200" },
+const STATUS_BADGE: Record<string, string> = {
+  passed:        "text-green-700 bg-green-50 border-green-200",
+  failed:        "text-red-700 bg-red-50 border-red-200",
+  inconclusive:  "text-yellow-700 bg-yellow-50 border-yellow-200",
+  needs_decision:"text-slate-700 bg-slate-50 border-slate-200",
+  error:         "text-gray-600 bg-gray-50 border-gray-200",
+  running:       "text-blue-700 bg-blue-50 border-blue-200",
+  queued:        "text-gray-500 bg-gray-50 border-gray-200",
 };
 
+function badgeClass(status: string): string {
+  return STATUS_BADGE[status] ?? "text-gray-500 bg-gray-50 border-gray-200";
+}
+
 function StatusBadge({ status }: { status: string }) {
-  const c = STATUS_CFG[status] ?? { label: status, badge: "text-gray-500 bg-gray-50 border-gray-200" };
+  const { t } = useI18n();
   return (
-    <span className={`text-xs font-medium border rounded-full px-2.5 py-0.5 flex-shrink-0 ${c.badge}`}>
-      {c.label}
+    <span className={`text-xs font-medium border rounded-full px-2.5 py-0.5 flex-shrink-0 ${badgeClass(status)}`}>
+      {statusText(t, status)}
     </span>
   );
 }
 
-function formatDate(iso: string): string {
+function formatDate(iso: string, locale: Locale): string {
   try {
-    return new Date(iso).toLocaleString("ko-KR", {
+    return new Date(iso).toLocaleString(locale === "ko" ? "ko-KR" : "en-US", {
       year: "numeric", month: "short", day: "numeric",
       hour: "2-digit", minute: "2-digit",
     });
@@ -80,11 +96,12 @@ function formatDate(iso: string): string {
 // ─── Summary cards ────────────────────────────────────────────────────────────
 
 function SummaryCards({ summary }: { summary: PRReviewRunDetail["summary"] }) {
+  const { t } = useI18n();
   const cards = [
-    { label: "통과",      value: summary.passed,        color: "text-green-600" },
-    { label: "안 맞음",  value: summary.failed,        color: "text-red-600" },
-    { label: "확인 부족", value: summary.inconclusive,  color: "text-yellow-600" },
-    { label: "결정 필요", value: summary.needsDecision, color: "text-slate-600" },
+    { label: statusLabel(t, "passed"),         value: summary.passed,        color: "text-green-600" },
+    { label: statusLabel(t, "failed"),         value: summary.failed,        color: "text-red-600" },
+    { label: statusLabel(t, "inconclusive"),   value: summary.inconclusive,  color: "text-yellow-600" },
+    { label: statusLabel(t, "needs_decision"), value: summary.needsDecision, color: "text-slate-600" },
   ];
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -101,12 +118,12 @@ function SummaryCards({ summary }: { summary: PRReviewRunDetail["summary"] }) {
 // ─── Result item card ─────────────────────────────────────────────────────────
 
 function ResultCard({ item }: { item: ReviewResultItem }) {
-  const cfg = STATUS_CFG[item.status] ?? STATUS_CFG["error"];
+  const { t } = useI18n();
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4">
       <div className="flex items-start gap-3 mb-2">
-        <span className={`text-xs font-medium border rounded-full px-2 py-0.5 flex-shrink-0 mt-0.5 ${cfg.badge}`}>
-          {item.userLabel ?? cfg.label}
+        <span className={`text-xs font-medium border rounded-full px-2 py-0.5 flex-shrink-0 mt-0.5 ${badgeClass(item.status)}`}>
+          {statusText(t, item.status)}
         </span>
         <p className="text-sm font-medium text-gray-800">{item.title}</p>
       </div>
@@ -115,7 +132,7 @@ function ResultCard({ item }: { item: ReviewResultItem }) {
       )}
       {Array.isArray(item.evidence) && item.evidence.length > 0 && (
         <div className="bg-gray-50 rounded-lg px-3 py-2 mb-2">
-          <p className="text-xs font-medium text-gray-500 mb-1">확인 근거</p>
+          <p className="text-xs font-medium text-gray-500 mb-1">{t.runDetail.evidence}</p>
           <ul className="space-y-0.5">
             {item.evidence.map((e, i) => (
               <li key={i} className="text-xs text-gray-500 flex gap-1.5">
@@ -127,7 +144,7 @@ function ResultCard({ item }: { item: ReviewResultItem }) {
       )}
       {item.status !== "passed" && item.nextAction && (
         <p className="text-xs text-indigo-600 bg-indigo-50 rounded-lg px-3 py-2">
-          <span className="font-medium">다음 단계:</span> {item.nextAction}
+          <span className="font-medium">{t.runDetail.nextStep}:</span> {item.nextAction}
         </p>
       )}
     </div>
@@ -146,6 +163,7 @@ function FixPackPanel({
   selectedItemIds: string[];
   autoOpen?: boolean;
 }) {
+  const { t } = useI18n();
   const [phase, setPhase] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [result, setResult] = useState<FixBriefResult | null>(null);
   const [selectedFileIdx, setSelectedFileIdx] = useState(0);
@@ -163,7 +181,7 @@ function FixPackPanel({
     const res = await generatePRFixBrief(projectId, prNumber, {
       userKey,
       reviewRunId: runId,
-      // Stage 43: 공유 selectedItemIds 사용 (run detail의 선택 패널과 동일).
+      // Stage 43: use the shared selectedItemIds (same as run detail's selection panel).
       selectedItemIds,
       productSpec: ext?.productSpec,
       items: undefined,
@@ -173,7 +191,7 @@ function FixPackPanel({
     setPhase("done");
   }, [projectId, prNumber, runId, userKey, selectedItemIds]);
 
-  // Stage 42/43: when arrived via "남은 문제 Fix Pack" (?action=fix-pack), scroll
+  // Stage 42/43: when arrived via the "Fix Pack for remaining issues" quick action (?action=fix-pack), scroll
   // into view and auto-generate once — using the shared selection.
   useEffect(() => {
     if (!autoOpen || autoFiredRef.current || selectedItemIds.length === 0) return;
@@ -190,7 +208,7 @@ function FixPackPanel({
           disabled={!enabled}
           className="w-full bg-gray-900 text-white text-sm font-medium px-4 py-2.5 rounded-xl hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
-          선택한 항목으로 Fix Pack 만들기{enabled ? ` (${selectedCount}개)` : ""}
+          {t.runDetail.fpCreate}{enabled ? ` (${selectedCount})` : ""}
         </button>
       </div>
     );
@@ -200,7 +218,7 @@ function FixPackPanel({
     return (
       <div ref={containerRef} className="flex items-center gap-2 text-sm text-gray-400 py-2">
         <div className="w-4 h-4 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin flex-shrink-0" />
-        수정 지시서 만드는 중...
+        {t.runDetail.fpCreating}
       </div>
     );
   }
@@ -208,8 +226,8 @@ function FixPackPanel({
   if (phase === "error") {
     return (
       <div ref={containerRef} className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700 flex items-center justify-between">
-        <span>Fix Pack 생성 실패</span>
-        <button onClick={generate} className="text-xs text-red-600 underline">다시 시도</button>
+        <span>{t.runDetail.fpError}</span>
+        <button onClick={generate} className="text-xs text-red-600 underline">{t.runDetail.retry}</button>
       </div>
     );
   }
@@ -228,24 +246,22 @@ function FixPackPanel({
       {/* Header */}
       <div className="bg-gray-50 border-b border-gray-200 px-4 py-3 flex items-center justify-between">
         <div>
-          <p className="text-sm font-semibold text-gray-800">남은 문제 Fix Pack</p>
+          <p className="text-sm font-semibold text-gray-800">{t.runDetail.fpTitle}</p>
           <p className="text-xs text-indigo-600 mt-0.5">
-            남은 문제 {result.selectedItemIds.length}개로 Fix Pack을 만들었어요.
+            {t.runDetail.fpBuilt.replace("{n}", String(result.selectedItemIds.length))}
           </p>
         </div>
         <button
           onClick={copyAll}
           className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
         >
-          {copied ? "복사됨!" : "전체 복사"}
+          {copied ? t.runDetail.copied : t.runDetail.fpCopyAll}
         </button>
       </div>
 
       {/* Source notice — Fix Pack reflects a specific historical run */}
       <div className="bg-amber-50 border-b border-amber-100 px-4 py-2">
-        <p className="text-xs text-amber-700">
-          이 Fix Pack은 특정 확인 기록 기준입니다. 최신 PR 상태와 다를 수 있습니다.
-        </p>
+        <p className="text-xs text-amber-700">{t.runDetail.fpSourceNotice}</p>
       </div>
 
       {/* File tabs */}
@@ -310,6 +326,7 @@ function CommentPanel({
   comparisonDisplayOnly?: boolean;   // a comparison is on screen but fromRunId-only (no lineage)
   triggerComparisonComment?: number; // Stage 46: AutoComparisonPanel "send to comment" nonce
 }) {
+  const { t } = useI18n();
   const [phase, setPhase] = useState<"idle" | "previewing" | "ready" | "posting" | "posted" | "error">("idle");
   const [preview, setPreview] = useState<CommentPreview | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -318,7 +335,7 @@ function CommentPanel({
   const [includeRerunComparison, setIncludeRerunComparison] = useState(Boolean(comparisonAvailable));
   const lastTriggerRef = useRef(0);
 
-  // Stage 43: 공유 selectedItemIds 전달 (비어 있으면 서버가 run 선택으로 fallback).
+  // Stage 43: pass the shared selectedItemIds (empty → server falls back to the run's selection).
   const sharedSelected = selectedItemIds.length > 0 ? selectedItemIds : undefined;
 
   const generatePreview = useCallback(async (override?: { includeRerunComparison?: boolean }) => {
@@ -350,7 +367,7 @@ function CommentPanel({
     setPhase("posted");
   }, [projectId, prNumber, runId, userKey, preview, sharedSelected, includeRerunComparison, comparisonAvailable]);
 
-  // Stage 46: AutoComparisonPanel "이 비교 결과를 PR comment로 남기기" — check the
+  // Stage 46: AutoComparisonPanel "Post this comparison as a PR comment" — check the
   // box and auto-generate a preview (the Page scrolls this panel into view).
   useEffect(() => {
     if (!triggerComparisonComment || triggerComparisonComment === lastTriggerRef.current) return;
@@ -377,22 +394,22 @@ function CommentPanel({
               className="mt-0.5 rounded border-gray-300 flex-shrink-0"
             />
             <span>
-              다시 확인 결과 비교 포함
+              {t.runDetail.cmInclude}
               <span className="block text-[11px] text-gray-400">
-                좋아진 항목, 아직 남은 항목, 새로 생긴 문제를 PR comment에 함께 넣습니다.
+                {t.runDetail.cmIncludeHint}
               </span>
             </span>
           </label>
         ) : comparisonDisplayOnly ? (
           <p className="text-[11px] text-gray-400">
-            이 기록은 다시 확인으로 만들어진 결과가 아니어서 비교를 comment에 포함할 수 없어요.
+            {t.runDetail.cmDisplayOnly}
           </p>
         ) : null}
         <button
           onClick={() => generatePreview()}
           className="w-full bg-white border border-gray-200 text-gray-700 text-sm font-medium px-4 py-2.5 rounded-xl hover:bg-gray-50 transition-colors"
         >
-          선택한 항목으로 PR comment 작성하기
+          {t.runDetail.cmCreate}
         </button>
       </div>
     );
@@ -402,7 +419,7 @@ function CommentPanel({
     return (
       <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
         <div className="w-4 h-4 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin flex-shrink-0" />
-        comment 생성 중...
+        {t.runDetail.cmGenerating}
       </div>
     );
   }
@@ -410,8 +427,8 @@ function CommentPanel({
   if (phase === "error") {
     return (
       <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700 flex items-center justify-between">
-        <span>comment 생성 실패</span>
-        <button onClick={() => generatePreview()} className="text-xs text-red-600 underline">다시 시도</button>
+        <span>{t.runDetail.cmError}</span>
+        <button onClick={() => generatePreview()} className="text-xs text-red-600 underline">{t.runDetail.retry}</button>
       </div>
     );
   }
@@ -419,10 +436,10 @@ function CommentPanel({
   if (phase === "posted") {
     return (
       <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700">
-        GitHub에 comment를 남겼습니다.
+        {t.runDetail.cmPosted}
         {postResult?.url && (
           <a href={postResult.url} target="_blank" rel="noreferrer" className="ml-2 underline text-green-600">
-            보기 →
+            {t.runDetail.view}
           </a>
         )}
       </div>
@@ -435,17 +452,17 @@ function CommentPanel({
     <div className="border border-gray-200 rounded-xl overflow-hidden">
       {/* Header */}
       <div className="bg-gray-50 border-b border-gray-200 px-4 py-3 flex items-center justify-between">
-        <p className="text-sm font-semibold text-gray-800">PR comment 미리보기</p>
+        <p className="text-sm font-semibold text-gray-800">{t.runDetail.cmPreviewTitle}</p>
         <div className="flex items-center gap-2">
           <button onClick={copyBody} className="text-xs text-gray-500 hover:text-gray-700">
-            {copied ? "복사됨!" : "복사"}
+            {copied ? t.runDetail.copied : t.runDetail.copy}
           </button>
           <button
             onClick={post}
             disabled={phase === "posting"}
             className="text-xs bg-gray-900 text-white px-3 py-1.5 rounded-lg hover:bg-gray-800 disabled:opacity-50 transition-colors"
           >
-            {phase === "posting" ? "작성 중..." : "GitHub에 남기기"}
+            {phase === "posting" ? t.runDetail.cmPosting : t.runDetail.cmPost}
           </button>
         </div>
       </div>
@@ -455,7 +472,7 @@ function CommentPanel({
           {warnings.map((w, i) => (
             <p key={i} className="text-xs text-amber-700">
               {w === "comparison_not_available_for_specific_run"
-                ? "이전/최신 비교는 특정 확인 기록에서는 지원하지 않아요."
+                ? t.runDetail.cmWarnNoComparison
                 : w}
             </p>
           ))}
@@ -480,20 +497,17 @@ const CMP_STATUS_COLORS: Record<string, string> = {
   needs_decision: "text-slate-600",
 };
 
-const STATUS_KO: Record<string, string> = {
-  passed: "통과", failed: "안 맞음", inconclusive: "확인 부족", needs_decision: "결정 필요",
-};
-
 function ComparisonPanel({ cmp, newRunId, projectId, selectedCount }: {
   cmp: SpecificRunComparison;
   newRunId: string;
   projectId: string;
   selectedCount?: number;
 }) {
+  const { t } = useI18n();
   if (!cmp.comparable) {
     return (
       <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-xs text-gray-500">
-        비교할 이전 확인 결과가 없어요.
+        {t.runDetail.cmpNoPrevious}
       </div>
     );
   }
@@ -501,7 +515,7 @@ function ComparisonPanel({ cmp, newRunId, projectId, selectedCount }: {
     <div className="border border-gray-200 rounded-xl overflow-hidden">
       <div className="bg-gray-50 border-b border-gray-200 px-4 py-3 flex items-center justify-between">
         <div>
-          <p className="text-sm font-semibold text-gray-800">이전/새 결과 비교</p>
+          <p className="text-sm font-semibold text-gray-800">{t.runDetail.cmpTitle}</p>
           {typeof selectedCount === "number" && selectedCount > 0 && (
             <p className="text-xs text-indigo-600 mt-0.5">{formatSelectedCountMessage(selectedCount)}</p>
           )}
@@ -511,53 +525,53 @@ function ComparisonPanel({ cmp, newRunId, projectId, selectedCount }: {
           href={`/projects/${projectId}/github/history/${newRunId}`}
           className="text-xs text-indigo-600 font-medium hover:text-indigo-800 flex-shrink-0"
         >
-          새 기록 보기 →
+          {t.runDetail.viewNewRun}
         </Link>
       </div>
       <div className="divide-y divide-gray-100 bg-white">
         {cmp.improved.length > 0 && (
           <div className="px-4 py-3">
-            <p className="text-xs font-medium text-green-700 mb-2">좋아진 항목 ({cmp.improved.length}개)</p>
+            <p className="text-xs font-medium text-green-700 mb-2">{t.runDetail.cmpImproved} ({cmp.improved.length})</p>
             {cmp.improved.map((item) => (
               <div key={item.itemId} className="text-xs text-gray-600 mb-1.5">
                 <span className="font-medium">{item.title}</span>
                 <span className="text-gray-400 mx-1">·</span>
-                <span className={CMP_STATUS_COLORS[item.from] ?? ""}>{STATUS_KO[item.from] ?? item.from}</span>
+                <span className={CMP_STATUS_COLORS[item.from] ?? ""}>{statusText(t, item.from)}</span>
                 <span className="text-gray-400 mx-1">→</span>
-                <span className={CMP_STATUS_COLORS[item.to] ?? ""}>{STATUS_KO[item.to] ?? item.to}</span>
+                <span className={CMP_STATUS_COLORS[item.to] ?? ""}>{statusText(t, item.to)}</span>
               </div>
             ))}
           </div>
         )}
         {cmp.newlyProblematic.length > 0 && (
           <div className="px-4 py-3">
-            <p className="text-xs font-medium text-red-700 mb-2">새로 생긴 문제 ({cmp.newlyProblematic.length}개)</p>
+            <p className="text-xs font-medium text-red-700 mb-2">{t.runDetail.cmpNewIssue} ({cmp.newlyProblematic.length})</p>
             {cmp.newlyProblematic.map((item) => (
               <div key={item.itemId} className="text-xs text-gray-600 mb-1.5">
                 <span className="font-medium">{item.title}</span>
                 <span className="text-gray-400 mx-1">·</span>
-                <span className={CMP_STATUS_COLORS[item.from] ?? ""}>{STATUS_KO[item.from] ?? item.from}</span>
+                <span className={CMP_STATUS_COLORS[item.from] ?? ""}>{statusText(t, item.from)}</span>
                 <span className="text-gray-400 mx-1">→</span>
-                <span className={CMP_STATUS_COLORS[item.to] ?? ""}>{STATUS_KO[item.to] ?? item.to}</span>
+                <span className={CMP_STATUS_COLORS[item.to] ?? ""}>{statusText(t, item.to)}</span>
               </div>
             ))}
           </div>
         )}
         {cmp.stillOpen.length > 0 && (
           <div className="px-4 py-3">
-            <p className="text-xs font-medium text-yellow-700 mb-2">아직 남은 항목 ({cmp.stillOpen.length}개)</p>
+            <p className="text-xs font-medium text-yellow-700 mb-2">{t.runDetail.cmpStillOpen} ({cmp.stillOpen.length})</p>
             {cmp.stillOpen.map((item) => (
               <div key={item.itemId} className="text-xs text-gray-600 mb-1.5">
                 <span className="font-medium">{item.title}</span>
                 <span className="text-gray-400 mx-1">·</span>
-                <span className={CMP_STATUS_COLORS[item.status] ?? ""}>{STATUS_KO[item.status] ?? item.status}</span>
+                <span className={CMP_STATUS_COLORS[item.status] ?? ""}>{statusText(t, item.status)}</span>
               </div>
             ))}
           </div>
         )}
         {cmp.unchanged.length > 0 && (
           <div className="px-4 py-3">
-            <p className="text-xs font-medium text-gray-500 mb-2">변화 없음 ({cmp.unchanged.length}개)</p>
+            <p className="text-xs font-medium text-gray-500 mb-2">{t.runDetail.cmpUnchanged} ({cmp.unchanged.length})</p>
             {cmp.unchanged.map((item) => (
               <div key={item.itemId} className="text-xs text-gray-500 mb-1">
                 {item.title}
@@ -566,7 +580,7 @@ function ComparisonPanel({ cmp, newRunId, projectId, selectedCount }: {
           </div>
         )}
         <div className="px-4 py-3 bg-gray-50 text-xs text-gray-400">
-          이 비교는 선택한 이전 확인 기록과 방금 다시 확인한 결과를 비교한 것입니다.
+          {t.runDetail.cmpCaption}
         </div>
       </div>
     </div>
@@ -590,25 +604,29 @@ type AutoCompareState =
       currentCreatedAt: string;
     };
 
-const AUTO_COMPARE_ERROR_KO: Record<string, string> = {
-  source_not_found: "이전 확인 기록을 찾지 못했어요.",
-  pr_mismatch: "서로 다른 PR의 확인 기록이라 비교하지 않았어요.",
-  source_empty: "이전 확인 기록의 결과가 비어 있어요.",
-  current_empty: "현재 확인 기록의 결과가 비어 있어요.",
-};
+function autoCompareErrorText(t: Dictionary, reason: string): string {
+  switch (reason) {
+    case "source_not_found": return t.runDetail.acErrSourceNotFound;
+    case "pr_mismatch": return t.runDetail.acErrPrMismatch;
+    case "source_empty": return t.runDetail.acErrSourceEmpty;
+    case "current_empty": return t.runDetail.acErrCurrentEmpty;
+    default: return t.runDetail.acLoadFailed;
+  }
+}
 
-// Stage 48: status-transition pill — 이전 상태 → 현재 상태.
+// Stage 48: status-transition pill — previous status → current status.
 function TransitionPill({ item }: { item: ReviewRunComparisonItem }) {
+  const { t } = useI18n();
   const sourceColor = item.sourceStatus ? (CMP_STATUS_COLORS[item.sourceStatus] ?? "text-gray-500") : "text-gray-400";
   const currentColor = item.currentStatus ? (CMP_STATUS_COLORS[item.currentStatus] ?? "text-gray-500") : "text-gray-500";
   return (
     <span className="inline-flex items-center gap-1 text-[11px] border border-gray-200 rounded-full px-2 py-0.5 bg-white">
       <span className={sourceColor}>
-        {item.sourceStatus ? (STATUS_KO[item.sourceStatus] ?? item.sourceStatus) : "새 항목"}
+        {item.sourceStatus ? statusText(t, item.sourceStatus) : t.runDetail.newItem}
       </span>
       <span className="text-gray-300">→</span>
       <span className={`${currentColor} font-medium`}>
-        {item.currentStatus ? (STATUS_KO[item.currentStatus] ?? item.currentStatus) : ""}
+        {item.currentStatus ? statusText(t, item.currentStatus) : ""}
       </span>
     </span>
   );
@@ -620,10 +638,11 @@ function AutoCompareGroup({ title, description, color, items }: {
   color: string;
   items: ReviewRunComparisonItem[];
 }) {
+  const { t } = useI18n();
   if (items.length === 0) return null;
   return (
     <div className="px-4 py-3">
-      <p className={`text-xs font-medium ${color}`}>{title} ({items.length}개)</p>
+      <p className={`text-xs font-medium ${color}`}>{title} ({items.length})</p>
       <p className="text-[11px] text-gray-400 mb-2">{description}</p>
       <div className="space-y-2">
         {items.map((item) => (
@@ -633,10 +652,10 @@ function AutoCompareGroup({ title, description, color, items }: {
               <TransitionPill item={item} />
             </div>
             {item.currentEvidence && (
-              <p className="text-[11px] text-gray-400 mt-0.5 truncate">현재 근거: {item.currentEvidence}</p>
+              <p className="text-[11px] text-gray-400 mt-0.5 truncate">{t.runDetail.acCurrentEvidence}: {item.currentEvidence}</p>
             )}
             {item.currentNextAction && (
-              <p className="text-[11px] text-indigo-500 mt-0.5 truncate">다음 조치: {item.currentNextAction}</p>
+              <p className="text-[11px] text-indigo-500 mt-0.5 truncate">{t.runDetail.acNextAction}: {item.currentNextAction}</p>
             )}
           </div>
         ))}
@@ -650,11 +669,12 @@ function AutoComparisonPanel({ state, hasLineage, onSendToComment }: {
   hasLineage?: boolean;
   onSendToComment?: () => void;
 }) {
+  const { t, locale } = useI18n();
   if (state.phase === "loading") {
     return (
       <div className="flex items-center gap-2 text-xs text-gray-400 py-1">
         <div className="w-3 h-3 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin flex-shrink-0" />
-        이전 확인 기록과 비교 중...
+        {t.runDetail.acComparing}
       </div>
     );
   }
@@ -662,8 +682,8 @@ function AutoComparisonPanel({ state, hasLineage, onSendToComment }: {
   if (state.phase === "error") {
     return (
       <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5">
-        <p className="text-xs font-medium text-gray-600">이전 확인 기록과 비교할 수 없어요.</p>
-        <p className="text-[11px] text-gray-400 mt-0.5">{AUTO_COMPARE_ERROR_KO[state.reason] ?? "비교 결과를 불러오지 못했어요."}</p>
+        <p className="text-xs font-medium text-gray-600">{t.runDetail.acCannotCompare}</p>
+        <p className="text-[11px] text-gray-400 mt-0.5">{autoCompareErrorText(t, state.reason)}</p>
       </div>
     );
   }
@@ -672,40 +692,40 @@ function AutoComparisonPanel({ state, hasLineage, onSendToComment }: {
   return (
     <div className="border border-gray-200 rounded-xl overflow-hidden">
       <div className="bg-gray-50 border-b border-gray-200 px-4 py-3">
-        <p className="text-sm font-semibold text-gray-800">이전 확인 기록과 비교</p>
+        <p className="text-sm font-semibold text-gray-800">{t.runDetail.acTitle}</p>
         <p className="text-xs text-gray-400 mt-0.5">
-          이 비교는 선택한 이전 확인 기록과 현재 확인 기록을 비교한 것입니다.
+          {t.runDetail.acCaption}
         </p>
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[11px] text-gray-400">
-          <span>이전: {formatDate(sourceCreatedAt)}</span>
-          <span>현재: {formatDate(currentCreatedAt)}</span>
+          <span>{t.runDetail.acPrevious}: {formatDate(sourceCreatedAt, locale)}</span>
+          <span>{t.runDetail.acCurrent}: {formatDate(currentCreatedAt, locale)}</span>
         </div>
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-xs">
-          {cmp.summary.improved > 0 && <span className="text-green-600 font-medium">좋아진 항목 {cmp.summary.improved}</span>}
-          {cmp.summary.newlyProblematic > 0 && <span className="text-red-600 font-medium">새로 생긴 문제 {cmp.summary.newlyProblematic}</span>}
-          {cmp.summary.stillOpen > 0 && <span className="text-yellow-600 font-medium">아직 남은 항목 {cmp.summary.stillOpen}</span>}
-          {cmp.summary.unchanged > 0 && <span className="text-gray-500 font-medium">변화 없음 {cmp.summary.unchanged}</span>}
+          {cmp.summary.improved > 0 && <span className="text-green-600 font-medium">{t.runDetail.cmpImproved} {cmp.summary.improved}</span>}
+          {cmp.summary.newlyProblematic > 0 && <span className="text-red-600 font-medium">{t.runDetail.cmpNewIssue} {cmp.summary.newlyProblematic}</span>}
+          {cmp.summary.stillOpen > 0 && <span className="text-yellow-600 font-medium">{t.runDetail.cmpStillOpen} {cmp.summary.stillOpen}</span>}
+          {cmp.summary.unchanged > 0 && <span className="text-gray-500 font-medium">{t.runDetail.cmpUnchanged} {cmp.summary.unchanged}</span>}
         </div>
       </div>
       <div className="divide-y divide-gray-100 bg-white">
         <AutoCompareGroup
-          title="좋아진 항목" color="text-green-700"
-          description="이전보다 상태가 좋아진 항목입니다."
+          title={t.runDetail.cmpImproved} color="text-green-700"
+          description={t.runDetail.acDescImproved}
           items={cmp.improved}
         />
         <AutoCompareGroup
-          title="새로 생긴 문제" color="text-red-700"
-          description="이전보다 나빠졌거나 새로 문제가 생긴 항목입니다."
+          title={t.runDetail.cmpNewIssue} color="text-red-700"
+          description={t.runDetail.acDescNew}
           items={cmp.newlyProblematic}
         />
         <AutoCompareGroup
-          title="아직 남은 항목" color="text-yellow-700"
-          description="문제가 계속 남아 있는 항목입니다."
+          title={t.runDetail.cmpStillOpen} color="text-yellow-700"
+          description={t.runDetail.acDescStillOpen}
           items={cmp.stillOpen}
         />
         <AutoCompareGroup
-          title="변화 없음" color="text-gray-500"
-          description="상태가 그대로인 항목입니다."
+          title={t.runDetail.cmpUnchanged} color="text-gray-500"
+          description={t.runDetail.acDescUnchanged}
           items={cmp.unchanged}
         />
       </div>
@@ -717,11 +737,11 @@ function AutoComparisonPanel({ state, hasLineage, onSendToComment }: {
             onClick={onSendToComment}
             className="text-xs font-medium border border-indigo-200 text-indigo-700 bg-indigo-50 rounded-lg px-3 py-1.5 hover:bg-indigo-100 transition-colors"
           >
-            이 비교 결과를 PR comment로 남기기
+            {t.runDetail.acSendToComment}
           </button>
         ) : (
           <p className="text-[11px] text-gray-400">
-            PR comment에 포함하려면 다시 확인으로 생성된 기록이 필요해요.
+            {t.runDetail.acNeedLineage}
           </p>
         )}
       </div>
@@ -734,7 +754,7 @@ function RerunItemRow({ item, checked, onToggle }: {
   checked: boolean;
   onToggle: () => void;
 }) {
-  const cfg = STATUS_CFG[item.status] ?? STATUS_CFG["error"];
+  const { t } = useI18n();
   const evidence = Array.isArray(item.evidence) && item.evidence.length > 0 ? item.evidence[0] : "";
   return (
     <label className="flex items-start gap-3 px-4 py-2.5 cursor-pointer hover:bg-gray-50">
@@ -746,14 +766,14 @@ function RerunItemRow({ item, checked, onToggle }: {
       />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className={`text-[11px] font-medium border rounded-full px-1.5 py-0.5 flex-shrink-0 ${cfg.badge}`}>
-            {item.userLabel ?? cfg.label}
+          <span className={`text-[11px] font-medium border rounded-full px-1.5 py-0.5 flex-shrink-0 ${badgeClass(item.status)}`}>
+            {statusText(t, item.status)}
           </span>
           <span className="text-xs font-medium text-gray-800 truncate">{item.title}</span>
         </div>
         {evidence && <p className="text-[11px] text-gray-400 mt-0.5 truncate">{evidence}</p>}
         {item.status !== "passed" && item.nextAction && (
-          <p className="text-[11px] text-indigo-500 mt-0.5 truncate">다음: {item.nextAction}</p>
+          <p className="text-[11px] text-indigo-500 mt-0.5 truncate">{t.runDetail.next}: {item.nextAction}</p>
         )}
       </div>
     </label>
@@ -771,38 +791,39 @@ function ReviewItemSelectionPanel({
   onChange: (selectedItemIds: string[]) => void;
   storageNote?: string;
 }) {
+  const { t } = useI18n();
   const selectedSet = new Set(selectedItemIds);
   return (
     <div className="border border-gray-200 rounded-xl overflow-hidden">
       <div className="bg-gray-50 border-b border-gray-200 px-4 py-3">
-        <p className="text-sm font-semibold text-gray-800">이번에 다룰 항목</p>
+        <p className="text-sm font-semibold text-gray-800">{t.runDetail.selTitle}</p>
         <p className="text-xs text-gray-400 mt-0.5">
-          여기서 고른 항목이 다시 확인 · Fix Pack · PR comment에 함께 쓰여요. 기본은 통과하지 않은 항목이에요.
+          {t.runDetail.selDesc}
         </p>
         <div className="flex flex-wrap gap-1.5 mt-2.5">
           <button
             onClick={() => onChange(recommendedRerunItemIds(items))}
             className="text-[11px] border border-gray-200 bg-white text-gray-600 rounded-lg px-2 py-1 hover:bg-gray-100"
           >
-            추천 선택
+            {t.runDetail.presetRecommended}
           </button>
           <button
             onClick={() => onChange(allRerunItemIds(items))}
             className="text-[11px] border border-gray-200 bg-white text-gray-600 rounded-lg px-2 py-1 hover:bg-gray-100"
           >
-            전체 선택
+            {t.runDetail.presetAll}
           </button>
           <button
             onClick={() => onChange(nonPassedRerunItemIds(items))}
             className="text-[11px] border border-gray-200 bg-white text-gray-600 rounded-lg px-2 py-1 hover:bg-gray-100"
           >
-            통과 제외
+            {t.runDetail.presetNonPassed}
           </button>
           <button
             onClick={() => onChange([])}
             className="text-[11px] border border-gray-200 bg-white text-gray-600 rounded-lg px-2 py-1 hover:bg-gray-100"
           >
-            모두 해제
+            {t.runDetail.presetNone}
           </button>
         </div>
       </div>
@@ -820,10 +841,10 @@ function ReviewItemSelectionPanel({
 
       <div className="border-t border-gray-100 bg-gray-50 px-4 py-2.5 flex items-center justify-between gap-2">
         {selectedItemIds.length > 0 ? (
-          <p className="text-xs text-indigo-600">이번에 다룰 항목: {selectedItemIds.length}개 선택됨</p>
+          <p className="text-xs text-indigo-600">{t.runDetail.selSelected.replace("{n}", String(selectedItemIds.length))}</p>
         ) : (
           <p className="text-xs text-amber-600">
-            항목을 하나 이상 선택하면 다시 확인, Fix Pack, PR comment를 만들 수 있어요.
+            {t.runDetail.selHint}
           </p>
         )}
         {storageNote && <span className="text-[11px] text-gray-400 flex-shrink-0">{storageNote}</span>}
@@ -835,6 +856,7 @@ function ReviewItemSelectionPanel({
 function RerunPanel({
   projectId, prNumber, runId, userKey, selectedItemIds,
 }: { projectId: string; prNumber: number; runId: string; userKey: string; selectedItemIds: string[] }) {
+  const { t } = useI18n();
   const [phase, setPhase] = useState<"idle" | "running" | "done" | "error">("idle");
   const [newRunId, setNewRunId] = useState<string | null>(null);
   const [comparison, setComparison] = useState<SpecificRunComparison | null>(null);
@@ -858,20 +880,20 @@ function RerunPanel({
       idempotencyKey,
     });
     if (!res.ok) {
-      setErrorMsg(res.error ?? "확인 실패");
+      setErrorMsg(res.error ?? t.runDetail.reviewFailed);
       setPhase("error");
       return;
     }
     setNewRunId(res.run.id);
     if (res.comparisonToSourceRun) setComparison(res.comparisonToSourceRun);
     setPhase("done");
-  }, [projectId, prNumber, runId, selectedItemIds, userKey]);
+  }, [projectId, prNumber, runId, selectedItemIds, userKey, t]);
 
   if (phase === "running") {
     return (
       <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
         <div className="w-4 h-4 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin flex-shrink-0" />
-        확인 실행 중... (PR 크기에 따라 최대 30초 소요)
+        {t.runDetail.rerunRunning}
       </div>
     );
   }
@@ -879,9 +901,9 @@ function RerunPanel({
   if (phase === "error") {
     return (
       <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700 flex items-center justify-between">
-        <span>다시 확인 실패: {errorMsg}</span>
+        <span>{t.runDetail.rerunFailedPrefix} {errorMsg}</span>
         <button onClick={() => setPhase("idle")} className="text-xs text-red-600 underline ml-2">
-          닫기
+          {t.runDetail.close}
         </button>
       </div>
     );
@@ -900,7 +922,7 @@ function RerunPanel({
               href={`/projects/${projectId}/github/history/${newRunId}`}
               className="text-xs text-green-600 underline ml-2"
             >
-              새 기록 보기 →
+              {t.runDetail.viewNewRun}
             </Link>
           </div>
         )}
@@ -915,7 +937,7 @@ function RerunPanel({
       disabled={!enabled}
       className="w-full bg-gray-900 text-white text-sm font-medium px-4 py-2.5 rounded-xl hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
     >
-      선택한 항목 다시 확인하기{enabled ? ` (${selectedCount}개)` : ""}
+      {t.runDetail.rerunSelected}{enabled ? ` (${selectedCount})` : ""}
     </button>
   );
 }
@@ -923,6 +945,7 @@ function RerunPanel({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function RunDetailPage() {
+  const { t, locale } = useI18n();
   const { id, runId } = useParams<{ id: string; runId: string }>();
   const project = getLocalProject(id) ?? getProject(id);
   const userKey = getUserKey();
@@ -933,7 +956,7 @@ export default function RunDetailPage() {
     prNumber: number;
     run: PRReviewRunDetail;
   } | null>(null);
-  // Stage 42: arrived from the history list "남은 문제 Fix Pack" quick action.
+  // Stage 42: arrived from the history list "Fix Pack for remaining issues" quick action.
   // Read on the client to avoid a useSearchParams Suspense boundary.
   const [fixPackRequested, setFixPackRequested] = useState(false);
   // Stage 45: ?fromRunId — auto-compare against that source run.
@@ -980,7 +1003,7 @@ export default function RunDetailPage() {
         ? readStoredReviewSelection({ storage, key: storageKey, validItemIds })
         : null;
       if (stored !== null) {
-        // stored [] is an intentional "모두 해제" — restore it as-is.
+        // stored [] is an intentional "clear all" — restore it as-is.
         setSelectedItemIds(stored);
         setStorageStatus("restored");
       } else {
@@ -1041,7 +1064,7 @@ export default function RunDetailPage() {
     return () => { cancelled = true; };
   }, [phase, detail, fromRunId, id, runId, userKey]);
 
-  if (!project) return <p className="text-sm text-gray-400">프로젝트를 찾을 수 없습니다.</p>;
+  if (!project) return <p className="text-sm text-gray-400">{t.common.notFound}</p>;
 
   const historyUrl = `/projects/${id}/github/history`;
   const prPageUrl = `/projects/${id}/github`;
@@ -1051,7 +1074,7 @@ export default function RunDetailPage() {
       <div className="max-w-3xl">
         <div className="flex items-center gap-2 text-sm text-gray-400">
           <div className="w-4 h-4 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin flex-shrink-0" />
-          확인 결과를 불러오는 중...
+          {t.runDetail.loading}
         </div>
       </div>
     );
@@ -1061,11 +1084,11 @@ export default function RunDetailPage() {
     return (
       <div className="max-w-3xl space-y-4">
         <Link href={historyUrl} className="text-xs text-gray-400 hover:text-indigo-600 inline-block">
-          ← 확인 기록으로 돌아가기
+          {t.runDetail.backToHistory}
         </Link>
         <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
-          <p className="text-sm font-medium text-gray-700 mb-1">확인 결과를 찾을 수 없어요.</p>
-          <p className="text-xs text-gray-400">삭제됐거나 다른 프로젝트의 결과일 수 있어요.</p>
+          <p className="text-sm font-medium text-gray-700 mb-1">{t.runDetail.notFoundTitle}</p>
+          <p className="text-xs text-gray-400">{t.runDetail.notFoundDesc}</p>
         </div>
       </div>
     );
@@ -1075,10 +1098,10 @@ export default function RunDetailPage() {
     return (
       <div className="max-w-3xl space-y-4">
         <Link href={historyUrl} className="text-xs text-gray-400 hover:text-indigo-600 inline-block">
-          ← 확인 기록으로 돌아가기
+          {t.runDetail.backToHistory}
         </Link>
         <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">
-          결과를 불러오지 못했습니다. 확인 기록 목록에서 다시 접근해 주세요.
+          {t.runDetail.loadError}
         </div>
       </div>
     );
@@ -1106,9 +1129,9 @@ export default function RunDetailPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <Link href={historyUrl} className="text-xs text-gray-400 hover:text-indigo-600 mb-2 inline-block">
-            ← 확인 기록으로 돌아가기
+            {t.runDetail.backToHistory}
           </Link>
-          <h2 className="text-lg font-bold text-gray-900">확인 상세</h2>
+          <h2 className="text-lg font-bold text-gray-900">{t.runDetail.title}</h2>
           <p className="text-xs text-gray-400 mt-0.5">{repoFullName} · PR #{prNumber}</p>
         </div>
         <StatusBadge status={run.status} />
@@ -1116,20 +1139,20 @@ export default function RunDetailPage() {
 
       {/* ── Source label ── */}
       <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-2.5 text-xs text-amber-700">
-        이 화면은 특정 확인 기록 기준입니다. 최신 PR 상태와 다를 수 있어요.
+        {t.runDetail.sourceNotice}
       </div>
 
       {/* ── Lineage badge ── */}
       {run.rerunOfReviewRunId && (
         <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-2.5">
           <span className="text-xs font-medium text-indigo-700 bg-indigo-100 border border-indigo-200 rounded-full px-2 py-0.5">
-            다시 확인한 기록
+            {t.runDetail.rerunBadge}
           </span>
           <Link
             href={`/projects/${id}/github/history/${run.rerunOfReviewRunId}`}
             className="text-xs text-indigo-600 hover:text-indigo-800"
           >
-            이전 확인 기록 보기 →
+            {t.runDetail.viewPrevRun}
           </Link>
         </div>
       )}
@@ -1137,16 +1160,16 @@ export default function RunDetailPage() {
       {/* ── Run meta ── */}
       <div className="bg-white rounded-xl border border-gray-200 px-4 py-3 text-xs text-gray-500 space-y-1.5">
         <div className="flex items-center justify-between">
-          <span>확인 시간</span>
-          <span className="text-gray-700 font-medium">{formatDate(run.createdAt)}</span>
+          <span>{t.runDetail.runTime}</span>
+          <span className="text-gray-700 font-medium">{formatDate(run.createdAt, locale)}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span>확인 항목 수</span>
-          <span className="text-gray-700 font-medium">{run.selectedItemCount}개</span>
+          <span>{t.runDetail.itemCount}</span>
+          <span className="text-gray-700 font-medium">{run.selectedItemCount}</span>
         </div>
         {run.errorMessage && (
           <div className="flex items-center justify-between">
-            <span>오류 내용</span>
+            <span>{t.runDetail.errorLabel}</span>
             <span className="text-red-600">{run.errorMessage}</span>
           </div>
         )}
@@ -1171,10 +1194,10 @@ export default function RunDetailPage() {
       {!autoCompare && run.status !== "queued" && run.status !== "running" && (
         <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
           <p className="text-xs text-blue-700">
-            같은 PR을 한 번 더 확인하면 이전 확인 결과와 비교할 수 있어요.
+            {t.runDetail.compareHint}
           </p>
           <Link href={prPageUrl} className="text-xs text-blue-600 font-medium hover:text-blue-800 flex-shrink-0">
-            최신 비교 결과 보기 →
+            {t.runDetail.viewLatestComparison}
           </Link>
         </div>
       )}
@@ -1187,8 +1210,8 @@ export default function RunDetailPage() {
             selectedItemIds={selectedItemIds}
             onChange={setSelectedItemIds}
             storageNote={
-              storageStatus === "restored" ? "이전에 고른 항목을 불러왔어요."
-              : storageStatus === "saved" ? "선택 항목을 기억했어요."
+              storageStatus === "restored" ? t.runDetail.restored
+              : storageStatus === "saved" ? t.runDetail.saved
               : undefined
             }
           />
@@ -1202,7 +1225,7 @@ export default function RunDetailPage() {
             selectedItemIds={selectedItemIds}
           />
 
-          {/* Fix Pack (남은 문제 중심, ?action=fix-pack 자동 열림) */}
+          {/* Fix Pack (focused on remaining issues, auto-opens on ?action=fix-pack) */}
           {actionNeeded > 0 && (
             <FixPackPanel
               projectId={id}
@@ -1234,7 +1257,7 @@ export default function RunDetailPage() {
       {/* ── Item results ── */}
       {hasResults ? (
         <section>
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">항목별 결과</h3>
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">{t.runDetail.itemResults}</h3>
           <div className="space-y-3">
             {sortedResults.map((r) => (
               <ResultCard key={r.itemId} item={r} />
@@ -1244,7 +1267,7 @@ export default function RunDetailPage() {
       ) : (
         run.status !== "error" && run.status !== "queued" && (
           <div className="bg-gray-50 rounded-xl border border-gray-200 px-4 py-6 text-center text-sm text-gray-400">
-            항목별 결과가 저장되지 않았습니다.
+            {t.runDetail.noItemResults}
           </div>
         )
       )}
