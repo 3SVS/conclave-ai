@@ -15,7 +15,7 @@ const PROJECT = "proj_bench";
 
 // ─── Mock D1 ──────────────────────────────────────────────────────────────────
 
-function makeRun(id, { projectId = PROJECT, userKey = USER, prNumber = 1, selectedItemIds = ["i1", "i2"], summary }) {
+function makeRun(id, { projectId = PROJECT, userKey = USER, prNumber = 1, selectedItemIds = ["i1", "i2"], summary, results = [{ itemId: "i1" }] }) {
   return {
     id,
     project_id: projectId,
@@ -25,7 +25,7 @@ function makeRun(id, { projectId = PROJECT, userKey = USER, prNumber = 1, select
     linked_pr_id: null,
     selected_item_ids_json: JSON.stringify(selectedItemIds),
     status: "failed",
-    result_json: JSON.stringify({ results: [{ itemId: "i1" }], summary }),
+    result_json: JSON.stringify({ results, summary }),
     error_message: null,
     rerun_of_review_run_id: null,
     created_at: "2026-06-19T00:00:00.000Z",
@@ -121,6 +121,47 @@ test("POST create: success returns 201 with winner + alignment", async () => {
   assert.equal(json.benchmark.winnerCandidateId, "c_multi");
   assert.equal(json.benchmark.noClearWinner, false);
   assert.equal(json.benchmark.result.acceptanceSetAlignment.aligned, true);
+});
+
+test("POST create: item-level remaining blockers from the winner + item outcomes", async () => {
+  const runs = new Map([
+    ["wprr_a", makeRun("wprr_a", {
+      summary: { passed: 5, failed: 1 },
+      results: [
+        { itemId: "i1", title: "Login works", status: "passed" },
+        { itemId: "i2", title: "Logout works", status: "failed", evidence: ["No logout endpoint in the diff"] },
+      ],
+    })],
+    ["wprr_b", makeRun("wprr_b", {
+      summary: { passed: 8, needsDecision: 1 },
+      results: [
+        { itemId: "i1", title: "Login works", status: "passed" },
+        { itemId: "i2", title: "Logout works", status: "needs_decision" },
+      ],
+    })],
+  ]);
+  const { status, json } = await req(makeEnv({ runs }), "POST", `/workspace/projects/${PROJECT}/agent-benchmarks`, {
+    userKey: USER,
+    candidates: [candidate("a", "wprr_a"), candidate("b", "wprr_b", { mode: "multi_agent" })],
+  });
+  assert.equal(status, 201);
+  const result = json.benchmark.result;
+  assert.equal(result.benchmark, undefined); // sanity: result is the AgentBenchmarkResult itself
+  // b wins (score 22 vs 12) → blocker basis is b
+  assert.equal(result.blockerBasisCandidateId, "b");
+  assert.equal(result.remainingBlockers.length, 1);
+  assert.equal(result.remainingBlockers[0].itemId, "i2");
+  assert.equal(result.remainingBlockers[0].status, "needs_decision");
+  assert.equal(result.remainingBlockers[0].severity, "decision");
+  assert.equal(result.remainingBlockers[0].title, "Logout works");
+  // passed items are never blockers
+  assert.ok(result.remainingBlockers.every((b) => b.status !== "passed"));
+  // item outcomes captured per candidate
+  assert.equal(result.itemOutcomesByCandidate.a.length, 2);
+  assert.equal(result.itemOutcomesByCandidate.b.length, 2);
+  // evidence preserved where present (candidate a's failed item)
+  const aLogout = result.itemOutcomesByCandidate.a.find((o) => o.itemId === "i2");
+  assert.equal(aLogout.evidence, "No logout endpoint in the diff");
 });
 
 test("POST create: missing userKey → 400", async () => {

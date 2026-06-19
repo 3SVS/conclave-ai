@@ -24,6 +24,8 @@ export type BenchmarkCommentRow = {
   score: number;
 };
 
+export type BenchmarkCommentBlockerLine = string | { text: string; evidence?: string };
+
 export type BenchmarkPrCommentParts = {
   heading: string;
   intro: string;
@@ -36,7 +38,7 @@ export type BenchmarkPrCommentParts = {
   whyHeading: string;
   whyLines?: string[];
   blockersHeading: string;
-  blockerLines?: string[];
+  blockerLines?: BenchmarkCommentBlockerLine[];
   noBlockersLine: string;
   noteHeading: string;
   noteText: string;

@@ -26,6 +26,7 @@ import type {
   CandidateMode,
   CandidateSource,
   ReviewSummaryCounts,
+  ReviewItemInput,
 } from "../workspace/agent-benchmark.js";
 import {
   insertAgentBenchmark,
@@ -50,6 +51,17 @@ function parseSummaryCounts(resultJson: string | undefined): ReviewSummaryCounts
     return parsed.summary ?? {};
   } catch {
     return {};
+  }
+}
+
+/** Parse a review run's stored per-item results. Missing/garbage → []. */
+function parseResultItems(resultJson: string | undefined): ReviewItemInput[] {
+  if (!resultJson) return [];
+  try {
+    const parsed = JSON.parse(resultJson) as { results?: unknown };
+    return Array.isArray(parsed.results) ? (parsed.results as ReviewItemInput[]) : [];
+  } catch {
+    return [];
   }
 }
 
@@ -106,6 +118,7 @@ export function createWorkspaceBenchmarkRoutes(): Hono<{ Bindings: Env }> {
     // Validate each reviewRun: exists, belongs to this project AND this userKey.
     const countsByCandidate: Record<string, ReviewSummaryCounts> = {};
     const selectedItemIdsByCandidate: Record<string, string[]> = {};
+    const itemResultsByCandidate: Record<string, ReviewItemInput[]> = {};
     try {
       for (const cand of candidates) {
         const run = await getReviewRunById(c.env, cand.reviewRunId!).catch(() => null);
@@ -118,6 +131,7 @@ export function createWorkspaceBenchmarkRoutes(): Hono<{ Bindings: Env }> {
         }
         countsByCandidate[cand.id] = parseSummaryCounts(run.resultJson);
         selectedItemIdsByCandidate[cand.id] = run.selectedItemIds;
+        itemResultsByCandidate[cand.id] = parseResultItems(run.resultJson);
         cand.pullRequestNumber = run.prNumber;
       }
     } catch (err) {
@@ -125,8 +139,8 @@ export function createWorkspaceBenchmarkRoutes(): Hono<{ Bindings: Env }> {
       return c.json({ ok: false, error: "run_validation_failed" }, 500);
     }
 
-    // Deterministic comparison (canonical, server-side).
-    const result = buildBenchmarkResult({ projectId, candidates, countsByCandidate });
+    // Deterministic comparison (canonical, server-side) + item-level evidence.
+    const result = buildBenchmarkResult({ projectId, candidates, countsByCandidate, itemResultsByCandidate });
     result.acceptanceSetAlignment = computeAcceptanceSetAlignment(candidates, selectedItemIdsByCandidate);
 
     const winnerCandidateId = result.recommendation?.winnerCandidateId;

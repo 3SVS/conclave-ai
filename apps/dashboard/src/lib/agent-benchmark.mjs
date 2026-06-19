@@ -132,15 +132,76 @@ function blockerFor(entry) {
  * A recommendation requires at least 2 candidates. With fewer, recommendation
  * is omitted and the UI shows its "need more candidates" empty state.
  */
-export function buildBenchmarkResult({ projectId, candidates, countsByCandidate }) {
+// ── Stage 68: item-level evidence (mirrors central-plane agent-benchmark.ts) ──
+
+/** Normalize a stored item status to the canonical 4; unknown → undefined. */
+function normalizeItemStatus(s) {
+  if (s === "passed" || s === "failed" || s === "inconclusive" || s === "needs_decision") return s;
+  return undefined;
+}
+
+/** First non-empty stored evidence string, or undefined. */
+function firstEvidence(ev) {
+  if (Array.isArray(ev)) return ev.find((x) => typeof x === "string" && x.trim().length > 0);
+  if (typeof ev === "string" && ev.trim().length > 0) return ev;
+  return undefined;
+}
+
+function severityFor(status) {
+  if (status === "failed") return "issue";
+  if (status === "needs_decision") return "decision";
+  return "not_verified";
+}
+
+/** Normalize one candidate's stored review results to item outcomes. */
+export function extractCandidateItemOutcomes(candidateId, items) {
+  const out = [];
+  for (const it of items ?? []) {
+    const status = normalizeItemStatus(it.status);
+    if (!status) continue;
+    const itemId = typeof it.itemId === "string" ? it.itemId : "";
+    const title = typeof it.title === "string" && it.title.trim().length > 0 ? it.title : itemId;
+    const evidence = firstEvidence(it.evidence);
+    out.push({ candidateId, itemId, title, status, ...(evidence ? { evidence } : {}) });
+  }
+  return out;
+}
+
+function blockersFromOutcomes(outcomes) {
+  const blockers = [];
+  for (const o of outcomes) {
+    if (o.status === "passed") continue;
+    blockers.push({
+      itemId: o.itemId,
+      title: o.title,
+      status: o.status,
+      severity: severityFor(o.status),
+      candidateId: o.candidateId,
+      ...(o.evidence ? { evidence: o.evidence } : {}),
+    });
+  }
+  return blockers;
+}
+
+export function buildBenchmarkResult({ projectId, candidates, countsByCandidate, itemResultsByCandidate }) {
   const list = candidates ?? [];
   const metricsByCandidate = {};
   for (const c of list) {
     metricsByCandidate[c.id] = computeCandidateMetrics((countsByCandidate ?? {})[c.id]);
   }
 
-  /** @type {{ projectId: string, candidates: unknown[], metricsByCandidate: Record<string, unknown>, recommendation?: unknown }} */
+  /** @type {Record<string, unknown>} */
   const result = { projectId, candidates: list, metricsByCandidate };
+
+  // Stage 68: per-candidate item outcomes (only when item results supplied).
+  let itemOutcomesByCandidate;
+  if (itemResultsByCandidate) {
+    itemOutcomesByCandidate = {};
+    for (const c of list) {
+      itemOutcomesByCandidate[c.id] = extractCandidateItemOutcomes(c.id, itemResultsByCandidate[c.id] ?? []);
+    }
+    result.itemOutcomesByCandidate = itemOutcomesByCandidate;
+  }
 
   if (list.length < 2) return result;
 
@@ -150,46 +211,38 @@ export function buildBenchmarkResult({ projectId, candidates, countsByCandidate 
 
   const blockers = ranked.map(blockerFor).filter(Boolean);
 
+  let recommendation;
   if (isTooClose(top, runnerUp)) {
-    result.recommendation = {
-      winnerCandidateId: undefined,
-      rationale: [{ code: "no_clear_winner" }],
-      blockers,
-    };
-    return result;
+    recommendation = { winnerCandidateId: undefined, rationale: [{ code: "no_clear_winner" }], blockers };
+  } else {
+    const rationale = [
+      {
+        code: "pass_comparison",
+        winnerLabel: top.candidate.label,
+        winnerPassed: top.metrics.passed,
+        winnerTotal: top.metrics.totalItems,
+        runnerLabel: runnerUp.candidate.label,
+        runnerPassed: runnerUp.metrics.passed,
+        runnerTotal: runnerUp.metrics.totalItems,
+      },
+    ];
+    if (top.metrics.criticalIssueCount < runnerUp.metrics.criticalIssueCount) {
+      rationale.push({ code: "fewer_critical", winnerLabel: top.candidate.label, runnerLabel: runnerUp.candidate.label });
+    }
+    if (runnerUp.metrics.notVerifiedCount > 0) {
+      rationale.push({ code: "runner_not_verified", runnerLabel: runnerUp.candidate.label, count: runnerUp.metrics.notVerifiedCount });
+    }
+    recommendation = { winnerCandidateId: top.candidate.id, rationale, blockers };
+  }
+  result.recommendation = recommendation;
+
+  // Stage 68: item-level remaining blockers from the winner (or top-ranked) candidate.
+  if (itemOutcomesByCandidate) {
+    const basisId = recommendation.winnerCandidateId ?? top.candidate.id;
+    result.blockerBasisCandidateId = basisId;
+    result.remainingBlockers = blockersFromOutcomes(itemOutcomesByCandidate[basisId] ?? []);
   }
 
-  const rationale = [
-    {
-      code: "pass_comparison",
-      winnerLabel: top.candidate.label,
-      winnerPassed: top.metrics.passed,
-      winnerTotal: top.metrics.totalItems,
-      runnerLabel: runnerUp.candidate.label,
-      runnerPassed: runnerUp.metrics.passed,
-      runnerTotal: runnerUp.metrics.totalItems,
-    },
-  ];
-  if (top.metrics.criticalIssueCount < runnerUp.metrics.criticalIssueCount) {
-    rationale.push({
-      code: "fewer_critical",
-      winnerLabel: top.candidate.label,
-      runnerLabel: runnerUp.candidate.label,
-    });
-  }
-  if (runnerUp.metrics.notVerifiedCount > 0) {
-    rationale.push({
-      code: "runner_not_verified",
-      runnerLabel: runnerUp.candidate.label,
-      count: runnerUp.metrics.notVerifiedCount,
-    });
-  }
-
-  result.recommendation = {
-    winnerCandidateId: top.candidate.id,
-    rationale,
-    blockers,
-  };
   return result;
 }
 

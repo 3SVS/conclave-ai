@@ -25,6 +25,7 @@ for (const c of golden.cases) {
       projectId: "fixture",
       candidates: c.candidates,
       countsByCandidate: c.countsByCandidate,
+      itemResultsByCandidate: c.itemResultsByCandidate,
     });
 
     if (c.expected.hasRecommendation === false) {
@@ -42,6 +43,18 @@ for (const c of golden.cases) {
     assert.equal(alignment.aligned, c.expected.alignment.aligned, "alignment.aligned");
     if (c.expected.alignment.differingCandidateIds) {
       assert.deepEqual(alignment.differingCandidateIds, c.expected.alignment.differingCandidateIds);
+    }
+
+    // Stage 68: item-level evidence parity
+    if (c.expectedItems) {
+      assert.equal(result.blockerBasisCandidateId, c.expectedItems.blockerBasisCandidateId, "blockerBasisCandidateId");
+      assert.deepEqual(result.remainingBlockers, c.expectedItems.remainingBlockers, "remainingBlockers");
+      for (const [cid, n] of Object.entries(c.expectedItems.outcomeCounts)) {
+        assert.equal(result.itemOutcomesByCandidate[cid].length, n, `outcomeCounts[${cid}]`);
+      }
+    } else {
+      assert.equal(result.remainingBlockers, undefined);
+      assert.equal(result.itemOutcomesByCandidate, undefined);
     }
   });
 }

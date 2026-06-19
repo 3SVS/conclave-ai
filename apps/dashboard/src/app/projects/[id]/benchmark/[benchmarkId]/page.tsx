@@ -73,6 +73,12 @@ function pct(rate: number): string {
   return `${Math.round(rate * 100)}%`;
 }
 
+const ITEM_BADGE: Record<string, string> = {
+  failed: "border-red-200 bg-red-50 text-red-700",
+  needs_decision: "border-slate-200 bg-slate-50 text-slate-700",
+  inconclusive: "border-yellow-200 bg-yellow-50 text-yellow-700",
+};
+
 export default function BenchmarkDetailPage() {
   const { id, benchmarkId } = useParams<{ id: string; benchmarkId: string }>();
   const { t, locale } = useI18n();
@@ -143,6 +149,9 @@ export default function BenchmarkDetailPage() {
   const winner = candidates.find((c) => c.id === winnerId);
   const alignment = result.acceptanceSetAlignment;
   const winnerBlocker = result.recommendation?.blockers.find((b) => b.candidateId === winnerId);
+  // Stage 68: item-level blockers (undefined for older benchmarks → count-based fallback).
+  const itemBlockers = result.remainingBlockers;
+  const candidateLabelById = (cid: string) => candidates.find((c) => c.id === cid)?.label ?? cid;
 
   const rationaleLines = (result.recommendation?.rationale ?? [])
     .filter((r) => r.code !== "no_clear_winner")
@@ -159,15 +168,17 @@ export default function BenchmarkDetailPage() {
         .replace("{notVerified}", String(metrics.notVerifiedCount))
         .replace("{score}", String(metrics.score)),
     );
-    const blockerLines = winnerId
-      ? winnerBlocker
-        ? [
-            `${winner?.label ?? winnerId}: ${winnerBlocker.failed} ${statusLabel(t, "failed")} · ${winnerBlocker.needsDecision} ${statusLabel(t, "needs_decision")} · ${winnerBlocker.inconclusive} ${statusLabel(t, "inconclusive")}`,
-          ]
-        : []
-      : (result.recommendation?.blockers ?? []).map(
-          (b) => `${b.candidateLabel}: ${b.failed} ${statusLabel(t, "failed")} · ${b.needsDecision} ${statusLabel(t, "needs_decision")} · ${b.inconclusive} ${statusLabel(t, "inconclusive")}`,
-        );
+    const blockerLines = itemBlockers !== undefined
+      ? itemBlockers.map((b) => `${statusLabel(t, b.status)}: ${b.title}`)
+      : winnerId
+        ? winnerBlocker
+          ? [
+              `${winner?.label ?? winnerId}: ${winnerBlocker.failed} ${statusLabel(t, "failed")} · ${winnerBlocker.needsDecision} ${statusLabel(t, "needs_decision")} · ${winnerBlocker.inconclusive} ${statusLabel(t, "inconclusive")}`,
+            ]
+          : []
+        : (result.recommendation?.blockers ?? []).map(
+            (b) => `${b.candidateLabel}: ${b.failed} ${statusLabel(t, "failed")} · ${b.needsDecision} ${statusLabel(t, "needs_decision")} · ${b.inconclusive} ${statusLabel(t, "inconclusive")}`,
+          );
 
     const text = buildBenchmarkSummaryText({
       heading: t.benchmark.summaryHeading,
@@ -201,13 +212,18 @@ export default function BenchmarkDetailPage() {
       notVerified: metrics.notVerifiedCount,
       score: metrics.score,
     }));
-    const blockerLines = winnerBlocker
-      ? [
-          winnerBlocker.failed > 0 ? `${statusLabel(t, "failed")}: ${winnerBlocker.failed}` : null,
-          winnerBlocker.needsDecision > 0 ? `${statusLabel(t, "needs_decision")}: ${winnerBlocker.needsDecision}` : null,
-          winnerBlocker.inconclusive > 0 ? `${statusLabel(t, "inconclusive")}: ${winnerBlocker.inconclusive}` : null,
-        ].filter((l): l is string => l !== null)
-      : [];
+    const blockerLines: Array<string | { text: string; evidence?: string }> = itemBlockers !== undefined
+      ? itemBlockers.map((b) => ({
+          text: `**${statusLabel(t, b.status)}:** ${b.title}`,
+          ...(b.evidence ? { evidence: `${t.benchmark.evidence}: ${b.evidence}` } : {}),
+        }))
+      : winnerBlocker
+        ? [
+            winnerBlocker.failed > 0 ? `${statusLabel(t, "failed")}: ${winnerBlocker.failed}` : null,
+            winnerBlocker.needsDecision > 0 ? `${statusLabel(t, "needs_decision")}: ${winnerBlocker.needsDecision}` : null,
+            winnerBlocker.inconclusive > 0 ? `${statusLabel(t, "inconclusive")}: ${winnerBlocker.inconclusive}` : null,
+          ].filter((l): l is string => l !== null)
+        : [];
     return buildBenchmarkPrCommentMarkdown({
       heading: t.benchmark.summaryHeading,
       intro: t.benchmark.prIntro,
@@ -393,25 +409,51 @@ export default function BenchmarkDetailPage() {
         </div>
       </section>
 
-      {/* Remaining blockers (winner) */}
-      <section className="rounded-xl border border-gray-200 bg-white p-5">
-        <h3 className="text-sm font-semibold text-gray-800">{t.benchmark.blockersTitle}</h3>
-        {winnerId && winnerBlocker ? (
-          <div className="mt-2 flex flex-wrap gap-2 text-xs">
-            {winnerBlocker.failed > 0 && (
-              <span className="rounded-full border border-red-200 bg-red-50 px-2.5 py-0.5 text-red-700">{statusLabel(t, "failed")}: {winnerBlocker.failed}</span>
-            )}
-            {winnerBlocker.needsDecision > 0 && (
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-slate-700">{statusLabel(t, "needs_decision")}: {winnerBlocker.needsDecision}</span>
-            )}
-            {winnerBlocker.inconclusive > 0 && (
-              <span className="rounded-full border border-yellow-200 bg-yellow-50 px-2.5 py-0.5 text-yellow-700">{statusLabel(t, "inconclusive")}: {winnerBlocker.inconclusive}</span>
-            )}
-          </div>
-        ) : (
-          <p className="mt-2 text-xs text-gray-400">{t.benchmark.noRemainingBlockers}</p>
-        )}
-      </section>
+      {/* Remaining blocker items (Stage 68 item-level, else count-based fallback) */}
+      {itemBlockers !== undefined ? (
+        <section className="rounded-xl border border-gray-200 bg-white p-5">
+          <h3 className="text-sm font-semibold text-gray-800">{t.benchmark.blockerItemsTitle}</h3>
+          <p className="mt-0.5 text-xs text-gray-400">{t.benchmark.blockerItemsDesc}</p>
+          {itemBlockers.length > 0 ? (
+            <div className="mt-3 space-y-2">
+              {itemBlockers.map((b, i) => (
+                <div key={`${b.itemId}-${i}`} className="rounded-lg border border-gray-100 p-3">
+                  <div className="flex items-center gap-2">
+                    <span className={`flex-shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${ITEM_BADGE[b.status] ?? "border-gray-200 bg-gray-50 text-gray-600"}`}>
+                      {statusLabel(t, b.status)}
+                    </span>
+                    <span className="text-sm font-medium text-gray-800">{b.title}</span>
+                  </div>
+                  {b.evidence && <p className="mt-1 text-xs text-gray-500">{t.benchmark.evidence}: {b.evidence}</p>}
+                  <p className="mt-0.5 text-[11px] text-gray-400">{candidateLabelById(b.candidateId)}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-gray-400">{t.benchmark.noBlockerItems}</p>
+          )}
+        </section>
+      ) : (
+        <section className="rounded-xl border border-gray-200 bg-white p-5">
+          <h3 className="text-sm font-semibold text-gray-800">{t.benchmark.blockersTitle}</h3>
+          {winnerId && winnerBlocker ? (
+            <div className="mt-2 flex flex-wrap gap-2 text-xs">
+              {winnerBlocker.failed > 0 && (
+                <span className="rounded-full border border-red-200 bg-red-50 px-2.5 py-0.5 text-red-700">{statusLabel(t, "failed")}: {winnerBlocker.failed}</span>
+              )}
+              {winnerBlocker.needsDecision > 0 && (
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-slate-700">{statusLabel(t, "needs_decision")}: {winnerBlocker.needsDecision}</span>
+              )}
+              {winnerBlocker.inconclusive > 0 && (
+                <span className="rounded-full border border-yellow-200 bg-yellow-50 px-2.5 py-0.5 text-yellow-700">{statusLabel(t, "inconclusive")}: {winnerBlocker.inconclusive}</span>
+              )}
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-gray-400">{t.benchmark.noRemainingBlockers}</p>
+          )}
+          <p className="mt-2 text-[11px] text-gray-400">{t.benchmark.oldBenchmarkBlockers}</p>
+        </section>
+      )}
 
       {/* Source review runs */}
       <section className="rounded-xl border border-gray-200 bg-white p-5">

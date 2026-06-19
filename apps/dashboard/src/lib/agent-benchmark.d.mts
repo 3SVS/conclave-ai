@@ -56,6 +56,32 @@ export type BenchmarkBlockerItem = {
   inconclusive: number;
 };
 
+export type ItemStatus = "passed" | "failed" | "inconclusive" | "needs_decision";
+
+export type BenchmarkCandidateItemOutcome = {
+  candidateId: string;
+  itemId: string;
+  title: string;
+  status: ItemStatus;
+  evidence?: string;
+};
+
+export type BenchmarkItemBlocker = {
+  itemId: string;
+  title: string;
+  status: "failed" | "needs_decision" | "inconclusive";
+  severity: "issue" | "decision" | "not_verified";
+  evidence?: string;
+  candidateId: string;
+};
+
+export type ReviewItemInput = {
+  itemId?: unknown;
+  title?: unknown;
+  status?: unknown;
+  evidence?: unknown;
+};
+
 export type AgentBenchmarkRecommendation = {
   winnerCandidateId?: string;
   rationale: BenchmarkRationaleItem[];
@@ -75,6 +101,9 @@ export type AgentBenchmarkResult = {
   metricsByCandidate: Record<string, AgentCandidateMetrics>;
   recommendation?: AgentBenchmarkRecommendation;
   acceptanceSetAlignment?: AcceptanceSetAlignment;
+  itemOutcomesByCandidate?: Record<string, BenchmarkCandidateItemOutcome[]>;
+  remainingBlockers?: BenchmarkItemBlocker[];
+  blockerBasisCandidateId?: string;
 };
 
 export type RankedCandidate = { candidate: AgentCandidate; metrics: AgentCandidateMetrics };
@@ -110,7 +139,12 @@ export function buildBenchmarkResult(input: {
   projectId: string;
   candidates: AgentCandidate[];
   countsByCandidate: Record<string, ReviewSummaryCounts>;
+  itemResultsByCandidate?: Record<string, ReviewItemInput[]>;
 }): AgentBenchmarkResult;
+export function extractCandidateItemOutcomes(
+  candidateId: string,
+  items: ReviewItemInput[],
+): BenchmarkCandidateItemOutcome[];
 export function computeAcceptanceSetAlignment(
   candidates: AgentCandidate[],
   selectedItemIdsByCandidate: Record<string, string[]>,

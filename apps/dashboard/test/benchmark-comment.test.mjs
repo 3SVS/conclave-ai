@@ -85,6 +85,20 @@ test("misaligned acceptance set adds a blockquote warning", () => {
   assert.match(md, /> Warning: These candidates were reviewed against different acceptance item sets\./);
 });
 
+test("item-level blockers: bold status + indented evidence sub-line", () => {
+  const md = buildBenchmarkPrCommentMarkdown({
+    ...baseParts,
+    recommendationValue: "Multi-agent",
+    whyLines: ["x"],
+    blockerLines: [
+      { text: "**Issue found:** Sharing permission behavior is missing.", evidence: "Evidence: The diff adds creation but no permission check." },
+      { text: "**Not verified:** Error handling could not be confirmed from the diff." },
+    ],
+  });
+  assert.match(md, /- \*\*Issue found:\*\* Sharing permission behavior is missing\.\n  - Evidence: The diff adds creation but no permission check\./);
+  assert.match(md, /- \*\*Not verified:\*\* Error handling could not be confirmed from the diff\./);
+});
+
 test("no token / userKey leakage in markdown", () => {
   const md = buildBenchmarkPrCommentMarkdown({
     ...baseParts,

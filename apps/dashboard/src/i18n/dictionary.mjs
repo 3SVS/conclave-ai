@@ -900,6 +900,11 @@ const EN = {
     postCommentError: "Could not post comment.",
     prViewComment: "View on GitHub →",
     mixedPrNote: "This benchmark compares candidates from different pull requests. Copy the summary instead.",
+    blockerItemsTitle: "Remaining blocker items",
+    blockerItemsDesc: "Acceptance items that still need fixes, decisions, or more evidence.",
+    noBlockerItems: "No remaining blocker items found.",
+    oldBenchmarkBlockers: "Detailed blocker items are available for newer benchmarks.",
+    evidence: "Evidence",
   },
   errors: {
     generic: "Something went wrong. Please try again.",
@@ -1791,6 +1796,11 @@ const KO = {
     postCommentError: "Comment를 게시하지 못했습니다.",
     prViewComment: "GitHub에서 보기 →",
     mixedPrNote: "이 벤치마크는 서로 다른 PR의 후보를 비교합니다. 하나의 PR에 게시하기보다 요약을 복사해 공유하세요.",
+    blockerItemsTitle: "남은 차단 항목",
+    blockerItemsDesc: "수정, 결정, 또는 추가 근거가 필요한 검수 항목입니다.",
+    noBlockerItems: "남은 차단 항목이 없습니다.",
+    oldBenchmarkBlockers: "상세 차단 항목은 새로 생성한 벤치마크에서 확인할 수 있습니다.",
+    evidence: "근거",
   },
   errors: {
     generic: "문제가 발생했어요. 다시 시도해주세요.",

@@ -66,7 +66,13 @@ export function buildBenchmarkPrCommentMarkdown(parts) {
 
   out.push("", `### ${blockersHeading}`, "");
   if (blockerLines.length > 0) {
-    for (const line of blockerLines) out.push(`- ${line}`);
+    // Each entry is a plain string (count-based, Stage 67) OR { text, evidence? }
+    // (item-level, Stage 68). An evidence sub-line is indented under its item.
+    for (const line of blockerLines) {
+      const entry = typeof line === "string" ? { text: line } : line;
+      out.push(`- ${entry.text}`);
+      if (entry.evidence) out.push(`  - ${entry.evidence}`);
+    }
   } else {
     out.push(noBlockersLine);
   }

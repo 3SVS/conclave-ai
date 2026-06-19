@@ -858,6 +858,11 @@ export type Dictionary = {
     postCommentError: string;
     prViewComment: string;
     mixedPrNote: string;
+    blockerItemsTitle: string;
+    blockerItemsDesc: string;
+    noBlockerItems: string;
+    oldBenchmarkBlockers: string;
+    evidence: string;
   };
   errors: { generic: string; loadFailed: string };
 };

@@ -12,11 +12,28 @@
         "b": { "passed": 7, "failed": 1, "inconclusive": 1, "needsDecision": 0 }
       },
       "selectedItemIdsByCandidate": { "a": ["i1", "i2"], "b": ["i2", "i1"] },
+      "itemResultsByCandidate": {
+        "a": [
+          { "itemId": "i1", "title": "Login works", "status": "passed" },
+          { "itemId": "i2", "title": "Logout works", "status": "failed", "evidence": ["No logout endpoint in the diff"] }
+        ],
+        "b": [
+          { "itemId": "i1", "title": "Login works", "status": "passed" },
+          { "itemId": "i2", "title": "Logout works", "status": "needs_decision" }
+        ]
+      },
       "expected": {
         "scores": { "a": 7, "b": 17 },
         "winnerCandidateId": "b",
         "noClearWinner": false,
         "alignment": { "aligned": true }
+      },
+      "expectedItems": {
+        "blockerBasisCandidateId": "b",
+        "outcomeCounts": { "a": 2, "b": 2 },
+        "remainingBlockers": [
+          { "itemId": "i2", "title": "Logout works", "status": "needs_decision", "severity": "decision", "candidateId": "b" }
+        ]
       }
     },
     {

@@ -69,6 +69,35 @@ export type BenchmarkBlockerItem = {
   inconclusive: number;
 };
 
+export type ItemStatus = "passed" | "failed" | "inconclusive" | "needs_decision";
+
+/** A single acceptance-item outcome for one candidate (Stage 68). */
+export type BenchmarkCandidateItemOutcome = {
+  candidateId: string;
+  itemId: string;
+  title: string;
+  status: ItemStatus;
+  evidence?: string;
+};
+
+/** A non-passed acceptance item that still blocks acceptance (Stage 68). */
+export type BenchmarkItemBlocker = {
+  itemId: string;
+  title: string;
+  status: "failed" | "needs_decision" | "inconclusive";
+  severity: "issue" | "decision" | "not_verified";
+  evidence?: string;
+  candidateId: string;
+};
+
+/** Loose shape for a stored review result item (varies a little by source). */
+export type ReviewItemInput = {
+  itemId?: unknown;
+  title?: unknown;
+  status?: unknown;
+  evidence?: unknown;
+};
+
 export type AgentBenchmarkRecommendation = {
   winnerCandidateId?: string;
   rationale: BenchmarkRationaleItem[];
@@ -88,6 +117,10 @@ export type AgentBenchmarkResult = {
   metricsByCandidate: Record<string, AgentCandidateMetrics>;
   recommendation?: AgentBenchmarkRecommendation;
   acceptanceSetAlignment?: AcceptanceSetAlignment;
+  // Stage 68 — item-level evidence (present only when item results are supplied).
+  itemOutcomesByCandidate?: Record<string, BenchmarkCandidateItemOutcome[]>;
+  remainingBlockers?: BenchmarkItemBlocker[];
+  blockerBasisCandidateId?: string;
 };
 
 export type RankedCandidate = { candidate: AgentCandidate; metrics: AgentCandidateMetrics };
@@ -170,16 +203,73 @@ function blockerFor(entry: RankedCandidate): BenchmarkBlockerItem | null {
   };
 }
 
+/** Normalize a stored item status to the canonical 4; unknown → undefined (skipped). */
+function normalizeItemStatus(s: unknown): ItemStatus | undefined {
+  if (s === "passed" || s === "failed" || s === "inconclusive" || s === "needs_decision") return s;
+  return undefined;
+}
+
+/** First non-empty stored evidence string, or undefined. */
+function firstEvidence(ev: unknown): string | undefined {
+  if (Array.isArray(ev)) {
+    const first = ev.find((x): x is string => typeof x === "string" && x.trim().length > 0);
+    return first;
+  }
+  if (typeof ev === "string" && ev.trim().length > 0) return ev;
+  return undefined;
+}
+
+function severityFor(status: "failed" | "needs_decision" | "inconclusive"): "issue" | "decision" | "not_verified" {
+  if (status === "failed") return "issue";
+  if (status === "needs_decision") return "decision";
+  return "not_verified";
+}
+
+/** Stage 68: normalize one candidate's stored review results to item outcomes. */
+export function extractCandidateItemOutcomes(candidateId: string, items: ReviewItemInput[]): BenchmarkCandidateItemOutcome[] {
+  const out: BenchmarkCandidateItemOutcome[] = [];
+  for (const it of items ?? []) {
+    const status = normalizeItemStatus(it.status);
+    if (!status) continue;
+    const itemId = typeof it.itemId === "string" ? it.itemId : "";
+    const title = typeof it.title === "string" && it.title.trim().length > 0 ? it.title : itemId;
+    const evidence = firstEvidence(it.evidence);
+    out.push({ candidateId, itemId, title, status, ...(evidence ? { evidence } : {}) });
+  }
+  return out;
+}
+
+/** Stage 68: non-passed item outcomes become item-level blockers. */
+function blockersFromOutcomes(outcomes: BenchmarkCandidateItemOutcome[]): BenchmarkItemBlocker[] {
+  const blockers: BenchmarkItemBlocker[] = [];
+  for (const o of outcomes) {
+    if (o.status === "passed") continue;
+    blockers.push({
+      itemId: o.itemId,
+      title: o.title,
+      status: o.status,
+      severity: severityFor(o.status),
+      candidateId: o.candidateId,
+      ...(o.evidence ? { evidence: o.evidence } : {}),
+    });
+  }
+  return blockers;
+}
+
 /**
  * Build the deterministic benchmark result (metrics + recommendation).
- * A recommendation requires at least 2 candidates.
+ * A recommendation requires at least 2 candidates. When `itemResultsByCandidate`
+ * is supplied (server-side, from each run's stored results), the result also
+ * carries item-level outcomes per candidate and the winner's (or top-ranked,
+ * for no-clear-winner) remaining blocker items (Stage 68).
  */
 export function buildBenchmarkResult(input: {
   projectId: string;
   candidates: AgentCandidate[];
   countsByCandidate: Record<string, ReviewSummaryCounts>;
+  itemResultsByCandidate?: Record<string, ReviewItemInput[]>;
 }): AgentBenchmarkResult {
-  const { projectId, candidates, countsByCandidate } = input;
+  const { projectId, candidates, countsByCandidate, itemResultsByCandidate } = input;
   const list = candidates ?? [];
   const metricsByCandidate: Record<string, AgentCandidateMetrics> = {};
   for (const c of list) {
@@ -188,6 +278,16 @@ export function buildBenchmarkResult(input: {
 
   const result: AgentBenchmarkResult = { projectId, candidates: list, metricsByCandidate };
 
+  // Stage 68: per-candidate item outcomes (only when item results are supplied).
+  let itemOutcomesByCandidate: Record<string, BenchmarkCandidateItemOutcome[]> | undefined;
+  if (itemResultsByCandidate) {
+    itemOutcomesByCandidate = {};
+    for (const c of list) {
+      itemOutcomesByCandidate[c.id] = extractCandidateItemOutcomes(c.id, itemResultsByCandidate[c.id] ?? []);
+    }
+    result.itemOutcomesByCandidate = itemOutcomesByCandidate;
+  }
+
   if (list.length < 2) return result;
 
   const ranked = rankCandidates(list, metricsByCandidate);
@@ -195,34 +295,38 @@ export function buildBenchmarkResult(input: {
   const runnerUp = ranked[1]!;
   const blockers = ranked.map(blockerFor).filter((b): b is BenchmarkBlockerItem => b !== null);
 
+  let recommendation: AgentBenchmarkRecommendation;
   if (isTooClose(top, runnerUp)) {
-    result.recommendation = {
-      winnerCandidateId: undefined,
-      rationale: [{ code: "no_clear_winner" }],
-      blockers,
-    };
-    return result;
+    recommendation = { winnerCandidateId: undefined, rationale: [{ code: "no_clear_winner" }], blockers };
+  } else {
+    const rationale: BenchmarkRationaleItem[] = [
+      {
+        code: "pass_comparison",
+        winnerLabel: top.candidate.label,
+        winnerPassed: top.metrics.passed,
+        winnerTotal: top.metrics.totalItems,
+        runnerLabel: runnerUp.candidate.label,
+        runnerPassed: runnerUp.metrics.passed,
+        runnerTotal: runnerUp.metrics.totalItems,
+      },
+    ];
+    if (top.metrics.criticalIssueCount < runnerUp.metrics.criticalIssueCount) {
+      rationale.push({ code: "fewer_critical", winnerLabel: top.candidate.label, runnerLabel: runnerUp.candidate.label });
+    }
+    if (runnerUp.metrics.notVerifiedCount > 0) {
+      rationale.push({ code: "runner_not_verified", runnerLabel: runnerUp.candidate.label, count: runnerUp.metrics.notVerifiedCount });
+    }
+    recommendation = { winnerCandidateId: top.candidate.id, rationale, blockers };
+  }
+  result.recommendation = recommendation;
+
+  // Stage 68: item-level remaining blockers from the winner (or top-ranked) candidate.
+  if (itemOutcomesByCandidate) {
+    const basisId = recommendation.winnerCandidateId ?? top.candidate.id;
+    result.blockerBasisCandidateId = basisId;
+    result.remainingBlockers = blockersFromOutcomes(itemOutcomesByCandidate[basisId] ?? []);
   }
 
-  const rationale: BenchmarkRationaleItem[] = [
-    {
-      code: "pass_comparison",
-      winnerLabel: top.candidate.label,
-      winnerPassed: top.metrics.passed,
-      winnerTotal: top.metrics.totalItems,
-      runnerLabel: runnerUp.candidate.label,
-      runnerPassed: runnerUp.metrics.passed,
-      runnerTotal: runnerUp.metrics.totalItems,
-    },
-  ];
-  if (top.metrics.criticalIssueCount < runnerUp.metrics.criticalIssueCount) {
-    rationale.push({ code: "fewer_critical", winnerLabel: top.candidate.label, runnerLabel: runnerUp.candidate.label });
-  }
-  if (runnerUp.metrics.notVerifiedCount > 0) {
-    rationale.push({ code: "runner_not_verified", runnerLabel: runnerUp.candidate.label, count: runnerUp.metrics.notVerifiedCount });
-  }
-
-  result.recommendation = { winnerCandidateId: top.candidate.id, rationale, blockers };
   return result;
 }
 
