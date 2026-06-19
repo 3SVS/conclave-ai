@@ -48,6 +48,9 @@ export type Dictionary = {
     newIssue: string;
     unchanged: string;
     caption: string;
+    title: string;
+    desc: string;
+    noComparison: string;
   };
   projects: {
     homeTitle: string;
@@ -177,6 +180,17 @@ export type Dictionary = {
     nextStep: string;
   };
   runStatus: { error: string; running: string; queued: string };
+  credit: {
+    disabledBeta: string;
+    mayUse: string;
+    blocked: string;
+    includedInAllowance: string;
+    estimated: string;
+    thisMonth: string;
+    freeRunsLeft: string;
+    viewBalance: string;
+    requestTopUp: string;
+  };
   telegram: {
     title: string;
     desc: string;
@@ -250,7 +264,58 @@ export type Dictionary = {
     reviewing: string;
     reviewFailed: string;
   };
-  review: { resultsTitle: string; basisNote: string };
+  review: {
+    resultsTitle: string;
+    basisNote: string;
+    resultLabel: string;
+    recheck: string;
+    evidenceLabel: string;
+    nextLabel: string;
+  };
+  comment: {
+    title: string;
+    desc: string;
+    publicOnly: string;
+    includeComparisonDesc: string;
+    includeComparison: string;
+    comparisonUnavailable: string;
+    modeNew: string;
+    modeUpdate: string;
+    preview: string;
+    previewing: string;
+    post: string;
+    posting: string;
+    postUpdate: string;
+    previewTitle: string;
+    scopeTitle: string;
+    scopeDesc: string;
+    reconnect: string;
+    postedNew: string;
+    postedUpdate: string;
+    viewOnGithub: string;
+    recheck: string;
+    showPast: string;
+    latest: string;
+    statusPosted: string;
+    statusError: string;
+    view: string;
+    noPast: string;
+    previewError: string;
+    postError: string;
+  };
+  fixBrief: {
+    title: string;
+    desc: string;
+    targetClaude: string;
+    targetCodex: string;
+    generate: string;
+    generating: string;
+    filesGenerated: string;
+    copied: string;
+    downloadZip: string;
+    copy: string;
+    usageNote: string;
+  };
   history: {
     title: string;
     desc: string;

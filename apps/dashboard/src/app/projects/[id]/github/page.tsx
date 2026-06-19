@@ -34,6 +34,8 @@ import {
 import { StatusBadge } from "@/components/StatusBadge";
 import { StatusText } from "@/components/StatusText";
 import { useI18n } from "@/i18n/I18nProvider";
+import { statusLabel } from "@/i18n/dictionary.mjs";
+import type { Dictionary } from "@/i18n/dictionary.mjs";
 import type { ItemStatus } from "@/lib/labels";
 
 export default function GitHubPage() {
@@ -181,7 +183,7 @@ export default function GitHubPage() {
       }
     } else {
       setReviewPhase((prev) => ({ ...prev, [lp.number]: "error" }));
-      // HTTP 402: store enforcement info so CreditDryRunBanner can show "차단됨"
+      // HTTP 402: store enforcement info so CreditDryRunBanner can show the blocked state
       if (!res.ok && res.error === "insufficient_credits" && res.creditEnforcement) {
         setCreditDryRunByPr((prev) => ({ ...prev, [lp.number]: res.creditEnforcement! }));
       }
@@ -380,7 +382,7 @@ export default function GitHubPage() {
                         {phase === "error" && (
                           <div className="space-y-2">
                             {creditDryRunByPr[lp.number] && (creditDryRunByPr[lp.number] as CreditEnforcementResult).blocked ? (
-                              <CreditDryRunBanner dryRun={creditDryRunByPr[lp.number]!} projectId={id} />
+                              <CreditDryRunBanner t={t} dryRun={creditDryRunByPr[lp.number]!} projectId={id} />
                             ) : (
                               <p className="text-xs text-red-600">{t.github.reviewFailed}</p>
                             )}
@@ -394,10 +396,11 @@ export default function GitHubPage() {
                           <>
                             <ReviewResultPanel run={run} onRerun={() => handleStartReview(lp)} />
                             {creditDryRunByPr[lp.number] && (
-                              <CreditDryRunBanner dryRun={creditDryRunByPr[lp.number]!} projectId={id} />
+                              <CreditDryRunBanner t={t} dryRun={creditDryRunByPr[lp.number]!} projectId={id} />
                             )}
                             <div className="mt-4 pt-4 border-t border-gray-100">
                               <ComparisonPanel
+                                t={t}
                                 projectId={id}
                                 prNumber={lp.number}
                                 userKey={userKey}
@@ -451,19 +454,14 @@ export default function GitHubPage() {
 
 // ─── ComparisonPanel ─────────────────────────────────────────────────────────
 
-const STATUS_KO_COMPARE: Record<string, string> = {
-  passed: "통과",
-  failed: "안 맞음",
-  inconclusive: "확인 부족",
-  needs_decision: "결정 필요",
-};
-
 function ComparisonPanel({
+  t,
   projectId,
   prNumber,
   userKey,
   onLoad,
 }: {
+  t: Dictionary;
   projectId: string;
   prNumber: number;
   userKey: string;
@@ -490,8 +488,8 @@ function ComparisonPanel({
 
   if (!data.comparable) {
     return (
-      <p className="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2.5 border border-gray-100">
-        한 번 더 PR을 확인하면 이전 결과와 비교할 수 있어요.
+      <p className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5 text-xs text-gray-400">
+        {t.comparison.noComparison}
       </p>
     );
   }
@@ -510,29 +508,26 @@ function ComparisonPanel({
   return (
     <div className="space-y-3">
       <div>
-        <p className="text-sm font-semibold text-gray-800 mb-0.5">비교 결과</p>
-        <p className="text-xs text-gray-400">
-          수정 후 다시 확인한 결과를 이전 결과와 비교했어요.
-          이 비교는 연결된 PR의 변경 내용 기준입니다.
-        </p>
+        <p className="mb-0.5 text-sm font-semibold text-gray-800">{t.comparison.title}</p>
+        <p className="text-xs text-gray-400">{t.comparison.desc}</p>
       </div>
 
       {/* Summary delta */}
-      <div className="bg-gray-50 rounded-xl border border-gray-100 px-4 py-3 space-y-1.5 text-xs">
-        <div className="flex gap-2 items-center">
-          <span className="text-gray-500 w-16">안 맞음</span>
+      <div className="space-y-1.5 rounded-lg border border-gray-100 bg-gray-50 px-4 py-3 text-xs">
+        <div className="flex items-center gap-2">
+          <span className="w-20 text-gray-500">{statusLabel(t, "failed")}</span>
           <DeltaBadge prev={prevSumm.failed} latest={latSumm.failed} />
         </div>
-        <div className="flex gap-2 items-center">
-          <span className="text-gray-500 w-16">확인 부족</span>
+        <div className="flex items-center gap-2">
+          <span className="w-20 text-gray-500">{statusLabel(t, "inconclusive")}</span>
           <DeltaBadge prev={prevSumm.inconclusive} latest={latSumm.inconclusive} />
         </div>
-        <div className="flex gap-2 items-center">
-          <span className="text-gray-500 w-16">결정 필요</span>
+        <div className="flex items-center gap-2">
+          <span className="w-20 text-gray-500">{statusLabel(t, "needs_decision")}</span>
           <DeltaBadge prev={prevSumm.needsDecision} latest={latSumm.needsDecision} />
         </div>
-        <div className="flex gap-2 items-center">
-          <span className="text-gray-500 w-16">통과</span>
+        <div className="flex items-center gap-2">
+          <span className="w-20 text-gray-500">{statusLabel(t, "passed")}</span>
           <DeltaBadge prev={prevSumm.passed} latest={latSumm.passed} />
         </div>
       </div>
@@ -540,12 +535,12 @@ function ComparisonPanel({
       {/* Improved items */}
       {comparison.improved.length > 0 && (
         <div className="space-y-1.5">
-          <p className="text-xs font-medium text-green-700">✅ 좋아진 항목 ({comparison.improved.length})</p>
+          <p className="text-xs font-medium text-green-700">{t.comparison.improved} ({comparison.improved.length})</p>
           {comparison.improved.map((item) => (
-            <div key={item.itemId} className="bg-green-50 border border-green-100 rounded-lg px-3 py-2.5">
-              <div className="flex items-center gap-2 mb-0.5">
+            <div key={item.itemId} className="rounded-lg border border-green-100 bg-green-50 px-3 py-2.5">
+              <div className="mb-0.5 flex items-center gap-2">
                 <span className="text-xs font-medium text-green-800">{item.title}</span>
-                <span className="text-xs text-green-600">{STATUS_KO_COMPARE[item.from] ?? item.from} → {STATUS_KO_COMPARE[item.to] ?? item.to}</span>
+                <span className="text-xs text-green-600">{statusLabel(t, item.from)} → {statusLabel(t, item.to)}</span>
               </div>
               <p className="text-xs text-green-700">{item.reason}</p>
             </div>
@@ -556,12 +551,12 @@ function ComparisonPanel({
       {/* Still open items */}
       {comparison.stillOpen.length > 0 && (
         <div className="space-y-1.5">
-          <p className="text-xs font-medium text-amber-700">⚠️ 아직 남은 항목 ({comparison.stillOpen.length})</p>
+          <p className="text-xs font-medium text-amber-700">{t.comparison.stillOpen} ({comparison.stillOpen.length})</p>
           {comparison.stillOpen.map((item) => (
-            <div key={item.itemId} className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2.5">
-              <div className="flex items-center gap-2 mb-0.5">
+            <div key={item.itemId} className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2.5">
+              <div className="mb-0.5 flex items-center gap-2">
                 <span className="text-xs font-medium text-amber-800">{item.title}</span>
-                <span className="text-xs text-amber-600">{STATUS_KO_COMPARE[item.status] ?? item.status}</span>
+                <span className="text-xs text-amber-600">{statusLabel(t, item.status)}</span>
               </div>
               <p className="text-xs text-amber-700">{item.reason}</p>
             </div>
@@ -572,12 +567,12 @@ function ComparisonPanel({
       {/* Newly problematic */}
       {comparison.newlyProblematic.length > 0 && (
         <div className="space-y-1.5">
-          <p className="text-xs font-medium text-red-700">🔴 새로 생긴 문제 ({comparison.newlyProblematic.length})</p>
+          <p className="text-xs font-medium text-red-700">{t.comparison.newIssue} ({comparison.newlyProblematic.length})</p>
           {comparison.newlyProblematic.map((item) => (
-            <div key={item.itemId} className="bg-red-50 border border-red-100 rounded-lg px-3 py-2.5">
-              <div className="flex items-center gap-2 mb-0.5">
+            <div key={item.itemId} className="rounded-lg border border-red-100 bg-red-50 px-3 py-2.5">
+              <div className="mb-0.5 flex items-center gap-2">
                 <span className="text-xs font-medium text-red-800">{item.title}</span>
-                <span className="text-xs text-red-600">{STATUS_KO_COMPARE[item.from] ?? item.from} → {STATUS_KO_COMPARE[item.to] ?? item.to}</span>
+                <span className="text-xs text-red-600">{statusLabel(t, item.from)} → {statusLabel(t, item.to)}</span>
               </div>
               <p className="text-xs text-red-700">{item.reason}</p>
             </div>
@@ -588,7 +583,7 @@ function ComparisonPanel({
       {/* Unchanged */}
       {comparison.unchanged.length > 0 && (
         <div>
-          <p className="text-xs font-medium text-gray-500 mb-1">변화 없음 ({comparison.unchanged.length})</p>
+          <p className="mb-1 text-xs font-medium text-gray-500">{t.comparison.unchanged} ({comparison.unchanged.length})</p>
           <div className="flex flex-wrap gap-1.5">
             {comparison.unchanged.map((item) => (
               <span key={item.itemId} className="text-xs text-gray-500 bg-gray-100 border border-gray-200 rounded-full px-2.5 py-0.5">
@@ -619,6 +614,7 @@ function PRCommentPanel({
   userKey: string;
   comparisonData?: PrReviewComparisonResponse | null;
 }) {
+  const { t } = useI18n();
   const comparable = comparisonData?.ok === true && comparisonData.comparable === true;
   const allResults = run.results ?? [];
   const fixable = allResults.filter(
@@ -668,7 +664,7 @@ function PRCommentPanel({
       setPreviewPhase("done");
     } else {
       setPreviewPhase("error");
-      setErrorMsg(res.message ?? res.error ?? "미리보기 생성 실패");
+      setErrorMsg(res.message ?? res.error ?? t.comment.previewError);
     }
   }
 
@@ -692,7 +688,7 @@ function PRCommentPanel({
       if (res.error === "github_scope_required") {
         setScopeError(true);
       }
-      setErrorMsg(res.message ?? res.error ?? "코멘트 작성 실패");
+      setErrorMsg(res.message ?? res.error ?? t.comment.postError);
     }
   }
 
@@ -722,22 +718,17 @@ function PRCommentPanel({
   return (
     <div className="space-y-3">
       <div>
-        <p className="text-sm font-semibold text-gray-800 mb-0.5">PR에 코멘트 남기기</p>
-        <p className="text-xs text-gray-400">
-          확인 결과를 GitHub PR에 코멘트로 남길 수 있어요.
-          이 단계에서는 코드를 자동으로 고치지 않습니다.
-        </p>
+        <p className="text-sm font-semibold text-gray-800 mb-0.5">{t.comment.title}</p>
+        <p className="text-xs text-gray-400">{t.comment.desc}</p>
       </div>
 
       <p className="text-xs text-blue-600 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
-        현재는 공개 저장소 PR에만 코멘트를 남길 수 있어요.
+        {t.comment.publicOnly}
       </p>
 
       {/* Comparison inclusion option */}
       <div>
-        <p className="text-xs text-gray-500 mb-1.5">
-          수정 후 다시 확인한 결과가 있으면, 코멘트에 이전보다 좋아진 점과 아직 남은 항목을 함께 넣을 수 있어요.
-        </p>
+        <p className="text-xs text-gray-500 mb-1.5">{t.comment.includeComparisonDesc}</p>
         <label className={`flex items-center gap-2 cursor-pointer ${comparable ? "" : "opacity-50"}`}>
           <input
             type="checkbox"
@@ -746,10 +737,10 @@ function PRCommentPanel({
             onChange={(e) => setIncludeComparison(e.target.checked)}
             className="w-4 h-4 rounded accent-indigo-600"
           />
-          <span className="text-xs text-gray-700">이전/최신 비교 포함</span>
+          <span className="text-xs text-gray-700">{t.comment.includeComparison}</span>
         </label>
         {!comparable && (
-          <p className="text-xs text-gray-400 mt-1 ml-6">한 번 더 PR을 확인하면 비교를 포함할 수 있어요.</p>
+          <p className="text-xs text-gray-400 mt-1 ml-6">{t.comment.comparisonUnavailable}</p>
         )}
       </div>
 
@@ -766,7 +757,7 @@ function PRCommentPanel({
                 onChange={() => setMode(m)}
                 className="accent-indigo-600"
               />
-              {m === "new" ? "새 코멘트 작성" : "기존 코멘트 업데이트"}
+              {m === "new" ? t.comment.modeNew : t.comment.modeUpdate}
             </label>
           ))}
         </div>
@@ -800,7 +791,7 @@ function PRCommentPanel({
           disabled={!canPost || previewPhase === "loading"}
           className="text-sm px-4 py-2 rounded-xl font-medium border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40 transition-colors"
         >
-          {previewPhase === "loading" ? "미리보기 생성 중..." : "코멘트 미리보기"}
+          {previewPhase === "loading" ? t.comment.previewing : t.comment.preview}
         </button>
         {previewBody && postPhase !== "done" && (
           <button
@@ -809,10 +800,10 @@ function PRCommentPanel({
             className="text-sm px-4 py-2 rounded-xl font-medium bg-gray-900 text-white hover:bg-gray-800 disabled:opacity-40 transition-colors"
           >
             {postPhase === "loading"
-              ? "GitHub에 남기는 중..."
+              ? t.comment.posting
               : mode === "update_latest" && hasExistingComment
-                ? "기존 코멘트 업데이트"
-                : "GitHub에 남기기"}
+                ? t.comment.postUpdate
+                : t.comment.post}
           </button>
         )}
       </div>
@@ -820,13 +811,13 @@ function PRCommentPanel({
       {/* Scope error */}
       {scopeError && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800 space-y-1">
-          <p>GitHub 권한이 부족하거나 접근할 수 없는 저장소예요.</p>
-          <p className="text-xs">공개 저장소인지 확인하거나 GitHub 권한을 다시 연결해주세요.</p>
+          <p>{t.comment.scopeTitle}</p>
+          <p className="text-xs">{t.comment.scopeDesc}</p>
           <Link
             href={`/projects/${projectId}/settings`}
             className="inline-block mt-1 text-xs font-medium text-amber-700 underline"
           >
-            권한 다시 연결 →
+            {t.comment.reconnect}
           </Link>
         </div>
       )}
@@ -841,7 +832,7 @@ function PRCommentPanel({
         <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 space-y-2">
           <div className="flex items-center justify-between">
             <p className="text-sm text-green-800 font-medium">
-              {postWasUpdate ? "코멘트가 업데이트됐어요!" : "코멘트가 작성됐어요!"}
+              {postWasUpdate ? t.comment.postedUpdate : t.comment.postedNew}
             </p>
             <a
               href={postedUrl}
@@ -849,14 +840,14 @@ function PRCommentPanel({
               rel="noopener noreferrer"
               className="text-sm text-green-700 font-medium underline hover:text-green-900 ml-3 flex-shrink-0"
             >
-              GitHub에서 보기 →
+              {t.comment.viewOnGithub}
             </a>
           </div>
           <button
             onClick={handleRecheck}
             className="text-xs text-green-700 underline hover:text-green-900"
           >
-            다시 PR 확인하기
+            {t.comment.recheck}
           </button>
         </div>
       )}
@@ -864,7 +855,7 @@ function PRCommentPanel({
       {/* Preview body */}
       {previewBody && previewPhase === "done" && postPhase !== "done" && (
         <div className="bg-gray-50 rounded-xl border border-gray-200 p-4">
-          <p className="text-xs font-medium text-gray-500 mb-2">코멘트 미리보기</p>
+          <p className="text-xs font-medium text-gray-500 mb-2">{t.comment.previewTitle}</p>
           <div className="max-h-64 overflow-y-auto">
             <pre className="text-xs text-gray-700 whitespace-pre-wrap font-mono leading-relaxed">
               {previewBody}
@@ -878,16 +869,16 @@ function PRCommentPanel({
         onClick={loadPastComments}
         className="text-xs text-gray-400 hover:text-gray-600 underline"
       >
-        이전에 남긴 코멘트 보기
+        {t.comment.showPast}
       </button>
 
       {pastLoaded && pastComments.length > 0 && (
         <div className="space-y-1.5">
           {latestPosted && (
             <p className="text-xs text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-1.5">
-              가장 최근 코멘트: {latestPosted.updatedAt.slice(0, 10)}{" "}
+              {t.comment.latest} {latestPosted.updatedAt.slice(0, 10)}{" "}
               {latestPosted.githubCommentUrl && (
-                <a href={latestPosted.githubCommentUrl} target="_blank" rel="noopener noreferrer" className="underline">GitHub에서 보기</a>
+                <a href={latestPosted.githubCommentUrl} target="_blank" rel="noopener noreferrer" className="underline">{t.comment.viewOnGithub}</a>
               )}
             </p>
           )}
@@ -897,10 +888,10 @@ function PRCommentPanel({
                 c.status === "posted" ? "text-green-600 bg-green-50 border-green-200" :
                 c.status === "error" ? "text-red-600 bg-red-50 border-red-200" :
                 "text-gray-500 bg-gray-100 border-gray-200"
-              }`}>{c.status === "posted" ? "작성됨" : c.status === "error" ? "실패" : c.status}</span>
+              }`}>{c.status === "posted" ? t.comment.statusPosted : c.status === "error" ? t.comment.statusError : c.status}</span>
               <span className="truncate flex-1">{c.bodyPreview}</span>
               {c.githubCommentUrl && (
-                <a href={c.githubCommentUrl} target="_blank" rel="noopener noreferrer" className="flex-shrink-0 text-indigo-500 hover:underline">보기</a>
+                <a href={c.githubCommentUrl} target="_blank" rel="noopener noreferrer" className="flex-shrink-0 text-indigo-500 hover:underline">{t.comment.view}</a>
               )}
             </div>
           ))}
@@ -908,7 +899,7 @@ function PRCommentPanel({
       )}
 
       {pastLoaded && pastComments.length === 0 && (
-        <p className="text-xs text-gray-400">이전에 남긴 코멘트가 없어요.</p>
+        <p className="text-xs text-gray-400">{t.comment.noPast}</p>
       )}
     </div>
   );
@@ -933,6 +924,7 @@ function FixBriefPanel({
   items: WorkspaceItemLocal[];
   productSpec: Record<string, unknown>;
 }) {
+  const { t } = useI18n();
   const fixableItems = (run.results ?? []).filter(
     (r) => r.status === "failed" || r.status === "inconclusive" || r.status === "needs_decision",
   );
@@ -998,10 +990,8 @@ function FixBriefPanel({
   return (
     <div className="space-y-3">
       <div>
-        <p className="text-sm font-semibold text-gray-800 mb-0.5">수정 지시서 만들기</p>
-        <p className="text-xs text-gray-400">
-          확인 결과에서 문제가 있는 항목을 선택하면, Claude Code나 Codex에게 넘길 수정 지시서를 만들 수 있어요.
-        </p>
+        <p className="text-sm font-semibold text-gray-800 mb-0.5">{t.fixBrief.title}</p>
+        <p className="text-xs text-gray-400">{t.fixBrief.desc}</p>
       </div>
 
       {/* Item checkboxes */}
@@ -1033,15 +1023,15 @@ function FixBriefPanel({
           className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
         >
           <option value="both">Claude Code + Codex</option>
-          <option value="claude_code">Claude Code 전용</option>
-          <option value="codex">Codex 전용</option>
+          <option value="claude_code">{t.fixBrief.targetClaude}</option>
+          <option value="codex">{t.fixBrief.targetCodex}</option>
         </select>
         <button
           onClick={handleGenerate}
           disabled={selectedIds.size === 0 || phase === "loading"}
           className="text-sm px-4 py-2 rounded-xl font-medium bg-gray-900 text-white hover:bg-gray-800 disabled:opacity-40 transition-colors"
         >
-          {phase === "loading" ? "만드는 중..." : "수정 지시서 만들기"}
+          {phase === "loading" ? t.fixBrief.generating : t.fixBrief.generate}
         </button>
       </div>
 
@@ -1055,17 +1045,17 @@ function FixBriefPanel({
         <div className="bg-gray-50 rounded-xl border border-gray-200 p-4 space-y-3">
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium text-gray-800">
-              {result.brief.files.length}개 파일 생성됨
+              {result.brief.files.length}{t.fixBrief.filesGenerated}
             </p>
             <div className="flex items-center gap-2">
               {copyMsg && (
-                <span className="text-xs text-green-600">복사됨: {copyMsg}</span>
+                <span className="text-xs text-green-600">{t.fixBrief.copied} {copyMsg}</span>
               )}
               <button
                 onClick={handleZip}
                 className="text-sm px-3 py-1.5 rounded-lg font-medium border border-gray-200 text-gray-700 hover:bg-white transition-colors"
               >
-                ZIP 다운로드
+                {t.fixBrief.downloadZip}
               </button>
             </div>
           </div>
@@ -1083,7 +1073,7 @@ function FixBriefPanel({
                     onClick={(e) => { e.stopPropagation(); handleCopy(f); }}
                     className="text-xs text-gray-400 hover:text-gray-600 px-2 py-0.5 rounded border border-gray-200 bg-white flex-shrink-0"
                   >
-                    복사
+                    {t.fixBrief.copy}
                   </button>
                   <span className="text-gray-400 text-xs flex-shrink-0">
                     {previewFile === f.path ? "▲" : "▼"}
@@ -1100,9 +1090,7 @@ function FixBriefPanel({
             ))}
           </div>
 
-          <p className="text-xs text-gray-400">
-            ZIP을 다운받아 저장소 루트에 압축 해제하면 Claude Code나 Codex에서 바로 사용할 수 있어요.
-          </p>
+          <p className="text-xs text-gray-400">{t.fixBrief.usageNote}</p>
         </div>
       )}
     </div>
@@ -1119,18 +1107,17 @@ const STATUS_COLORS: Record<string, string> = {
   error: "text-gray-600 bg-gray-50 border-gray-200",
 };
 
-const RUN_STATUS_LABEL: Record<string, string> = {
-  passed: "통과",
-  failed: "안 맞음",
-  inconclusive: "확인 부족",
-  error: "확인 실패",
-  queued: "대기 중",
-  running: "확인 중",
-};
+function runStatusText(t: Dictionary, status: string): string {
+  if (status === "error") return t.runStatus.error;
+  if (status === "queued") return t.runStatus.queued;
+  if (status === "running") return t.runStatus.running;
+  return statusLabel(t, status);
+}
 
 function ReviewResultPanel({ run, onRerun }: { run: ReviewRun; onRerun: () => void }) {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState<string | null>(null);
-  const statusLabel = RUN_STATUS_LABEL[run.status] ?? run.status;
+  const runLabel = runStatusText(t, run.status);
   const statusColor = STATUS_COLORS[run.status] ?? "text-gray-600 bg-gray-50 border-gray-200";
 
   return (
@@ -1138,26 +1125,24 @@ function ReviewResultPanel({ run, onRerun }: { run: ReviewRun; onRerun: () => vo
       {/* Result header */}
       <div className="flex items-center gap-2">
         <span className={`text-xs font-medium border rounded-full px-2.5 py-0.5 ${statusColor}`}>
-          확인 결과: {statusLabel}
+          {t.review.resultLabel}: {runLabel}
         </span>
         {run.summary && (
           <span className="text-xs text-gray-400">
-            통과 {run.summary.passed} · 안 맞음 {run.summary.failed} · 확인 부족 {run.summary.inconclusive}
-            {run.summary.needsDecision > 0 && ` · 결정 필요 ${run.summary.needsDecision}`}
+            {statusLabel(t, "passed")} {run.summary.passed} · {statusLabel(t, "failed")} {run.summary.failed} · {statusLabel(t, "inconclusive")} {run.summary.inconclusive}
+            {run.summary.needsDecision > 0 && ` · ${statusLabel(t, "needs_decision")} ${run.summary.needsDecision}`}
           </span>
         )}
         <button
           onClick={onRerun}
           className="ml-auto text-xs text-gray-400 hover:text-gray-600 underline"
         >
-          다시 확인
+          {t.review.recheck}
         </button>
       </div>
 
       {/* Disclaimer */}
-      <p className="text-xs text-gray-400">
-        이 결과는 연결된 PR의 변경 내용 기준입니다. 전체 저장소나 배포된 서비스 전체를 확인한 것은 아니에요.
-      </p>
+      <p className="text-xs text-gray-400">{t.review.basisNote}</p>
 
       {/* Error */}
       {run.status === "error" && run.errorMessage && (
@@ -1187,7 +1172,7 @@ function ReviewResultPanel({ run, onRerun }: { run: ReviewRun; onRerun: () => vo
                   <p className="text-xs text-gray-700">{r.reason}</p>
                   {r.evidence.length > 0 && (
                     <div>
-                      <p className="text-xs text-gray-400 mb-1">코드에서 확인된 내용</p>
+                      <p className="text-xs text-gray-400 mb-1">{t.review.evidenceLabel}</p>
                       <ul className="space-y-0.5">
                         {r.evidence.map((e, i) => (
                           <li key={i} className="text-xs text-gray-600 font-mono bg-gray-50 rounded px-2 py-0.5 truncate">
@@ -1199,7 +1184,7 @@ function ReviewResultPanel({ run, onRerun }: { run: ReviewRun; onRerun: () => vo
                   )}
                   {r.nextAction && (
                     <p className="text-xs text-indigo-700 bg-indigo-50 rounded px-2 py-1.5">
-                      다음: {r.nextAction}
+                      {t.review.nextLabel}: {r.nextAction}
                     </p>
                   )}
                 </div>
@@ -1214,131 +1199,38 @@ function ReviewResultPanel({ run, onRerun }: { run: ReviewRun; onRerun: () => vo
 
 // ─── Credit Dry-Run Banner ────────────────────────────────────────────────────
 
-function CreditDryRunBanner({ dryRun, projectId }: { dryRun: CreditEnforcementResult | CreditEnforcementDryRun; projectId?: string }) {
+function CreditDryRunBanner({ t, dryRun, projectId }: { t: Dictionary; dryRun: CreditEnforcementResult | CreditEnforcementDryRun; projectId?: string }) {
   if (dryRun.billingStatus === "included" || dryRun.billingStatus === "ignored") return null;
 
   const covered = dryRun.allowance?.coveredByAllowance === true;
-  const isWouldBlock = dryRun.wouldBlock;
   const enforcement = dryRun as CreditEnforcementResult;
-  const actualDebitsEnabled = enforcement.actualDebitsEnabled === true;
+  const blocked = enforcement.actualDebitsEnabled === true && enforcement.blocked === true;
 
-  // Stage 31 — allowlist rollout status
-  const rolloutReason = enforcement.rollout?.reason;
-  const notAllowlisted = actualDebitsEnabled && rolloutReason === "not_allowlisted";
-  const allowlisted = actualDebitsEnabled && rolloutReason === "allowlisted";
-
-  // Stage 26 — debit shape uses attempted/applied/duplicate instead of ok
-  const debitOk =
-    actualDebitsEnabled &&
-    allowlisted &&
-    enforcement.debit?.attempted === true &&
-    enforcement.debit?.applied === true &&
-    !enforcement.debit?.duplicate;
-  const debitDuplicate =
-    actualDebitsEnabled && allowlisted && enforcement.debit?.duplicate === true;
-  const debitFailed =
-    actualDebitsEnabled &&
-    allowlisted &&
-    enforcement.debit?.attempted === true &&
-    enforcement.debit?.applied === false &&
-    !enforcement.debit?.duplicate;
-  const blocked = actualDebitsEnabled && enforcement.blocked === true;
-  const insufficientButAllowed = actualDebitsEnabled && allowlisted && isWouldBlock && !blocked;
-
-  const borderColor = blocked
-    ? "border-red-200 bg-red-50"
-    : debitFailed || insufficientButAllowed
-    ? "border-amber-200 bg-amber-50"
-    : debitOk || debitDuplicate
-    ? "border-indigo-100 bg-indigo-50"
-    : covered
-    ? "border-green-100 bg-green-50"
-    : "border-blue-100 bg-blue-50";
-  const textColor = blocked
-    ? "text-red-700"
-    : debitFailed || insufficientButAllowed
-    ? "text-amber-700"
-    : debitOk || debitDuplicate
-    ? "text-indigo-700"
-    : covered
-    ? "text-green-700"
-    : "text-blue-700";
-  const labelColor = blocked
-    ? "text-red-600"
-    : debitFailed || insufficientButAllowed
-    ? "text-amber-600"
-    : debitOk || debitDuplicate
-    ? "text-indigo-600"
-    : covered
-    ? "text-green-600"
-    : "text-blue-600";
-
-  const headerLabel = blocked
-    ? "credit 부족으로 실행이 차단됨"
-    : debitDuplicate
-    ? "이미 처리된 credit 차감 요청"
-    : debitOk
-    ? "credit 차감됨"
-    : debitFailed
-    ? "credit 차감 실패"
-    : insufficientButAllowed
-    ? "잔액 부족이지만 실행 허용"
-    : covered
-    ? "월 무료 제공량 안에 포함"
-    : "예상 credit 확인";
-
-  // Stage 31 — failed pending retry copy
-  const debitFailedIsLedgerFailed =
-    debitFailed && enforcement.debit?.ledgerStatus === "failed";
-
-  const footerNote = blocked
-    ? `현재 잔액: ${enforcement.currentBalance} review credit · 필요: ${enforcement.requiredCredits}`
-    : actualDebitsEnabled
-    ? (notAllowlisted
-        ? "현재 계정은 실제 credit 차감 대상이 아니어서 dry-run으로만 확인됩니다."
-        : debitDuplicate
-        ? "이미 처리된 credit 차감 요청이라 추가 차감은 하지 않았어요."
-        : debitOk
-        ? `잔액: ${enforcement.debit?.newBalance ?? enforcement.remainingAfter} review credit${allowlisted ? " · 제한적 rollout 적용" : ""}`
-        : debitFailedIsLedgerFailed
-        ? "이전 credit 처리 요청이 실패 처리되었습니다. 새로 다시 실행해주세요."
-        : debitFailed
-        ? `차감 오류: ${enforcement.debit?.error ?? "알 수 없음"}`
-        : insufficientButAllowed
-        ? "잔액 부족 · 차감 없음 · 실행은 허용됨"
-        : "실제 차감 활성화됨")
-    : "실제 차감 없음 · 실행은 허용됨";
+  // Product-friendly: hide internal billing flags (dry-run, rollout, debit ledger).
+  // During beta actual debits are off, so the common case is "charging disabled".
+  const border = blocked ? "border-red-200 bg-red-50" : covered ? "border-green-100 bg-green-50" : "border-slate-200 bg-slate-50";
+  const textColor = blocked ? "text-red-700" : covered ? "text-green-700" : "text-slate-700";
+  const headerLabel = blocked ? t.credit.blocked : covered ? t.credit.includedInAllowance : t.credit.estimated;
+  const message = blocked ? t.credit.blocked : covered ? t.credit.includedInAllowance : t.credit.disabledBeta;
 
   return (
-    <div className={`mt-3 border rounded-xl px-4 py-3 ${borderColor}`}>
-      <p className={`text-xs font-semibold mb-1 ${textColor}`}>{headerLabel}</p>
-      <p className={`text-xs ${labelColor}`}>{dryRun.message}</p>
+    <div className={`mt-3 rounded-lg border px-4 py-3 ${border}`}>
+      <p className={`mb-1 text-xs font-semibold ${textColor}`}>{headerLabel}</p>
+      <p className="text-xs text-gray-500">{message}</p>
       {dryRun.allowance && (
-        <p className="text-xs text-gray-500 mt-1">
-          이번 달 사용: {dryRun.allowance.usedThisPeriod} / {dryRun.allowance.includedRuns}회
-          {dryRun.allowance.coveredByAllowance
-            ? ` · 남은 무료 ${dryRun.allowance.remainingIncludedRuns}회`
-            : ""}
+        <p className="mt-1 text-xs text-gray-500">
+          {t.credit.thisMonth}: {dryRun.allowance.usedThisPeriod} / {dryRun.allowance.includedRuns}
+          {dryRun.allowance.coveredByAllowance ? ` · ${dryRun.allowance.remainingIncludedRuns} ${t.credit.freeRunsLeft}` : ""}
         </p>
       )}
-      {allowlisted && !debitOk && !debitFailed && !debitDuplicate && (
-        <p className="text-xs text-blue-500 mt-1">현재 계정은 제한적 actual debit 테스트 대상입니다.</p>
-      )}
-      <p className="text-xs text-gray-400 mt-1">{footerNote}</p>
       {projectId && (
         <div className="mt-2 flex gap-3">
-          <Link
-            href={`/projects/${projectId}/credits`}
-            className="text-xs text-blue-600 hover:underline"
-          >
-            Credit 잔액 보기 →
+          <Link href={`/projects/${projectId}/credits`} className="text-xs text-brand-700 hover:underline">
+            {t.credit.viewBalance} →
           </Link>
           {(blocked || dryRun.wouldBlock) && (
-            <Link
-              href={`/projects/${projectId}/credits`}
-              className="text-xs text-amber-700 font-medium hover:underline"
-            >
-              Credit 충전 요청 →
+            <Link href={`/projects/${projectId}/credits`} className="text-xs font-medium text-amber-700 hover:underline">
+              {t.credit.requestTopUp} →
             </Link>
           )}
         </div>
