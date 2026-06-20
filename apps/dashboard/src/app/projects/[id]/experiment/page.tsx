@@ -24,13 +24,20 @@ import {
   patchExperimentCandidate,
   createBenchmarkFromExperiment,
   saveExperimentDecision,
+  getOutcomeScorecard,
   type SavedExperimentListItem,
   type SavedExperiment,
   type ExperimentCandidate,
+  type OutcomeScorecard,
 } from "@/lib/workspace-experiment-api";
 import { listProjectReviewHistory, type ProjectReviewHistoryItem } from "@/lib/workspace-github-api";
+import { gradeLabelKey, actionLabelKey, reasonLabelKey } from "@/lib/outcome-labels.mjs";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { Dictionary, Locale } from "@/i18n/dictionary.mjs";
+
+function outcomeText(t: Dictionary, key: string): string {
+  return (t.outcome as unknown as Record<string, string>)[key] ?? key;
+}
 
 function templateTitle(t: Dictionary, id: string): string {
   if (id === "single_agent_baseline") return t.experiment.tplSingleTitle;
@@ -119,6 +126,27 @@ export default function ExperimentPage() {
   const [openExp, setOpenExp] = useState<SavedExperiment | null>(null);
   const [reviewRuns, setReviewRuns] = useState<ProjectReviewHistoryItem[]>([]);
   const [benchPhase, setBenchPhase] = useState<"idle" | "creating" | "done" | "error">("idle");
+  const [scorecard, setScorecard] = useState<OutcomeScorecard | null>(null);
+  const [scorecardLoading, setScorecardLoading] = useState(false);
+
+  // Stage 75: load the outcome quality scorecard whenever the open experiment
+  // changes (open / decision saved / benchmark created all replace openExp).
+  useEffect(() => {
+    if (!openExp || !userKey) {
+      setScorecard(null);
+      return;
+    }
+    let cancelled = false;
+    setScorecardLoading(true);
+    getOutcomeScorecard(id, openExp.id, userKey).then((res) => {
+      if (cancelled) return;
+      setScorecard(res.ok ? res.scorecard : null);
+      setScorecardLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, userKey, openExp]);
 
   const loadSaved = useCallback(async () => {
     if (!userKey) return;
@@ -401,6 +429,15 @@ export default function ExperimentPage() {
             onSaved={setOpenExp}
             t={t}
           />
+
+          {/* Outcome quality scorecard (Stage 75) */}
+          <OutcomeQualitySection
+            scorecard={scorecard}
+            loading={scorecardLoading}
+            projectId={id}
+            experiment={openExp}
+            t={t}
+          />
         </section>
       )}
 
@@ -623,6 +660,142 @@ function CandidateLinkCard({
       </div>
       {phase === "saved" && <p className="mt-1 text-[11px] text-green-600">{t.experiment.updated}</p>}
       {phase === "error" && <p className="mt-1 text-[11px] text-red-500">{t.experiment.updateError}</p>}
+    </div>
+  );
+}
+
+const GRADE_BADGE: Record<string, string> = {
+  strong: "bg-green-50 text-green-700 border-green-200",
+  promising: "bg-blue-50 text-blue-700 border-blue-200",
+  needs_work: "bg-amber-50 text-amber-700 border-amber-200",
+  inconclusive: "bg-gray-100 text-gray-500 border-gray-200",
+};
+
+function pct(value: number | null): string {
+  return value === null ? "—" : `${Math.round(value * 100)}%`;
+}
+
+function OutcomeQualitySection({
+  scorecard,
+  loading,
+  projectId,
+  experiment,
+  t,
+}: {
+  scorecard: OutcomeScorecard | null;
+  loading: boolean;
+  projectId: string;
+  experiment: SavedExperiment;
+  t: Dictionary;
+}) {
+  const linkedBenchmarkId = experiment.candidates.find((c) => c.benchmarkId)?.benchmarkId;
+  const selected = experiment.candidates.find(
+    (c) => c.candidateId === scorecard?.selectedCandidateId || c.id === scorecard?.selectedCandidateId,
+  );
+  const fixRunId = selected?.reviewRunId;
+
+  return (
+    <div className="mt-4 rounded-lg border border-gray-100 bg-white p-4">
+      <p className="text-sm font-semibold text-gray-800">{t.outcome.title}</p>
+      <p className="mt-0.5 text-xs text-gray-400">{t.outcome.desc}</p>
+
+      {loading && <p className="mt-3 text-xs text-gray-400">{t.outcome.loading}</p>}
+
+      {!loading && scorecard && (
+        <>
+          <div className="mt-3 flex items-center gap-2">
+            <span
+              className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${
+                GRADE_BADGE[scorecard.quality.grade] ?? GRADE_BADGE.inconclusive
+              }`}
+            >
+              {outcomeText(t, gradeLabelKey(scorecard.quality.grade))}
+            </span>
+            <span className="text-[11px] text-gray-400">
+              {t.outcome.score}: {scorecard.quality.score}
+            </span>
+          </div>
+
+          <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-3">
+            <Metric label={t.outcome.acceptancePassRate} value={pct(scorecard.quality.acceptancePassRate)} />
+            <Metric label={t.outcome.criticalIssues} value={String(scorecard.quality.criticalIssueCount)} />
+            <Metric label={t.outcome.notVerified} value={String(scorecard.quality.notVerifiedCount)} />
+            <Metric label={t.outcome.needsDecision} value={String(scorecard.quality.needsDecisionCount)} />
+            <Metric label={t.outcome.unresolvedBlockers} value={String(scorecard.quality.unresolvedBlockerCount)} />
+            <Metric label={t.outcome.evidenceCoverage} value={pct(scorecard.quality.evidenceCoverageRate)} />
+          </dl>
+
+          <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 p-3">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{t.outcome.recommendedNext}</p>
+            <p className="mt-0.5 text-sm font-semibold text-gray-800">
+              {outcomeText(t, actionLabelKey(scorecard.nextEvolution.recommendedAction))}
+            </p>
+            {scorecard.nextEvolution.reasons.length > 0 && (
+              <>
+                <p className="mt-2 text-[11px] font-medium uppercase tracking-wide text-gray-400">{t.outcome.reasonsLabel}</p>
+                <ul className="mt-1 space-y-0.5 text-xs text-gray-600">
+                  {scorecard.nextEvolution.reasons.map((r) => (
+                    <li key={r} className="flex gap-1.5">
+                      <span className="text-gray-300">•</span>
+                      <span>{outcomeText(t, reasonLabelKey(r))}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+
+          {scorecard.nextEvolution.suggestedFocusItemIds.length > 0 && (
+            <div className="mt-3">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{t.outcome.suggestedFocus}</p>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {scorecard.nextEvolution.suggestedFocusItemIds.map((itemId) => (
+                  <span key={itemId} className="rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] font-mono text-gray-600">
+                    {itemId}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {linkedBenchmarkId && (
+              <Link
+                href={`/projects/${projectId}/benchmark/${linkedBenchmarkId}`}
+                className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
+              >
+                {t.outcome.openBenchmarkEvidence}
+              </Link>
+            )}
+            {fixRunId && (
+              <Link
+                href={`/projects/${projectId}/github/history/${fixRunId}?action=fix-pack`}
+                className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
+              >
+                {t.outcome.createFixInstructions}
+              </Link>
+            )}
+            <button
+              type="button"
+              onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+              className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
+            >
+              {t.outcome.planAnotherExperiment}
+            </button>
+          </div>
+
+          <p className="mt-3 text-[11px] leading-relaxed text-gray-400">{t.outcome.basis}</p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2 border-b border-gray-50 py-0.5">
+      <dt className="text-gray-400">{label}</dt>
+      <dd className="font-semibold text-gray-800">{value}</dd>
     </div>
   );
 }

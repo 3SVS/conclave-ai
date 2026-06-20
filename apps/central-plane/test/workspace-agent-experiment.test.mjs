@@ -430,3 +430,48 @@ test("POST decision: invalid decisionStatus → 400", async () => {
   assert.equal(res.status, 400);
   assert.equal(res.json.error, "invalid_decision_status");
 });
+
+// ─── Stage 75: outcome scorecard ──────────────────────────────────────────────
+
+test("GET outcome-scorecard: no benchmark → inconclusive + create_benchmark", async () => {
+  const env = makeEnv();
+  const { eid } = await createExp(env);
+  const res = await req(env, "GET", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/outcome-scorecard?userKey=${USER}`);
+  assert.equal(res.status, 200);
+  assert.equal(res.json.scorecard.quality.grade, "inconclusive");
+  assert.equal(res.json.scorecard.nextEvolution.recommendedAction, "create_benchmark");
+  assert.equal(res.json.scorecard.signals.hasBenchmark, false);
+});
+
+test("GET outcome-scorecard: missing userKey → 400, other user → 403", async () => {
+  const env = makeEnv();
+  const { eid } = await createExp(env);
+  const a = await req(env, "GET", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/outcome-scorecard`);
+  assert.equal(a.status, 400);
+  const b = await req(env, "GET", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/outcome-scorecard?userKey=uk_other`);
+  assert.equal(b.status, 403);
+});
+
+test("GET outcome-scorecard: with benchmark + selected candidate → graded", async () => {
+  const runs = new Map([
+    ["wprr_1", makeRun("wprr_1", { summary: { passed: 5, failed: 2 }, results: [{ itemId: "i1", title: "X", status: "failed" }] })],
+    ["wprr_2", makeRun("wprr_2", { summary: { passed: 8 }, results: [{ itemId: "i1", title: "X", status: "passed" }] })],
+  ]);
+  const env = makeEnv({ runs });
+  const { eid, cands } = await createExp(env);
+  await link(env, eid, cands[0].id, "wprr_1");
+  await link(env, eid, cands[1].id, "wprr_2");
+  await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/benchmark`, { userKey: USER });
+  await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/decision`, {
+    userKey: USER, selectedCandidateId: "b", decisionStatus: "selected",
+    candidateOutcomes: [{ candidateId: "b", outcome: "selected" }],
+  });
+  const res = await req(env, "GET", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/outcome-scorecard?userKey=${USER}`);
+  assert.equal(res.status, 200);
+  assert.equal(res.json.scorecard.signals.hasBenchmark, true);
+  assert.equal(res.json.scorecard.selectedCandidateId, "b");
+  // candidate b: passed 8 / total 8 → passRate 1.0, no critical → strong
+  assert.equal(res.json.scorecard.quality.acceptancePassRate, 1);
+  assert.equal(res.json.scorecard.quality.grade, "strong");
+  assert.equal(res.json.scorecard.nextEvolution.recommendedAction, "accept");
+});

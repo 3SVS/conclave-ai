@@ -145,6 +145,55 @@ export async function createBenchmarkFromExperiment(
   }
 }
 
+export type OutcomeScorecard = {
+  experimentId: string;
+  projectId: string;
+  selectedCandidateId?: string;
+  decisionStatus: string;
+  quality: {
+    acceptancePassRate: number | null;
+    unresolvedBlockerCount: number;
+    criticalIssueCount: number;
+    notVerifiedCount: number;
+    needsDecisionCount: number;
+    evidenceCoverageRate: number | null;
+    score: number;
+    grade: string;
+  };
+  signals: {
+    hasBenchmark: boolean;
+    hasDecision: boolean;
+    hasSelectedCandidate: boolean;
+    hasItemLevelEvidence: boolean;
+    acceptanceSetAligned?: boolean;
+  };
+  nextEvolution: {
+    recommendedAction: string;
+    reasons: string[];
+    suggestedFocusItemIds: string[];
+  };
+};
+
+export type OutcomeScorecardResponse =
+  | { ok: true; scorecard: OutcomeScorecard }
+  | { ok: false; error: string };
+
+export async function getOutcomeScorecard(
+  projectId: string,
+  experimentId: string,
+  userKey: string,
+): Promise<OutcomeScorecardResponse> {
+  try {
+    const params = new URLSearchParams({ userKey });
+    const resp = await fetch(`${base(projectId)}/${encodeURIComponent(experimentId)}/outcome-scorecard?${params}`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    return (await resp.json()) as OutcomeScorecardResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
 export async function saveExperimentDecision(
   projectId: string,
   experimentId: string,

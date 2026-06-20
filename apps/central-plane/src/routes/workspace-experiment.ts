@@ -25,7 +25,9 @@ import type {
   CandidateSource,
   ReviewSummaryCounts,
   ReviewItemInput,
+  AgentBenchmarkResult,
 } from "../workspace/agent-benchmark.js";
+import { computeOutcomeScorecard } from "../workspace/experiment-outcome-scorecard.js";
 import {
   insertExperiment,
   listExperiments,
@@ -465,6 +467,48 @@ export function createWorkspaceExperimentRoutes(): Hono<{ Bindings: Env }> {
     } catch (err) {
       console.error("[workspace/agent-experiments decision POST] failed:", err);
       return c.json({ ok: false, error: "decision_failed" }, 500);
+    }
+  });
+
+  // ── GET outcome-scorecard (Stage 75) — computed on demand, no persistence ─────
+  app.get("/workspace/projects/:id/agent-experiments/:experimentId/outcome-scorecard", async (c) => {
+    const projectId = c.req.param("id");
+    const experimentId = c.req.param("experimentId");
+    const userKey = c.req.query("userKey") ?? "";
+    if (!userKey) return c.json({ ok: false, error: "userKey_required" }, 400);
+
+    try {
+      const exp = await getExperimentById(c.env, experimentId);
+      if (!exp || exp.projectId !== projectId) return c.json({ ok: false, error: "not_found" }, 404);
+      if (exp.userKey !== userKey) return c.json({ ok: false, error: "forbidden" }, 403);
+
+      const candidates = await listExperimentCandidates(c.env, experimentId);
+      const benchmarkId = candidates.find((cc) => cc.benchmarkId)?.benchmarkId;
+
+      let benchmark: AgentBenchmarkResult | null = null;
+      if (benchmarkId) {
+        const row = await getAgentBenchmarkById(c.env, benchmarkId);
+        if (row && row.projectId === projectId && row.userKey === userKey) {
+          try {
+            benchmark = JSON.parse(row.resultJson) as AgentBenchmarkResult;
+          } catch {
+            benchmark = null;
+          }
+        }
+      }
+
+      const scorecard = computeOutcomeScorecard({
+        experimentId,
+        projectId,
+        decisionStatus: exp.decisionStatus,
+        selectedCandidateId: exp.selectedCandidateId,
+        benchmark,
+      });
+
+      return c.json({ ok: true, scorecard });
+    } catch (err) {
+      console.error("[workspace/agent-experiments outcome-scorecard GET] failed:", err);
+      return c.json({ ok: false, error: "scorecard_failed" }, 500);
     }
   });
 
