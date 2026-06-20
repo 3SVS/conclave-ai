@@ -31,7 +31,13 @@ import {
   type OutcomeScorecard,
 } from "@/lib/workspace-experiment-api";
 import { listProjectReviewHistory, type ProjectReviewHistoryItem } from "@/lib/workspace-github-api";
+import { getSavedBenchmark } from "@/lib/workspace-benchmark-api";
 import { gradeLabelKey, actionLabelKey, reasonLabelKey } from "@/lib/outcome-labels.mjs";
+import {
+  buildEvolutionActionPack,
+  buildEvolutionActionPackText,
+  type EvolutionActionPack,
+} from "@/lib/evolution-action-pack.mjs";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { Dictionary, Locale } from "@/i18n/dictionary.mjs";
 
@@ -436,6 +442,7 @@ export default function ExperimentPage() {
             loading={scorecardLoading}
             projectId={id}
             experiment={openExp}
+            userKey={userKey ?? ""}
             t={t}
           />
         </section>
@@ -680,12 +687,14 @@ function OutcomeQualitySection({
   loading,
   projectId,
   experiment,
+  userKey,
   t,
 }: {
   scorecard: OutcomeScorecard | null;
   loading: boolean;
   projectId: string;
   experiment: SavedExperiment;
+  userKey: string;
   t: Dictionary;
 }) {
   const linkedBenchmarkId = experiment.candidates.find((c) => c.benchmarkId)?.benchmarkId;
@@ -693,6 +702,54 @@ function OutcomeQualitySection({
     (c) => c.candidateId === scorecard?.selectedCandidateId || c.id === scorecard?.selectedCandidateId,
   );
   const fixRunId = selected?.reviewRunId;
+
+  const [pack, setPack] = useState<EvolutionActionPack | null>(null);
+  const [packText, setPackText] = useState("");
+  const [packPhase, setPackPhase] = useState<"idle" | "generating" | "ready" | "error">("idle");
+  const [copied, setCopied] = useState(false);
+
+  // Reset the generated pack whenever the scorecard changes (new experiment / decision).
+  useEffect(() => {
+    setPack(null);
+    setPackText("");
+    setPackPhase("idle");
+    setCopied(false);
+  }, [scorecard]);
+
+  const s = t.evolution as unknown as Record<string, string>;
+
+  async function handleGenerate() {
+    if (!scorecard) return;
+    setPackPhase("generating");
+    // Pull the benchmark snapshot for focus-item titles (best effort; the pack
+    // still builds without it, falling back to itemId).
+    let benchmark = null;
+    if (scorecard.signals.hasBenchmark && linkedBenchmarkId && userKey) {
+      const res = await getSavedBenchmark(projectId, linkedBenchmarkId, userKey);
+      if (res.ok) benchmark = res.benchmark.result;
+    }
+    const built = buildEvolutionActionPack({ projectId, experiment, scorecard, benchmark }, s);
+    const target = experiment.candidates.find(
+      (c) => c.candidateId === built.targetCandidateId || c.id === built.targetCandidateId,
+    );
+    const text = buildEvolutionActionPackText(built, s, {
+      experimentTitle: experiment.title,
+      targetCandidateLabel: target ? candidateLabel(t, target.label) : undefined,
+    });
+    setPack(built);
+    setPackText(text);
+    setPackPhase("ready");
+  }
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(packText);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable — preview still shown */
+    }
+  }
 
   return (
     <div className="mt-4 rounded-lg border border-gray-100 bg-white p-4">
@@ -785,7 +842,59 @@ function OutcomeQualitySection({
           </div>
 
           <p className="mt-3 text-[11px] leading-relaxed text-gray-400">{t.outcome.basis}</p>
+
+          {/* Evolution action pack (Stage 76) */}
+          <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-4">
+            <p className="text-sm font-semibold text-gray-800">{t.evolution.title}</p>
+            <p className="mt-0.5 text-xs text-gray-400">{t.evolution.desc}</p>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleGenerate}
+                disabled={packPhase === "generating"}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-40"
+              >
+                {t.evolution.generate}
+              </button>
+              {pack && (
+                <button
+                  type="button"
+                  onClick={handleCopy}
+                  className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                >
+                  {copied ? t.evolution.copied : t.evolution.copy}
+                </button>
+              )}
+            </div>
+
+            {pack && packPhase === "ready" && (
+              <div className="mt-3 space-y-3">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="font-medium text-gray-500">{t.evolution.recommendedAction}:</span>
+                  <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
+                    {pack.title}
+                  </span>
+                  {pack.targetCandidateId && (
+                    <span className="text-gray-400">
+                      {t.evolution.targetCandidate}: {pack.targetCandidateId}
+                    </span>
+                  )}
+                </div>
+                {pack.sections.map((sec, i) => (
+                  <div key={i} className="rounded-lg border border-gray-100 bg-white p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{sec.title}</p>
+                    <p className="mt-1 whitespace-pre-line text-xs leading-relaxed text-gray-700">{sec.body}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </>
+      )}
+
+      {!loading && !scorecard && (
+        <p className="mt-3 text-xs text-gray-400">{t.evolution.needScorecard}</p>
       )}
     </div>
   );
