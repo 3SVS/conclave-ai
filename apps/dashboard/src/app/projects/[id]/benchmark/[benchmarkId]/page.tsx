@@ -342,6 +342,22 @@ export default function BenchmarkDetailPage() {
         )
       )}
 
+      {/* Ready to decide? (Stage 74) */}
+      {data.sourceExperimentId && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold text-indigo-800">{t.benchmark.readyToDecide}</p>
+            <p className="mt-0.5 text-xs text-indigo-600">{t.benchmark.readyToDecideDesc}</p>
+          </div>
+          <Link
+            href={`/projects/${id}/experiment?experiment=${encodeURIComponent(data.sourceExperimentId)}`}
+            className="flex-shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-700"
+          >
+            {t.benchmark.recordDecision}
+          </Link>
+        </div>
+      )}
+
       {/* Recommendation */}
       <section className="rounded-xl border border-gray-200 bg-white p-5">
         <p className="rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-700">{t.benchmark.intro}</p>

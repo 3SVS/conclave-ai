@@ -43,10 +43,22 @@ function makeDb({ runs = new Map(), benchmarks = [], experiments = [], candidate
               benchmarks.push({ id, project_id, user_key, title, candidate_count, winner_candidate_id, no_clear_winner, result_json, source_experiment_id });
               return { meta: { changes: 1 } };
             }
+            if (sql.includes("UPDATE workspace_agent_experiments") && sql.includes("SET decision_status")) {
+              const [decision_status, selected_candidate_id, decision_note, status, decided_at, , id] = args;
+              const exp = experiments.find((e) => e.id === id);
+              if (exp) { exp.decision_status = decision_status; exp.selected_candidate_id = selected_candidate_id; exp.decision_note = decision_note; exp.status = status; exp.decided_at = decided_at; }
+              return { meta: { changes: 1 } };
+            }
             if (sql.includes("UPDATE workspace_agent_experiments")) {
               const [status, now, id] = args;
               const exp = experiments.find((e) => e.id === id);
               if (exp) { exp.status = status; exp.updated_at = now; }
+              return { meta: { changes: 1 } };
+            }
+            if (sql.includes("UPDATE workspace_agent_experiment_candidates") && sql.includes("SET outcome")) {
+              const [outcome, outcome_note, status, decided_at, , id] = args;
+              const cand = candidates.find((c) => c.id === id);
+              if (cand) { cand.outcome = outcome; cand.outcome_note = outcome_note; cand.status = status; cand.decided_at = decided_at; }
               return { meta: { changes: 1 } };
             }
             if (sql.includes("UPDATE workspace_agent_experiment_candidates")) {
@@ -308,4 +320,113 @@ test("POST benchmark from experiment: other user → 403", async () => {
   const res = await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/benchmark`, { userKey: "uk_intruder" });
   assert.equal(res.status, 403);
   assert.equal(res.json.error, "forbidden");
+});
+
+// ─── Stage 74: decision ───────────────────────────────────────────────────────
+
+test("POST decision: select a winner → experiment completed + candidate statuses", async () => {
+  const env = makeEnv();
+  const { eid } = await createExp(env);
+  const res = await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/decision`, {
+    userKey: USER,
+    selectedCandidateId: "b",
+    decisionStatus: "selected",
+    decisionNote: "Use B.",
+    candidateOutcomes: [
+      { candidateId: "a", outcome: "rejected", note: "Lower pass rate." },
+      { candidateId: "b", outcome: "selected", note: "Fewer blockers." },
+    ],
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.json.experiment.status, "completed");
+  assert.equal(res.json.experiment.decisionStatus, "selected");
+  assert.equal(res.json.experiment.selectedCandidateId, "b");
+  const byId = Object.fromEntries(res.json.experiment.candidates.map((c) => [c.candidateId, c]));
+  assert.equal(byId.a.outcome, "rejected");
+  assert.equal(byId.a.status, "rejected");
+  assert.equal(byId.b.outcome, "selected");
+  assert.equal(byId.b.status, "selected");
+});
+
+test("POST decision: needs_fix → experiment decision_made", async () => {
+  const env = makeEnv();
+  const { eid } = await createExp(env);
+  const res = await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/decision`, {
+    userKey: USER,
+    decisionStatus: "needs_fix",
+    candidateOutcomes: [{ candidateId: "a", outcome: "needs_fix" }],
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.json.experiment.status, "decision_made");
+});
+
+test("POST decision: missing userKey → 400", async () => {
+  const env = makeEnv();
+  const { eid } = await createExp(env);
+  const res = await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/decision`, {
+    decisionStatus: "undecided", candidateOutcomes: [],
+  });
+  assert.equal(res.status, 400);
+  assert.equal(res.json.error, "userKey_required");
+});
+
+test("POST decision: other user → 403", async () => {
+  const env = makeEnv();
+  const { eid } = await createExp(env);
+  const res = await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/decision`, {
+    userKey: "uk_intruder", decisionStatus: "undecided", candidateOutcomes: [],
+  });
+  assert.equal(res.status, 403);
+});
+
+test("POST decision: unknown candidate id → 400", async () => {
+  const env = makeEnv();
+  const { eid } = await createExp(env);
+  const res = await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/decision`, {
+    userKey: USER, decisionStatus: "selected", candidateOutcomes: [{ candidateId: "zzz", outcome: "selected" }],
+  });
+  assert.equal(res.status, 400);
+  assert.equal(res.json.error, "unknown_candidate");
+});
+
+test("POST decision: multiple selected → 400", async () => {
+  const env = makeEnv();
+  const { eid } = await createExp(env);
+  const res = await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/decision`, {
+    userKey: USER, decisionStatus: "selected",
+    candidateOutcomes: [{ candidateId: "a", outcome: "selected" }, { candidateId: "b", outcome: "selected" }],
+  });
+  assert.equal(res.status, 400);
+  assert.equal(res.json.error, "multiple_selected");
+});
+
+test("POST decision: selectedCandidateId must match a selected outcome → 400", async () => {
+  const env = makeEnv();
+  const { eid } = await createExp(env);
+  const res = await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/decision`, {
+    userKey: USER, selectedCandidateId: "a", decisionStatus: "selected",
+    candidateOutcomes: [{ candidateId: "b", outcome: "selected" }],
+  });
+  assert.equal(res.status, 400);
+  assert.equal(res.json.error, "selected_mismatch");
+});
+
+test("POST decision: note too long → 400", async () => {
+  const env = makeEnv();
+  const { eid } = await createExp(env);
+  const res = await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/decision`, {
+    userKey: USER, decisionStatus: "undecided", decisionNote: "x".repeat(1001), candidateOutcomes: [],
+  });
+  assert.equal(res.status, 400);
+  assert.equal(res.json.error, "note_too_long");
+});
+
+test("POST decision: invalid decisionStatus → 400", async () => {
+  const env = makeEnv();
+  const { eid } = await createExp(env);
+  const res = await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/decision`, {
+    userKey: USER, decisionStatus: "nope", candidateOutcomes: [],
+  });
+  assert.equal(res.status, 400);
+  assert.equal(res.json.error, "invalid_decision_status");
 });

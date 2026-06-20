@@ -17,6 +17,10 @@ export type DbExperiment = {
   planJson: string;
   createdAt: string;
   updatedAt: string;
+  decisionStatus?: string;
+  selectedCandidateId?: string;
+  decisionNote?: string;
+  decidedAt?: string;
 };
 
 export type DbExperimentCandidate = {
@@ -31,6 +35,9 @@ export type DbExperimentCandidate = {
   pullRequestNumber?: number;
   reviewRunId?: string;
   benchmarkId?: string;
+  outcome?: string;
+  outcomeNote?: string;
+  decidedAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -54,6 +61,10 @@ type ExpRow = {
   plan_json: string;
   created_at: string;
   updated_at: string;
+  decision_status: string | null;
+  selected_candidate_id: string | null;
+  decision_note: string | null;
+  decided_at: string | null;
 };
 
 type CandRow = {
@@ -68,6 +79,9 @@ type CandRow = {
   pull_request_number: number | null;
   review_run_id: string | null;
   benchmark_id: string | null;
+  outcome: string | null;
+  outcome_note: string | null;
+  decided_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -91,6 +105,9 @@ function mapCand(row: CandRow): DbExperimentCandidate {
     pullRequestNumber: row.pull_request_number ?? undefined,
     reviewRunId: row.review_run_id ?? undefined,
     benchmarkId: row.benchmark_id ?? undefined,
+    outcome: row.outcome ?? undefined,
+    outcomeNote: row.outcome_note ?? undefined,
+    decidedAt: row.decided_at ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -196,7 +213,8 @@ export async function listExperiments(
 
 export async function getExperimentById(env: Env, id: string): Promise<DbExperiment | null> {
   const row = (await env.DB.prepare(
-    `SELECT id, project_id, user_key, title, template_id, status, plan_json, created_at, updated_at
+    `SELECT id, project_id, user_key, title, template_id, status, plan_json, created_at, updated_at,
+            decision_status, selected_candidate_id, decision_note, decided_at
        FROM workspace_agent_experiments WHERE id = ?`,
   )
     .bind(id)
@@ -212,13 +230,19 @@ export async function getExperimentById(env: Env, id: string): Promise<DbExperim
     planJson: row.plan_json,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    decisionStatus: row.decision_status ?? undefined,
+    selectedCandidateId: row.selected_candidate_id ?? undefined,
+    decisionNote: row.decision_note ?? undefined,
+    decidedAt: row.decided_at ?? undefined,
   };
 }
 
+const CAND_COLS = `id, experiment_id, candidate_id, label, mode, role, suggested_agent, status,
+            pull_request_number, review_run_id, benchmark_id, outcome, outcome_note, decided_at, created_at, updated_at`;
+
 export async function listExperimentCandidates(env: Env, experimentId: string): Promise<DbExperimentCandidate[]> {
   const res = await env.DB.prepare(
-    `SELECT id, experiment_id, candidate_id, label, mode, role, suggested_agent, status,
-            pull_request_number, review_run_id, benchmark_id, created_at, updated_at
+    `SELECT ${CAND_COLS}
        FROM workspace_agent_experiment_candidates
       WHERE experiment_id = ?
       ORDER BY created_at ASC`,
@@ -230,8 +254,7 @@ export async function listExperimentCandidates(env: Env, experimentId: string): 
 
 export async function getCandidateById(env: Env, candidateId: string): Promise<DbExperimentCandidate | null> {
   const row = (await env.DB.prepare(
-    `SELECT id, experiment_id, candidate_id, label, mode, role, suggested_agent, status,
-            pull_request_number, review_run_id, benchmark_id, created_at, updated_at
+    `SELECT ${CAND_COLS}
        FROM workspace_agent_experiment_candidates WHERE id = ?`,
   )
     .bind(candidateId)
@@ -244,6 +267,44 @@ export async function updateExperimentStatus(env: Env, id: string, status: strin
     `UPDATE workspace_agent_experiments SET status = ?, updated_at = ? WHERE id = ?`,
   )
     .bind(status, now ?? new Date().toISOString(), id)
+    .run();
+}
+
+/** Stage 74: record a candidate's outcome + note (and reflect it in status). */
+export async function updateCandidateOutcome(
+  env: Env,
+  candidateRowId: string,
+  fields: { outcome: string; outcomeNote?: string; status: string; decidedAt: string },
+): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE workspace_agent_experiment_candidates
+        SET outcome = ?, outcome_note = ?, status = ?, decided_at = ?, updated_at = ?
+      WHERE id = ?`,
+  )
+    .bind(fields.outcome, fields.outcomeNote ?? null, fields.status, fields.decidedAt, fields.decidedAt, candidateRowId)
+    .run();
+}
+
+/** Stage 74: store the experiment-level decision summary. */
+export async function updateExperimentDecision(
+  env: Env,
+  id: string,
+  fields: { decisionStatus: string; selectedCandidateId?: string; decisionNote?: string; status: string; decidedAt: string },
+): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE workspace_agent_experiments
+        SET decision_status = ?, selected_candidate_id = ?, decision_note = ?, status = ?, decided_at = ?, updated_at = ?
+      WHERE id = ?`,
+  )
+    .bind(
+      fields.decisionStatus,
+      fields.selectedCandidateId ?? null,
+      fields.decisionNote ?? null,
+      fields.status,
+      fields.decidedAt,
+      fields.decidedAt,
+      id,
+    )
     .run();
 }
 

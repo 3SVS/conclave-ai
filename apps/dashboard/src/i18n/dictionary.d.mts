@@ -882,6 +882,9 @@ export type Dictionary = {
     matrixInsightNoDiff: string;
     sourceExperiment: string;
     openExperiment: string;
+    readyToDecide: string;
+    readyToDecideDesc: string;
+    recordDecision: string;
   };
   experiment: {
     title: string;
@@ -969,6 +972,25 @@ export type Dictionary = {
     openBenchmarkResult: string;
     benchmarkFromExpError: string;
     creatingBenchmark: string;
+    decision: string;
+    decisionDesc: string;
+    selectAsWinner: string;
+    needsFixes: string;
+    reject: string;
+    decisionNoteLabel: string;
+    candidateNotePlaceholder: string;
+    saveDecision: string;
+    savingDecision: string;
+    decisionSaved: string;
+    decisionSaveError: string;
+    createBenchmarkFirst: string;
+    useBenchmarkEvidence: string;
+    statSelected: string;
+    statRejected: string;
+    statNeedsFix: string;
+    statUndecided: string;
+    statCompleted: string;
+    statDecisionMade: string;
   };
   errors: { generic: string; loadFailed: string };
 };

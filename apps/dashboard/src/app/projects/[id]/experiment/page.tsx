@@ -11,6 +11,7 @@ import {
   buildAllPromptsText,
   canSaveExperiment,
   canCreateBenchmarkFromExperiment,
+  buildExperimentDecision,
 } from "@/lib/agent-experiment.mjs";
 import type {
   AgentExperimentRole,
@@ -22,6 +23,7 @@ import {
   getExperiment,
   patchExperimentCandidate,
   createBenchmarkFromExperiment,
+  saveExperimentDecision,
   type SavedExperimentListItem,
   type SavedExperiment,
   type ExperimentCandidate,
@@ -81,6 +83,9 @@ function candidateStatusLabel(t: Dictionary, status: string): string {
   if (status === "pr_linked") return t.experiment.statPrLinked;
   if (status === "reviewed") return t.experiment.statReviewed;
   if (status === "benchmarked") return t.experiment.statBenchmarked;
+  if (status === "selected") return t.experiment.statSelected;
+  if (status === "rejected") return t.experiment.statRejected;
+  if (status === "needs_fix") return t.experiment.statNeedsFix;
   return status;
 }
 
@@ -386,6 +391,16 @@ export default function ExperimentPage() {
               </div>
             );
           })()}
+
+          {/* Decision (Stage 74) */}
+          <DecisionSection
+            experiment={openExp}
+            hasBenchmark={openExp.candidates.some((c) => c.benchmarkId)}
+            projectId={id}
+            userKey={userKey ?? ""}
+            onSaved={setOpenExp}
+            t={t}
+          />
         </section>
       )}
 
@@ -413,6 +428,122 @@ export default function ExperimentPage() {
           {t.experiment.openBenchmark}
         </Link>
       </section>
+    </div>
+  );
+}
+
+// Stage 74: experiment outcome decision section.
+function DecisionSection({
+  experiment,
+  hasBenchmark,
+  projectId,
+  userKey,
+  onSaved,
+  t,
+}: {
+  experiment: SavedExperiment;
+  hasBenchmark: boolean;
+  projectId: string;
+  userKey: string;
+  onSaved: (exp: SavedExperiment) => void;
+  t: Dictionary;
+}) {
+  const [outcomes, setOutcomes] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const c of experiment.candidates) init[c.candidateId] = c.outcome ?? "undecided";
+    return init;
+  });
+  const [notes, setNotes] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const c of experiment.candidates) init[c.candidateId] = c.outcomeNote ?? "";
+    return init;
+  });
+  const [decisionNote, setDecisionNote] = useState(experiment.decisionNote ?? "");
+  const [phase, setPhase] = useState<"idle" | "saving" | "saved" | "error">("idle");
+
+  function setOutcome(cid: string, outcome: string) {
+    setOutcomes((prev) => {
+      const toggledOff = prev[cid] === outcome;
+      const next = { ...prev };
+      if (!toggledOff && outcome === "selected") {
+        for (const k of Object.keys(next)) if (next[k] === "selected") next[k] = "undecided";
+      }
+      next[cid] = toggledOff ? "undecided" : outcome;
+      return next;
+    });
+  }
+
+  async function save() {
+    if (!userKey) return;
+    setPhase("saving");
+    const payload = buildExperimentDecision(outcomes, notes, decisionNote);
+    const res = await saveExperimentDecision(projectId, experiment.id, { userKey, ...payload });
+    if (res.ok) {
+      setPhase("saved");
+      onSaved(res.experiment);
+      setTimeout(() => setPhase((p) => (p === "saved" ? "idle" : p)), 2000);
+    } else {
+      setPhase("error");
+    }
+  }
+
+  const options: Array<[string, string, string]> = [
+    ["selected", t.experiment.selectAsWinner, "bg-green-600"],
+    ["needs_fix", t.experiment.needsFixes, "bg-amber-500"],
+    ["rejected", t.experiment.reject, "bg-red-600"],
+  ];
+
+  return (
+    <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-4">
+      <p className="text-sm font-semibold text-gray-800">{t.experiment.decision}</p>
+      <p className="mt-0.5 text-xs text-gray-400">{t.experiment.decisionDesc}</p>
+      <p className={`mt-1 text-[11px] ${hasBenchmark ? "text-gray-400" : "text-amber-700"}`}>
+        {hasBenchmark ? t.experiment.useBenchmarkEvidence : t.experiment.createBenchmarkFirst}
+      </p>
+      <div className="mt-3 space-y-2">
+        {experiment.candidates.map((c) => (
+          <div key={c.id} className="rounded-lg border border-gray-200 bg-white p-3">
+            <p className="text-sm font-medium text-gray-800">{c.label}</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {options.map(([val, label, color]) => (
+                <button
+                  key={val}
+                  onClick={() => setOutcome(c.candidateId, val)}
+                  className={`rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors ${outcomes[c.candidateId] === val ? `${color} border-transparent text-white` : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <input
+              value={notes[c.candidateId] ?? ""}
+              onChange={(e) => setNotes((p) => ({ ...p, [c.candidateId]: e.target.value }))}
+              placeholder={t.experiment.candidateNotePlaceholder}
+              maxLength={300}
+              className="mt-2 w-full rounded-md border border-gray-200 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            />
+          </div>
+        ))}
+      </div>
+      <label className="mt-3 block text-[11px] text-gray-500">{t.experiment.decisionNoteLabel}</label>
+      <textarea
+        value={decisionNote}
+        onChange={(e) => setDecisionNote(e.target.value)}
+        rows={2}
+        maxLength={1000}
+        className="mt-0.5 w-full resize-none rounded-md border border-gray-200 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-300"
+      />
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          onClick={save}
+          disabled={phase === "saving"}
+          className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-40"
+        >
+          {phase === "saving" ? t.experiment.savingDecision : t.experiment.saveDecision}
+        </button>
+        {phase === "saved" && <span className="text-xs text-green-600">{t.experiment.decisionSaved}</span>}
+        {phase === "error" && <span className="text-xs text-red-500">{t.experiment.decisionSaveError}</span>}
+      </div>
     </div>
   );
 }

@@ -11,6 +11,7 @@ import {
   linkedExperimentCandidates,
   canCreateBenchmarkFromExperiment,
   mapExperimentCandidatesToBenchmark,
+  buildExperimentDecision,
 } from "../src/lib/agent-experiment.mjs";
 
 test("three built-in templates exist with expected modes + candidate counts", () => {
@@ -113,4 +114,27 @@ test("mapExperimentCandidatesToBenchmark maps only linked candidates to benchmar
   assert.equal(mapped.length, 2);
   assert.deepEqual(mapped[0], { id: "a", label: "Builder A", mode: "multi_agent", source: "claude_code", reviewRunId: "wprr_1", pullRequestNumber: 3 });
   assert.deepEqual(mapped[1], { id: "b", label: "Builder B", mode: "multi_agent", source: "codex", reviewRunId: "wprr_2" });
+});
+
+test("buildExperimentDecision: one selected → decisionStatus selected + selectedCandidateId", () => {
+  const d = buildExperimentDecision({ a: "rejected", b: "selected" }, { a: "lower pass", b: "fewer blockers" }, "Use B.");
+  assert.equal(d.decisionStatus, "selected");
+  assert.equal(d.selectedCandidateId, "b");
+  assert.equal(d.decisionNote, "Use B.");
+  assert.equal(d.candidateOutcomes.length, 2);
+  assert.deepEqual(d.candidateOutcomes.find((o) => o.candidateId === "b"), { candidateId: "b", outcome: "selected", note: "fewer blockers" });
+});
+
+test("buildExperimentDecision: needs_fix only → decisionStatus needs_fix, no selected", () => {
+  const d = buildExperimentDecision({ a: "needs_fix", b: "undecided" });
+  assert.equal(d.decisionStatus, "needs_fix");
+  assert.equal(d.selectedCandidateId, undefined);
+  assert.equal(d.candidateOutcomes.length, 1); // undecided dropped
+  assert.equal(d.candidateOutcomes[0].candidateId, "a");
+});
+
+test("buildExperimentDecision: all undecided → undecided, empty outcomes", () => {
+  const d = buildExperimentDecision({ a: "undecided", b: "undecided" });
+  assert.equal(d.decisionStatus, "undecided");
+  assert.deepEqual(d.candidateOutcomes, []);
 });

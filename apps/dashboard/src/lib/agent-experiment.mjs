@@ -67,6 +67,35 @@ export function canCreateBenchmarkFromExperiment(candidates) {
 }
 
 /**
+ * Stage 74: build the decision payload from per-candidate outcomes + notes.
+ * Only one candidate may be "selected"; decisionStatus is derived. Outcomes of
+ * "undecided" are dropped from the payload.
+ */
+export function buildExperimentDecision(outcomesByCandidate, notesByCandidate = {}, decisionNote) {
+  const entries = Object.entries(outcomesByCandidate ?? {});
+  const candidateOutcomes = entries
+    .filter(([, outcome]) => outcome && outcome !== "undecided")
+    .map(([candidateId, outcome]) => {
+      const note = (notesByCandidate ?? {})[candidateId];
+      return { candidateId, outcome, ...(note && note.trim() ? { note: note.trim() } : {}) };
+    });
+  const selectedIds = entries.filter(([, o]) => o === "selected").map(([id]) => id);
+  const selectedCandidateId = selectedIds.length === 1 ? selectedIds[0] : undefined;
+  const decisionStatus =
+    selectedIds.length === 1
+      ? "selected"
+      : entries.some(([, o]) => o === "needs_fix")
+        ? "needs_fix"
+        : "undecided";
+  return {
+    selectedCandidateId,
+    candidateOutcomes,
+    decisionStatus,
+    ...(decisionNote && decisionNote.trim() ? { decisionNote: decisionNote.trim() } : {}),
+  };
+}
+
+/**
  * Stage 73: map an experiment's linked candidates to benchmark candidates.
  * suggestedAgent maps 1:1 to the benchmark source enum.
  */

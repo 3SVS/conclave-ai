@@ -34,7 +34,13 @@ import {
   getCandidateById,
   updateCandidateLink,
   updateExperimentStatus,
+  updateCandidateOutcome,
+  updateExperimentDecision,
 } from "../workspace/agent-experiment-db.js";
+
+const DECISION_STATUSES = ["undecided", "selected", "needs_fix", "no_clear_winner"];
+const CANDIDATE_OUTCOMES = ["selected", "rejected", "needs_fix", "undecided"];
+const NOTE_MAX = 1000;
 
 /** Parse a review run's stored summary counts. */
 function parseSummaryCounts(resultJson: string | undefined): ReviewSummaryCounts {
@@ -185,6 +191,10 @@ export function createWorkspaceExperimentRoutes(): Hono<{ Bindings: Env }> {
           templateId: exp.templateId,
           status: exp.status,
           createdAt: exp.createdAt,
+          decisionStatus: exp.decisionStatus,
+          selectedCandidateId: exp.selectedCandidateId,
+          decisionNote: exp.decisionNote,
+          decidedAt: exp.decidedAt,
           candidates,
         },
       });
@@ -362,6 +372,99 @@ export function createWorkspaceExperimentRoutes(): Hono<{ Bindings: Env }> {
     } catch (err) {
       console.error("[workspace/agent-experiments benchmark POST] failed:", err);
       return c.json({ ok: false, error: "benchmark_from_experiment_failed" }, 500);
+    }
+  });
+
+  // ── POST decision (Stage 74) — record candidate outcomes + experiment summary ─
+  app.post("/workspace/projects/:id/agent-experiments/:experimentId/decision", async (c) => {
+    const projectId = c.req.param("id");
+    const experimentId = c.req.param("experimentId");
+
+    let b: {
+      userKey?: string;
+      selectedCandidateId?: unknown;
+      candidateOutcomes?: Array<{ candidateId?: unknown; outcome?: unknown; note?: unknown }>;
+      decisionStatus?: unknown;
+      decisionNote?: unknown;
+    };
+    try {
+      b = await c.req.json();
+    } catch {
+      return c.json({ ok: false, error: "invalid_json" }, 400);
+    }
+    const userKey = typeof b.userKey === "string" ? b.userKey : "";
+    if (!userKey) return c.json({ ok: false, error: "userKey_required" }, 400);
+
+    const decisionStatus = typeof b.decisionStatus === "string" ? b.decisionStatus : "";
+    if (!DECISION_STATUSES.includes(decisionStatus)) return c.json({ ok: false, error: "invalid_decision_status" }, 400);
+    const decisionNote = typeof b.decisionNote === "string" ? b.decisionNote : undefined;
+    if (decisionNote && decisionNote.length > NOTE_MAX) return c.json({ ok: false, error: "note_too_long" }, 400);
+    const selectedCandidateId = typeof b.selectedCandidateId === "string" ? b.selectedCandidateId : undefined;
+    const rawOutcomes = Array.isArray(b.candidateOutcomes) ? b.candidateOutcomes : [];
+
+    try {
+      const exp = await getExperimentById(c.env, experimentId);
+      if (!exp || exp.projectId !== projectId) return c.json({ ok: false, error: "not_found" }, 404);
+      if (exp.userKey !== userKey) return c.json({ ok: false, error: "forbidden" }, 403);
+
+      const candidates = await listExperimentCandidates(c.env, experimentId);
+      const byCandidateId = new Map(candidates.map((cc) => [cc.candidateId, cc]));
+
+      const parsed: Array<{ row: (typeof candidates)[number]; outcome: string; note?: string }> = [];
+      let selectedCount = 0;
+      for (const o of rawOutcomes) {
+        const cid = typeof o.candidateId === "string" ? o.candidateId : "";
+        const outcome = typeof o.outcome === "string" ? o.outcome : "";
+        const note = typeof o.note === "string" ? o.note : undefined;
+        const row = byCandidateId.get(cid);
+        if (!row) return c.json({ ok: false, error: "unknown_candidate" }, 400);
+        if (!CANDIDATE_OUTCOMES.includes(outcome)) return c.json({ ok: false, error: "invalid_outcome" }, 400);
+        if (note && note.length > NOTE_MAX) return c.json({ ok: false, error: "note_too_long" }, 400);
+        if (outcome === "selected") selectedCount += 1;
+        parsed.push({ row, outcome, note });
+      }
+      if (selectedCount > 1) return c.json({ ok: false, error: "multiple_selected" }, 400);
+      if (selectedCandidateId) {
+        const sel = parsed.find((p) => p.row.candidateId === selectedCandidateId);
+        if (!sel || sel.outcome !== "selected") return c.json({ ok: false, error: "selected_mismatch" }, 400);
+      }
+
+      const now = new Date().toISOString();
+      for (const p of parsed) {
+        const status = p.outcome === "undecided" ? p.row.status : p.outcome;
+        await updateCandidateOutcome(c.env, p.row.id, { outcome: p.outcome, outcomeNote: p.note, status, decidedAt: now });
+      }
+
+      const expStatus =
+        decisionStatus === "selected" ? "completed" : decisionStatus === "undecided" ? exp.status : "decision_made";
+      await updateExperimentDecision(c.env, experimentId, {
+        decisionStatus,
+        selectedCandidateId,
+        decisionNote,
+        status: expStatus,
+        decidedAt: now,
+      });
+
+      const candidatesAfter = await listExperimentCandidates(c.env, experimentId);
+      return c.json({
+        ok: true,
+        experiment: {
+          id: exp.id,
+          projectId,
+          title: exp.title,
+          templateId: exp.templateId,
+          status: expStatus,
+          createdAt: exp.createdAt,
+          decisionStatus,
+          selectedCandidateId,
+          decisionNote,
+          decidedAt: now,
+          candidates: candidatesAfter,
+        },
+      });
+    } catch (err) {
+      console.error("[workspace/agent-experiments decision POST] failed:", err);
+      return c.json({ ok: false, error: "decision_failed" }, 500);
     }
   });
 

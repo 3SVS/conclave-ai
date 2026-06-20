@@ -32,6 +32,9 @@ export type ExperimentCandidate = {
   pullRequestNumber?: number;
   reviewRunId?: string;
   benchmarkId?: string;
+  outcome?: string;
+  outcomeNote?: string;
+  decidedAt?: string;
 };
 
 export type SavedExperimentListItem = {
@@ -50,8 +53,24 @@ export type SavedExperiment = {
   templateId: string;
   status: string;
   createdAt: string;
+  decisionStatus?: string;
+  selectedCandidateId?: string;
+  decisionNote?: string;
+  decidedAt?: string;
   candidates: ExperimentCandidate[];
 };
+
+export type DecisionInput = {
+  userKey: string;
+  selectedCandidateId?: string;
+  candidateOutcomes: Array<{ candidateId: string; outcome: string; note?: string }>;
+  decisionStatus: string;
+  decisionNote?: string;
+};
+
+export type DecisionResponse =
+  | { ok: true; experiment: SavedExperiment }
+  | { ok: false; error: string };
 
 type SaveResponse = { ok: true; experiment: SavedExperiment } | { ok: false; error: string };
 type ListResponse = { ok: true; experiments: SavedExperimentListItem[] } | { ok: false; error: string };
@@ -121,6 +140,24 @@ export async function createBenchmarkFromExperiment(
       signal: AbortSignal.timeout(12000),
     });
     return (await resp.json()) as BenchmarkFromExperimentResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+export async function saveExperimentDecision(
+  projectId: string,
+  experimentId: string,
+  input: DecisionInput,
+): Promise<DecisionResponse> {
+  try {
+    const resp = await fetch(`${base(projectId)}/${encodeURIComponent(experimentId)}/decision`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+      signal: AbortSignal.timeout(8000),
+    });
+    return (await resp.json()) as DecisionResponse;
   } catch (err) {
     return { ok: false, error: String(err) };
   }

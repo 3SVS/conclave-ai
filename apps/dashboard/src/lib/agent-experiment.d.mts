@@ -68,6 +68,18 @@ export function mapExperimentCandidatesToBenchmark(candidates: LinkableCandidate
   pullRequestNumber?: number;
 }>;
 
+export type CandidateOutcome = "selected" | "rejected" | "needs_fix" | "undecided";
+export function buildExperimentDecision(
+  outcomesByCandidate: Record<string, string>,
+  notesByCandidate?: Record<string, string>,
+  decisionNote?: string,
+): {
+  selectedCandidateId?: string;
+  candidateOutcomes: Array<{ candidateId: string; outcome: string; note?: string }>;
+  decisionStatus: "selected" | "needs_fix" | "undecided";
+  decisionNote?: string;
+};
+
 export type CandidatePromptParts = {
   roleInstruction: string;
   contextHeading: string;
