@@ -39,6 +39,16 @@ import {
   updateCandidateOutcome,
   updateExperimentDecision,
 } from "../workspace/agent-experiment-db.js";
+import {
+  buildEvolutionActionPack,
+  buildEvolutionActionPackText,
+  DEFAULT_EVOLUTION_STRINGS,
+} from "../workspace/evolution-action-pack.js";
+import {
+  insertEvolutionActionPack,
+  listEvolutionActionPacks,
+  getEvolutionActionPackById,
+} from "../workspace/evolution-action-pack-db.js";
 
 const DECISION_STATUSES = ["undecided", "selected", "needs_fix", "no_clear_winner"];
 const CANDIDATE_OUTCOMES = ["selected", "rejected", "needs_fix", "undecided"];
@@ -511,6 +521,152 @@ export function createWorkspaceExperimentRoutes(): Hono<{ Bindings: Env }> {
       return c.json({ ok: false, error: "scorecard_failed" }, 500);
     }
   });
+
+  // ── Stage 77: evolution action packs ────────────────────────────────────────
+  // Loads scorecard + linked benchmark using Stage 75 logic, builds the pack
+  // server-side with the canonical helper, and persists the snapshot. The
+  // client never supplies pack content.
+  app.post("/workspace/projects/:id/agent-experiments/:experimentId/evolution-action-packs", async (c) => {
+    const projectId = c.req.param("id");
+    const experimentId = c.req.param("experimentId");
+
+    let b: { userKey?: string };
+    try {
+      b = await c.req.json();
+    } catch {
+      return c.json({ ok: false, error: "invalid_json" }, 400);
+    }
+    const userKey = typeof b.userKey === "string" ? b.userKey : "";
+    if (!userKey) return c.json({ ok: false, error: "userKey_required" }, 400);
+
+    try {
+      const exp = await getExperimentById(c.env, experimentId);
+      if (!exp || exp.projectId !== projectId) return c.json({ ok: false, error: "not_found" }, 404);
+      if (exp.userKey !== userKey) return c.json({ ok: false, error: "forbidden" }, 403);
+
+      const candidates = await listExperimentCandidates(c.env, experimentId);
+      const benchmarkId = candidates.find((cc) => cc.benchmarkId)?.benchmarkId;
+
+      let benchmark: AgentBenchmarkResult | null = null;
+      if (benchmarkId) {
+        const row = await getAgentBenchmarkById(c.env, benchmarkId);
+        if (row && row.projectId === projectId && row.userKey === userKey) {
+          try {
+            benchmark = JSON.parse(row.resultJson) as AgentBenchmarkResult;
+          } catch {
+            benchmark = null;
+          }
+        }
+      }
+
+      const scorecard = computeOutcomeScorecard({
+        experimentId,
+        projectId,
+        decisionStatus: exp.decisionStatus,
+        selectedCandidateId: exp.selectedCandidateId,
+        benchmark,
+      });
+
+      const pack = buildEvolutionActionPack(
+        { projectId, experiment: { id: exp.id, title: exp.title }, scorecard, benchmark },
+        DEFAULT_EVOLUTION_STRINGS,
+      );
+      const text = buildEvolutionActionPackText(pack, DEFAULT_EVOLUTION_STRINGS, {
+        experimentTitle: exp.title,
+      });
+
+      const saved = await insertEvolutionActionPack(c.env, {
+        projectId,
+        userKey,
+        experimentId,
+        benchmarkId: benchmarkId ?? undefined,
+        selectedCandidateId: exp.selectedCandidateId ?? undefined,
+        recommendedAction: pack.recommendedAction,
+        title: pack.title,
+        packJson: JSON.stringify(pack),
+      });
+
+      return c.json(
+        {
+          ok: true,
+          actionPack: {
+            id: saved.id,
+            experimentId: saved.experimentId,
+            recommendedAction: saved.recommendedAction,
+            title: saved.title,
+            createdAt: saved.createdAt,
+            pack,
+            text,
+          },
+        },
+        201,
+      );
+    } catch (err) {
+      console.error("[workspace/agent-experiments evolution-action-packs POST] failed:", err);
+      return c.json({ ok: false, error: "save_failed" }, 500);
+    }
+  });
+
+  app.get("/workspace/projects/:id/agent-experiments/:experimentId/evolution-action-packs", async (c) => {
+    const projectId = c.req.param("id");
+    const experimentId = c.req.param("experimentId");
+    const userKey = c.req.query("userKey") ?? "";
+    if (!userKey) return c.json({ ok: false, error: "userKey_required" }, 400);
+    try {
+      const exp = await getExperimentById(c.env, experimentId);
+      if (!exp || exp.projectId !== projectId) return c.json({ ok: false, error: "not_found" }, 404);
+      if (exp.userKey !== userKey) return c.json({ ok: false, error: "forbidden" }, 403);
+      const actionPacks = await listEvolutionActionPacks(c.env, { projectId, experimentId });
+      return c.json({ ok: true, actionPacks });
+    } catch (err) {
+      console.error("[workspace/agent-experiments evolution-action-packs GET] failed:", err);
+      return c.json({ ok: false, error: "query_failed" }, 500);
+    }
+  });
+
+  app.get(
+    "/workspace/projects/:id/agent-experiments/:experimentId/evolution-action-packs/:actionPackId",
+    async (c) => {
+      const projectId = c.req.param("id");
+      const experimentId = c.req.param("experimentId");
+      const actionPackId = c.req.param("actionPackId");
+      const userKey = c.req.query("userKey") ?? "";
+      if (!userKey) return c.json({ ok: false, error: "userKey_required" }, 400);
+      try {
+        const row = await getEvolutionActionPackById(c.env, actionPackId);
+        if (!row || row.projectId !== projectId || row.experimentId !== experimentId) {
+          return c.json({ ok: false, error: "not_found" }, 404);
+        }
+        if (row.userKey !== userKey) return c.json({ ok: false, error: "forbidden" }, 403);
+        let pack;
+        try {
+          pack = JSON.parse(row.packJson);
+        } catch {
+          return c.json({ ok: false, error: "corrupt_pack" }, 500);
+        }
+        // Pull experiment title so the rebuilt text matches what POST returned.
+        const exp = await getExperimentById(c.env, experimentId);
+        const text = buildEvolutionActionPackText(pack, DEFAULT_EVOLUTION_STRINGS, {
+          experimentTitle: exp?.title,
+        });
+        return c.json({
+          ok: true,
+          actionPack: {
+            id: row.id,
+            experimentId: row.experimentId,
+            recommendedAction: row.recommendedAction,
+            title: row.title,
+            createdAt: row.createdAt,
+            pack,
+            text,
+          },
+        });
+      } catch (err) {
+        console.error("[workspace/agent-experiments evolution-action-packs detail GET] failed:", err);
+        return c.json({ ok: false, error: "query_failed" }, 500);
+      }
+    },
+  );
 
   return app;
 }

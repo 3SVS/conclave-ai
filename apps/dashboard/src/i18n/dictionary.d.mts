@@ -1097,6 +1097,17 @@ export type Dictionary = {
     secStepsBody: string;
     secWhatExpect: string;
     secWhatExpectBody: string;
+    save: string;
+    saved: string;
+    saving: string;
+    noSaved: string;
+    open: string;
+    copySaved: string;
+    savedOk: string;
+    saveFailed: string;
+    createdAt: string;
+    serverGenerated: string;
+    serverGeneratedDesc: string;
   };
   errors: { generic: string; loadFailed: string };
 };

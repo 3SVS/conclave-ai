@@ -25,10 +25,15 @@ import {
   createBenchmarkFromExperiment,
   saveExperimentDecision,
   getOutcomeScorecard,
+  saveEvolutionActionPack,
+  listEvolutionActionPacks,
+  getEvolutionActionPack,
   type SavedExperimentListItem,
   type SavedExperiment,
   type ExperimentCandidate,
   type OutcomeScorecard,
+  type SavedEvolutionActionPackDetail,
+  type SavedEvolutionActionPackListItem,
 } from "@/lib/workspace-experiment-api";
 import { listProjectReviewHistory, type ProjectReviewHistoryItem } from "@/lib/workspace-github-api";
 import { getSavedBenchmark } from "@/lib/workspace-benchmark-api";
@@ -708,13 +713,38 @@ function OutcomeQualitySection({
   const [packPhase, setPackPhase] = useState<"idle" | "generating" | "ready" | "error">("idle");
   const [copied, setCopied] = useState(false);
 
+  // Stage 77: persisted action packs.
+  const [savedPacks, setSavedPacks] = useState<SavedEvolutionActionPackListItem[]>([]);
+  const [savePhase, setSavePhase] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [openedPack, setOpenedPack] = useState<SavedEvolutionActionPackDetail | null>(null);
+  const [openPhase, setOpenPhase] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [copiedSaved, setCopiedSaved] = useState(false);
+
   // Reset the generated pack whenever the scorecard changes (new experiment / decision).
   useEffect(() => {
     setPack(null);
     setPackText("");
     setPackPhase("idle");
     setCopied(false);
+    setOpenedPack(null);
+    setOpenPhase("idle");
+    setSavePhase("idle");
+    setSaveError(null);
   }, [scorecard]);
+
+  // Load saved action packs whenever the experiment changes.
+  useEffect(() => {
+    let cancelled = false;
+    if (!userKey) return;
+    listEvolutionActionPacks(projectId, experiment.id, userKey).then((res) => {
+      if (cancelled) return;
+      if (res.ok) setSavedPacks(res.actionPacks);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, experiment.id, userKey]);
 
   const s = t.evolution as unknown as Record<string, string>;
 
@@ -748,6 +778,56 @@ function OutcomeQualitySection({
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
       /* clipboard unavailable — preview still shown */
+    }
+  }
+
+  async function handleSave() {
+    if (!scorecard || !userKey) return;
+    setSavePhase("saving");
+    setSaveError(null);
+    const res = await saveEvolutionActionPack(projectId, experiment.id, userKey);
+    if (res.ok) {
+      // Prefer server version after save (Stage 77 contract).
+      setOpenedPack(res.actionPack);
+      setOpenPhase("ready");
+      setSavedPacks((prev) => [
+        {
+          id: res.actionPack.id,
+          experimentId: res.actionPack.experimentId,
+          recommendedAction: res.actionPack.recommendedAction,
+          title: res.actionPack.title,
+          createdAt: res.actionPack.createdAt,
+        },
+        ...prev,
+      ]);
+      setSavePhase("saved");
+      window.setTimeout(() => setSavePhase("idle"), 1500);
+    } else {
+      setSaveError(res.error);
+      setSavePhase("error");
+    }
+  }
+
+  async function handleOpenSaved(actionPackId: string) {
+    if (!userKey) return;
+    setOpenPhase("loading");
+    const res = await getEvolutionActionPack(projectId, experiment.id, actionPackId, userKey);
+    if (res.ok) {
+      setOpenedPack(res.actionPack);
+      setOpenPhase("ready");
+    } else {
+      setOpenPhase("error");
+    }
+  }
+
+  async function handleCopySaved() {
+    if (!openedPack) return;
+    try {
+      await navigator.clipboard.writeText(openedPack.text);
+      setCopiedSaved(true);
+      window.setTimeout(() => setCopiedSaved(false), 1500);
+    } catch {
+      /* clipboard unavailable */
     }
   }
 
@@ -843,7 +923,7 @@ function OutcomeQualitySection({
 
           <p className="mt-3 text-[11px] leading-relaxed text-gray-400">{t.outcome.basis}</p>
 
-          {/* Evolution action pack (Stage 76) */}
+          {/* Evolution action pack (Stage 76 + Stage 77 persistence) */}
           <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-4">
             <p className="text-sm font-semibold text-gray-800">{t.evolution.title}</p>
             <p className="mt-0.5 text-xs text-gray-400">{t.evolution.desc}</p>
@@ -866,9 +946,28 @@ function OutcomeQualitySection({
                   {copied ? t.evolution.copied : t.evolution.copy}
                 </button>
               )}
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={savePhase === "saving"}
+                className="rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-50 disabled:opacity-40"
+              >
+                {savePhase === "saving"
+                  ? t.evolution.saving
+                  : savePhase === "saved"
+                    ? t.evolution.savedOk
+                    : t.evolution.save}
+              </button>
             </div>
 
-            {pack && packPhase === "ready" && (
+            {savePhase === "error" && (
+              <p className="mt-2 text-xs text-red-600">
+                {t.evolution.saveFailed}
+                {saveError ? `: ${saveError}` : ""}
+              </p>
+            )}
+
+            {pack && packPhase === "ready" && !openedPack && (
               <div className="mt-3 space-y-3">
                 <div className="flex flex-wrap items-center gap-2 text-xs">
                   <span className="font-medium text-gray-500">{t.evolution.recommendedAction}:</span>
@@ -887,6 +986,75 @@ function OutcomeQualitySection({
                     <p className="mt-1 whitespace-pre-line text-xs leading-relaxed text-gray-700">{sec.body}</p>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Stage 77: saved action packs list */}
+            <div className="mt-4 border-t border-gray-100 pt-3">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{t.evolution.saved}</p>
+              {savedPacks.length === 0 ? (
+                <p className="mt-1 text-xs text-gray-400">{t.evolution.noSaved}</p>
+              ) : (
+                <ul className="mt-2 space-y-1.5">
+                  {savedPacks.map((p) => (
+                    <li
+                      key={p.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-100 bg-white px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-medium text-gray-700">{p.title}</p>
+                        <p className="text-[11px] text-gray-400">
+                          {t.evolution.createdAt}: {new Date(p.createdAt).toLocaleString()}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenSaved(p.id)}
+                        className="rounded-lg border border-gray-200 px-3 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                      >
+                        {t.evolution.open}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* Stage 77: opened saved pack detail */}
+            {openedPack && openPhase === "ready" && (
+              <div className="mt-4 rounded-lg border border-indigo-100 bg-white p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800">{t.evolution.serverGenerated}</p>
+                    <p className="text-[11px] text-gray-400">{t.evolution.serverGeneratedDesc}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCopySaved}
+                    className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                  >
+                    {copiedSaved ? t.evolution.copied : t.evolution.copySaved}
+                  </button>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                  <span className="font-medium text-gray-500">{t.evolution.recommendedAction}:</span>
+                  <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
+                    {openedPack.title}
+                  </span>
+                  {openedPack.pack.targetCandidateId && (
+                    <span className="text-gray-400">
+                      {t.evolution.targetCandidate}: {openedPack.pack.targetCandidateId}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-3 space-y-2">
+                  {openedPack.pack.sections.map((sec, i) => (
+                    <div key={i} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{sec.title}</p>
+                      <p className="mt-1 whitespace-pre-line text-xs leading-relaxed text-gray-700">{sec.body}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>

@@ -212,6 +212,105 @@ export async function saveExperimentDecision(
   }
 }
 
+// ─── Stage 77: persisted Evolution Action Packs ─────────────────────────────
+
+export type SavedEvolutionActionPackSection = { title: string; body: string };
+
+export type SavedEvolutionActionPack = {
+  projectId: string;
+  experimentId: string;
+  recommendedAction: string;
+  title: string;
+  summary: string;
+  targetCandidateId?: string;
+  focusItemIds: string[];
+  sections: SavedEvolutionActionPackSection[];
+};
+
+export type SavedEvolutionActionPackListItem = {
+  id: string;
+  experimentId: string;
+  recommendedAction: string;
+  title: string;
+  createdAt: string;
+};
+
+export type SavedEvolutionActionPackDetail = {
+  id: string;
+  experimentId: string;
+  recommendedAction: string;
+  title: string;
+  createdAt: string;
+  pack: SavedEvolutionActionPack;
+  text: string;
+};
+
+type SaveActionPackResponse =
+  | { ok: true; actionPack: SavedEvolutionActionPackDetail }
+  | { ok: false; error: string };
+type ListActionPacksResponse =
+  | { ok: true; actionPacks: SavedEvolutionActionPackListItem[] }
+  | { ok: false; error: string };
+type GetActionPackResponse =
+  | { ok: true; actionPack: SavedEvolutionActionPackDetail }
+  | { ok: false; error: string };
+
+export async function saveEvolutionActionPack(
+  projectId: string,
+  experimentId: string,
+  userKey: string,
+): Promise<SaveActionPackResponse> {
+  try {
+    const resp = await fetch(
+      `${base(projectId)}/${encodeURIComponent(experimentId)}/evolution-action-packs`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userKey }),
+        signal: AbortSignal.timeout(8000),
+      },
+    );
+    return (await resp.json()) as SaveActionPackResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+export async function listEvolutionActionPacks(
+  projectId: string,
+  experimentId: string,
+  userKey: string,
+): Promise<ListActionPacksResponse> {
+  try {
+    const params = new URLSearchParams({ userKey });
+    const resp = await fetch(
+      `${base(projectId)}/${encodeURIComponent(experimentId)}/evolution-action-packs?${params}`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    return (await resp.json()) as ListActionPacksResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+export async function getEvolutionActionPack(
+  projectId: string,
+  experimentId: string,
+  actionPackId: string,
+  userKey: string,
+): Promise<GetActionPackResponse> {
+  try {
+    const params = new URLSearchParams({ userKey });
+    const resp = await fetch(
+      `${base(projectId)}/${encodeURIComponent(experimentId)}/evolution-action-packs/${encodeURIComponent(actionPackId)}?${params}`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    return (await resp.json()) as GetActionPackResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
 export async function patchExperimentCandidate(
   projectId: string,
   experimentId: string,
