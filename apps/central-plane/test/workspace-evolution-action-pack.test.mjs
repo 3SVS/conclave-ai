@@ -61,7 +61,30 @@ function makeDb({
             }
             if (sql.includes("INSERT INTO workspace_evolution_action_packs")) {
               const [id, project_id, user_key, experiment_id, benchmark_id, selected_candidate_id, recommended_action, title, pack_json, created_at, updated_at] = args;
-              actionPacks.push({ id, project_id, user_key, experiment_id, benchmark_id, selected_candidate_id, recommended_action, title, pack_json, created_at, updated_at });
+              actionPacks.push({
+                id, project_id, user_key, experiment_id, benchmark_id, selected_candidate_id,
+                recommended_action, title, pack_json, created_at, updated_at,
+                followup_status: null,
+                followup_pull_request_number: null,
+                followup_review_run_id: null,
+                followup_benchmark_id: null,
+                followup_note: null,
+                followed_at: null,
+              });
+              return { meta: { changes: 1 } };
+            }
+            if (sql.includes("UPDATE workspace_evolution_action_packs") && sql.includes("SET followup_status")) {
+              const [followup_status, followup_pull_request_number, followup_review_run_id, followup_benchmark_id, followup_note, followed_at, updated_at, id] = args;
+              const pack = actionPacks.find((p) => p.id === id);
+              if (pack) {
+                pack.followup_status = followup_status;
+                pack.followup_pull_request_number = followup_pull_request_number;
+                pack.followup_review_run_id = followup_review_run_id;
+                pack.followup_benchmark_id = followup_benchmark_id;
+                pack.followup_note = followup_note;
+                pack.followed_at = followed_at;
+                pack.updated_at = updated_at;
+              }
               return { meta: { changes: 1 } };
             }
             if (sql.includes("UPDATE workspace_agent_experiments") && sql.includes("SET decision_status")) {
@@ -115,6 +138,11 @@ function makeDb({
                   recommended_action: p.recommended_action,
                   title: p.title,
                   created_at: p.created_at,
+                  followup_status: p.followup_status,
+                  followup_pull_request_number: p.followup_pull_request_number,
+                  followup_review_run_id: p.followup_review_run_id,
+                  followup_benchmark_id: p.followup_benchmark_id,
+                  followed_at: p.followed_at,
                 }));
               return { results };
             }
@@ -324,4 +352,193 @@ test("GET action-pack detail: unknown pack id → 404", async () => {
   const { eid } = await createExp(env);
   const res = await req(env, "GET", `${path(eid)}/weap_missing?userKey=${USER}`);
   assert.equal(res.status, 404);
+});
+
+// ─── Stage 78: follow-up tracking ────────────────────────────────────────────
+
+const followupPath = (eid, apId) => `${path(eid)}/${apId}/followup`;
+
+async function createPack(env) {
+  const { eid } = await createExp(env);
+  const created = await req(env, "POST", path(eid), { userKey: USER });
+  return { eid, apId: created.json.actionPack.id };
+}
+
+test("POST action-pack: response includes followup snapshot (defaults to not_started)", async () => {
+  const env = makeEnv();
+  const { eid } = await createExp(env);
+  const created = await req(env, "POST", path(eid), { userKey: USER });
+  assert.equal(created.json.actionPack.followup.status, "not_started");
+  assert.equal(created.json.actionPack.followup.pullRequestNumber, undefined);
+});
+
+test("GET list: items include followupStatus normalized to not_started", async () => {
+  const env = makeEnv();
+  const { eid } = await createExp(env);
+  await req(env, "POST", path(eid), { userKey: USER });
+  const res = await req(env, "GET", `${path(eid)}?userKey=${USER}`);
+  assert.equal(res.json.actionPacks[0].followupStatus, "not_started");
+});
+
+test("PATCH followup: status only → status updates + followedAt stamped", async () => {
+  const env = makeEnv();
+  const { eid, apId } = await createPack(env);
+  const res = await req(env, "PATCH", followupPath(eid, apId), { userKey: USER, status: "copied" });
+  assert.equal(res.status, 200);
+  assert.equal(res.json.actionPack.followup.status, "copied");
+  assert.ok(res.json.actionPack.followup.followedAt, "followedAt should be stamped");
+});
+
+test("PATCH followup: status stays not_started → followedAt not stamped", async () => {
+  const env = makeEnv();
+  const { eid, apId } = await createPack(env);
+  const res = await req(env, "PATCH", followupPath(eid, apId), { userKey: USER, status: "not_started" });
+  assert.equal(res.status, 200);
+  assert.equal(res.json.actionPack.followup.status, "not_started");
+  assert.equal(res.json.actionPack.followup.followedAt, undefined);
+});
+
+test("PATCH followup: PR number persisted", async () => {
+  const env = makeEnv();
+  const { eid, apId } = await createPack(env);
+  const res = await req(env, "PATCH", followupPath(eid, apId), {
+    userKey: USER, status: "in_progress", pullRequestNumber: 42,
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.json.actionPack.followup.pullRequestNumber, 42);
+  // Survives reload.
+  const list = await req(env, "GET", `${path(eid)}?userKey=${USER}`);
+  assert.equal(list.json.actionPacks[0].followupPullRequestNumber, 42);
+});
+
+test("PATCH followup: reviewRunId from same project/user → linked", async () => {
+  const runs = new Map([["wprr_ok", makeRun("wprr_ok")]]);
+  const env = makeEnv({ runs });
+  const { eid, apId } = await createPack(env);
+  const res = await req(env, "PATCH", followupPath(eid, apId), {
+    userKey: USER, status: "reviewed", reviewRunId: "wprr_ok",
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.json.actionPack.followup.status, "reviewed");
+  assert.equal(res.json.actionPack.followup.reviewRunId, "wprr_ok");
+});
+
+test("PATCH followup: reviewRunId from another user → 400 mismatch", async () => {
+  const runs = new Map([["wprr_other", makeRun("wprr_other", { userKey: "uk_someone" })]]);
+  const env = makeEnv({ runs });
+  const { eid, apId } = await createPack(env);
+  const res = await req(env, "PATCH", followupPath(eid, apId), {
+    userKey: USER, status: "reviewed", reviewRunId: "wprr_other",
+  });
+  assert.equal(res.status, 400);
+  assert.equal(res.json.error, "review_run_mismatch");
+});
+
+test("PATCH followup: unknown reviewRunId → 400", async () => {
+  const env = makeEnv();
+  const { eid, apId } = await createPack(env);
+  const res = await req(env, "PATCH", followupPath(eid, apId), {
+    userKey: USER, status: "reviewed", reviewRunId: "wprr_nope",
+  });
+  assert.equal(res.status, 400);
+  assert.equal(res.json.error, "review_run_not_found");
+});
+
+test("PATCH followup: missing userKey → 400", async () => {
+  const env = makeEnv();
+  const { eid, apId } = await createPack(env);
+  const res = await req(env, "PATCH", followupPath(eid, apId), { status: "copied" });
+  assert.equal(res.status, 400);
+  assert.equal(res.json.error, "userKey_required");
+});
+
+test("PATCH followup: invalid status → 400", async () => {
+  const env = makeEnv();
+  const { eid, apId } = await createPack(env);
+  const res = await req(env, "PATCH", followupPath(eid, apId), { userKey: USER, status: "wat" });
+  assert.equal(res.status, 400);
+  assert.equal(res.json.error, "invalid_status");
+});
+
+test("PATCH followup: invalid PR number → 400", async () => {
+  const env = makeEnv();
+  const { eid, apId } = await createPack(env);
+  const res = await req(env, "PATCH", followupPath(eid, apId), {
+    userKey: USER, status: "in_progress", pullRequestNumber: -3,
+  });
+  assert.equal(res.status, 400);
+  assert.equal(res.json.error, "invalid_pr_number");
+});
+
+test("PATCH followup: other user → 403", async () => {
+  const env = makeEnv();
+  const { eid, apId } = await createPack(env);
+  const res = await req(env, "PATCH", followupPath(eid, apId), {
+    userKey: "uk_intruder", status: "copied",
+  });
+  assert.equal(res.status, 403);
+});
+
+test("PATCH followup: unknown action pack → 404", async () => {
+  const env = makeEnv();
+  const { eid } = await createExp(env);
+  const res = await req(env, "PATCH", followupPath(eid, "weap_missing"), {
+    userKey: USER, status: "copied",
+  });
+  assert.equal(res.status, 404);
+});
+
+test("PATCH followup: pack id from another experiment → 404", async () => {
+  const env = makeEnv();
+  const { eid: eidA, apId } = await createPack(env);
+  const { eid: eidB } = await createExp(env);
+  // Sanity — pack belongs to eidA, not eidB.
+  assert.notEqual(eidA, eidB);
+  const res = await req(env, "PATCH", followupPath(eidB, apId), {
+    userKey: USER, status: "copied",
+  });
+  assert.equal(res.status, 404);
+});
+
+test("PATCH followup: note too long → 400", async () => {
+  const env = makeEnv();
+  const { eid, apId } = await createPack(env);
+  const res = await req(env, "PATCH", followupPath(eid, apId), {
+    userKey: USER, status: "in_progress", note: "x".repeat(1001),
+  });
+  assert.equal(res.status, 400);
+  assert.equal(res.json.error, "note_too_long");
+});
+
+test("PATCH followup: note within limit persisted", async () => {
+  const env = makeEnv();
+  const { eid, apId } = await createPack(env);
+  const res = await req(env, "PATCH", followupPath(eid, apId), {
+    userKey: USER, status: "in_progress", note: "Applied the fix_selected pack to Builder B's PR.",
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.json.actionPack.followup.note, "Applied the fix_selected pack to Builder B's PR.");
+});
+
+test("PATCH followup: followedAt is stable across subsequent transitions", async () => {
+  const env = makeEnv();
+  const { eid, apId } = await createPack(env);
+  const first = await req(env, "PATCH", followupPath(eid, apId), { userKey: USER, status: "copied" });
+  const firstStamp = first.json.actionPack.followup.followedAt;
+  assert.ok(firstStamp);
+  const second = await req(env, "PATCH", followupPath(eid, apId), { userKey: USER, status: "completed" });
+  assert.equal(second.json.actionPack.followup.followedAt, firstStamp);
+});
+
+test("GET detail after PATCH: followup persisted across reload", async () => {
+  const env = makeEnv();
+  const { eid, apId } = await createPack(env);
+  await req(env, "PATCH", followupPath(eid, apId), {
+    userKey: USER, status: "in_progress", pullRequestNumber: 7, note: "x",
+  });
+  const detail = await req(env, "GET", `${path(eid)}/${apId}?userKey=${USER}`);
+  assert.equal(detail.status, 200);
+  assert.equal(detail.json.actionPack.followup.status, "in_progress");
+  assert.equal(detail.json.actionPack.followup.pullRequestNumber, 7);
+  assert.equal(detail.json.actionPack.followup.note, "x");
 });

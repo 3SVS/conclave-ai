@@ -48,7 +48,10 @@ import {
   insertEvolutionActionPack,
   listEvolutionActionPacks,
   getEvolutionActionPackById,
+  updateEvolutionActionPackFollowup,
+  FOLLOWUP_STATUSES,
 } from "../workspace/evolution-action-pack-db.js";
+import type { FollowupStatus } from "../workspace/evolution-action-pack-db.js";
 
 const DECISION_STATUSES = ["undecided", "selected", "needs_fix", "no_clear_winner"];
 const CANDIDATE_OUTCOMES = ["selected", "rejected", "needs_fix", "undecided"];
@@ -597,6 +600,7 @@ export function createWorkspaceExperimentRoutes(): Hono<{ Bindings: Env }> {
             createdAt: saved.createdAt,
             pack,
             text,
+            followup: saved.followup,
           },
         },
         201,
@@ -659,11 +663,145 @@ export function createWorkspaceExperimentRoutes(): Hono<{ Bindings: Env }> {
             createdAt: row.createdAt,
             pack,
             text,
+            followup: row.followup,
           },
         });
       } catch (err) {
         console.error("[workspace/agent-experiments evolution-action-packs detail GET] failed:", err);
         return c.json({ ok: false, error: "query_failed" }, 500);
+      }
+    },
+  );
+
+  // ── Stage 78: action pack follow-up tracking ────────────────────────────────
+  // Records what happened after the user used a saved pack — manual entry only.
+  // No agent auto-run, no LLM judgement, no benchmark auto-create.
+  app.patch(
+    "/workspace/projects/:id/agent-experiments/:experimentId/evolution-action-packs/:actionPackId/followup",
+    async (c) => {
+      const projectId = c.req.param("id");
+      const experimentId = c.req.param("experimentId");
+      const actionPackId = c.req.param("actionPackId");
+
+      let b: {
+        userKey?: string;
+        status?: unknown;
+        pullRequestNumber?: unknown;
+        reviewRunId?: unknown;
+        benchmarkId?: unknown;
+        note?: unknown;
+      };
+      try {
+        b = await c.req.json();
+      } catch {
+        return c.json({ ok: false, error: "invalid_json" }, 400);
+      }
+      const userKey = typeof b.userKey === "string" ? b.userKey : "";
+      if (!userKey) return c.json({ ok: false, error: "userKey_required" }, 400);
+
+      const status = typeof b.status === "string" ? b.status : "";
+      if (!(FOLLOWUP_STATUSES as string[]).includes(status)) {
+        return c.json({ ok: false, error: "invalid_status" }, 400);
+      }
+
+      try {
+        const row = await getEvolutionActionPackById(c.env, actionPackId);
+        if (!row || row.projectId !== projectId || row.experimentId !== experimentId) {
+          return c.json({ ok: false, error: "not_found" }, 404);
+        }
+        if (row.userKey !== userKey) return c.json({ ok: false, error: "forbidden" }, 403);
+
+        // PR number — keep existing if absent in body, validate if present.
+        let pullRequestNumber = row.followup.pullRequestNumber;
+        if (b.pullRequestNumber !== undefined && b.pullRequestNumber !== null) {
+          if (
+            typeof b.pullRequestNumber !== "number" ||
+            !Number.isInteger(b.pullRequestNumber) ||
+            b.pullRequestNumber < 1
+          ) {
+            return c.json({ ok: false, error: "invalid_pr_number" }, 400);
+          }
+          pullRequestNumber = b.pullRequestNumber;
+        }
+
+        // Review run — validate ownership before linking.
+        let reviewRunId = row.followup.reviewRunId;
+        if (typeof b.reviewRunId === "string" && b.reviewRunId) {
+          const run = await getReviewRunById(c.env, b.reviewRunId).catch(() => null);
+          if (!run) return c.json({ ok: false, error: "review_run_not_found" }, 400);
+          if (run.projectId !== projectId || run.userKey !== userKey) {
+            return c.json({ ok: false, error: "review_run_mismatch" }, 400);
+          }
+          reviewRunId = b.reviewRunId;
+        }
+
+        // Benchmark — validate ownership before linking.
+        let benchmarkId = row.followup.benchmarkId;
+        if (typeof b.benchmarkId === "string" && b.benchmarkId) {
+          const bench = await getAgentBenchmarkById(c.env, b.benchmarkId).catch(() => null);
+          if (!bench) return c.json({ ok: false, error: "benchmark_not_found" }, 400);
+          if (bench.projectId !== projectId || bench.userKey !== userKey) {
+            return c.json({ ok: false, error: "benchmark_mismatch" }, 400);
+          }
+          benchmarkId = b.benchmarkId;
+        }
+
+        let note = row.followup.note;
+        if (b.note !== undefined && b.note !== null) {
+          if (typeof b.note !== "string") return c.json({ ok: false, error: "invalid_note" }, 400);
+          if (b.note.length > NOTE_MAX) return c.json({ ok: false, error: "note_too_long" }, 400);
+          note = b.note;
+        }
+
+        // followedAt: first time the user moves out of not_started, stamp it.
+        const now = new Date().toISOString();
+        const followedAt =
+          status !== "not_started" && !row.followup.followedAt ? now : row.followup.followedAt;
+
+        await updateEvolutionActionPackFollowup(c.env, actionPackId, {
+          status: status as FollowupStatus,
+          pullRequestNumber,
+          reviewRunId,
+          benchmarkId,
+          note,
+          followedAt,
+          now,
+        });
+
+        let pack;
+        try {
+          pack = JSON.parse(row.packJson);
+        } catch {
+          return c.json({ ok: false, error: "corrupt_pack" }, 500);
+        }
+        const exp = await getExperimentById(c.env, experimentId);
+        const text = buildEvolutionActionPackText(pack, DEFAULT_EVOLUTION_STRINGS, {
+          experimentTitle: exp?.title,
+        });
+
+        return c.json({
+          ok: true,
+          actionPack: {
+            id: row.id,
+            experimentId: row.experimentId,
+            recommendedAction: row.recommendedAction,
+            title: row.title,
+            createdAt: row.createdAt,
+            pack,
+            text,
+            followup: {
+              status: status as FollowupStatus,
+              pullRequestNumber,
+              reviewRunId,
+              benchmarkId,
+              note,
+              followedAt,
+            },
+          },
+        });
+      } catch (err) {
+        console.error("[workspace/agent-experiments evolution-action-packs followup PATCH] failed:", err);
+        return c.json({ ok: false, error: "update_failed" }, 500);
       }
     },
   );

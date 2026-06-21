@@ -227,12 +227,46 @@ export type SavedEvolutionActionPack = {
   sections: SavedEvolutionActionPackSection[];
 };
 
+// Stage 78 — follow-up tracking.
+export type ActionPackFollowupStatus =
+  | "not_started"
+  | "copied"
+  | "in_progress"
+  | "reviewed"
+  | "benchmarked"
+  | "completed"
+  | "abandoned";
+
+export const ACTION_PACK_FOLLOWUP_STATUSES: ActionPackFollowupStatus[] = [
+  "not_started",
+  "copied",
+  "in_progress",
+  "reviewed",
+  "benchmarked",
+  "completed",
+  "abandoned",
+];
+
+export type ActionPackFollowup = {
+  status: ActionPackFollowupStatus;
+  pullRequestNumber?: number;
+  reviewRunId?: string;
+  benchmarkId?: string;
+  note?: string;
+  followedAt?: string;
+};
+
 export type SavedEvolutionActionPackListItem = {
   id: string;
   experimentId: string;
   recommendedAction: string;
   title: string;
   createdAt: string;
+  followupStatus: ActionPackFollowupStatus;
+  followupPullRequestNumber?: number;
+  followupReviewRunId?: string;
+  followupBenchmarkId?: string;
+  followedAt?: string;
 };
 
 export type SavedEvolutionActionPackDetail = {
@@ -243,6 +277,7 @@ export type SavedEvolutionActionPackDetail = {
   createdAt: string;
   pack: SavedEvolutionActionPack;
   text: string;
+  followup: ActionPackFollowup;
 };
 
 type SaveActionPackResponse =
@@ -304,6 +339,37 @@ export async function getEvolutionActionPack(
     const resp = await fetch(
       `${base(projectId)}/${encodeURIComponent(experimentId)}/evolution-action-packs/${encodeURIComponent(actionPackId)}?${params}`,
       { signal: AbortSignal.timeout(8000) },
+    );
+    return (await resp.json()) as GetActionPackResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+export type ActionPackFollowupInput = {
+  userKey: string;
+  status: ActionPackFollowupStatus;
+  pullRequestNumber?: number;
+  reviewRunId?: string;
+  benchmarkId?: string;
+  note?: string;
+};
+
+export async function patchEvolutionActionPackFollowup(
+  projectId: string,
+  experimentId: string,
+  actionPackId: string,
+  input: ActionPackFollowupInput,
+): Promise<GetActionPackResponse> {
+  try {
+    const resp = await fetch(
+      `${base(projectId)}/${encodeURIComponent(experimentId)}/evolution-action-packs/${encodeURIComponent(actionPackId)}/followup`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+        signal: AbortSignal.timeout(8000),
+      },
     );
     return (await resp.json()) as GetActionPackResponse;
   } catch (err) {
