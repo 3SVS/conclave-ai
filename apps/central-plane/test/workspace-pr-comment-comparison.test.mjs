@@ -388,7 +388,7 @@ describe("buildCommentBody — comparison section", () => {
     }
   });
 
-  it("still includes Conclave footer even with comparison", () => {
+  it("still includes Simsa footer even with comparison", () => {
     const { body } = buildCommentBody({
       repoFullName: REPO, prNumber: PR_NUMBER, prTitle: PR_TITLE,
       selectedItems: ITEMS_MIXED, summary: SUMMARY_MIXED,

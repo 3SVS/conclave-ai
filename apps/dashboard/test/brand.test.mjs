@@ -1,15 +1,18 @@
-// Stage 84: dashboard BRAND constants. A future rename should update BRAND
-// in one place; tests here pin the public-facing values + ensure the i18n
-// sibling (t.brand.wordmark) currently agrees with BRAND.productName.
+// Stage 84 (intro) + Stage 85 (rename): dashboard BRAND constants. A future
+// rename should update BRAND in one place; tests here pin the public-facing
+// values + ensure the i18n sibling (t.brand.wordmark) currently agrees with
+// BRAND.productName.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { BRAND } from "../src/lib/brand.mjs";
 import { DICTIONARIES } from "../src/i18n/dictionary.mjs";
 
-test("BRAND exports stable product strings", () => {
-  assert.equal(BRAND.productName, "Conclave");
-  assert.equal(BRAND.productShortName, "Conclave");
-  assert.equal(BRAND.tagline, "Acceptance workspace for AI-built software");
+test("BRAND exports the current Simsa product strings", () => {
+  assert.equal(BRAND.productName, "Simsa");
+  assert.equal(BRAND.productShortName, "Simsa");
+  assert.equal(BRAND.tagline, "The acceptance layer for AI-built software.");
+  assert.equal(BRAND.primaryDomain, "trysimsa.com");
+  assert.equal(BRAND.developerDomain, "simsa.dev");
   // metadataTitle and description are concatenated server-side via Next; assert
   // they stay non-empty so a future rename doesn't accidentally drop them.
   assert.ok(BRAND.metadataTitle && BRAND.metadataTitle.includes(BRAND.productName));

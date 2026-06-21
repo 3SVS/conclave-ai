@@ -1,6 +1,6 @@
-// Stage 84: dashboard public brand constants. CENTRAL SOURCE OF TRUTH for
-// non-translated, user-visible product brand text on the dashboard. The value
-// stays "Conclave" today — Stage 84 is rebrand READINESS, not actual rename.
+// Stage 84 (intro) + Stage 85 (rename): dashboard public brand constants.
+// CENTRAL SOURCE OF TRUTH for non-translated, user-visible product brand text
+// on the dashboard. As of Stage 85 the product name is "Simsa" (한글 “심사”).
 //
 // Use BRAND.* when the string appears in:
 //   - HTML <title> / metadata
@@ -8,21 +8,31 @@
 //   - any visible string that should change in lockstep when product is renamed
 //
 // DO NOT use BRAND.* for:
-//   - localStorage keys (`conclave:*`, `conclave_*`) — internal namespace, freeze
+//   - localStorage keys (`conclave:*`, `conclave_*`) — internal namespace, frozen
 //   - env var names (`NEXT_PUBLIC_*` URLs containing `conclave-ai`) — deploy infra
 //   - CSS variable names / Tailwind classes (`brand-50`, `brand-700`) — internal
 //   - route paths (`/workspace/*`) — internal
 //   - test fixture IDs (`uk_owner`, `proj_*`) — internal
+//   - npm package names (`@conclave-ai/*`) — frozen
+//   - MCP package id (`@conclave-ai/mcp-workspace`) — frozen
 //
 // i18n note: `t.brand.wordmark` in dictionary.mjs intentionally holds the same
 // value. The two are siblings — i18n drives locale-aware chrome, BRAND drives
-// non-locale surfaces like the HTML title. A future rename must touch both.
+// non-locale surfaces like the HTML title. The drift test in brand.test.mjs
+// catches any rename that forgets one side.
+//
+// Domain note (Stage 85): primaryDomain + developerDomain are recorded here so
+// public chrome can reference them after DNS is wired. Stage 85 does NOT
+// configure DNS, redirects, or Vercel/Cloudflare domain bindings — that is a
+// separate operational stage.
 
 export const BRAND = {
-  productName: "Conclave",
-  productShortName: "Conclave",
-  tagline: "Acceptance workspace for AI-built software",
-  metadataTitle: "Conclave — Acceptance workspace for AI-built software",
+  productName: "Simsa",
+  productShortName: "Simsa",
+  tagline: "The acceptance layer for AI-built software.",
+  metadataTitle: "Simsa — The acceptance layer for AI-built software.",
   metadataDescription:
-    "Turn product intent into acceptance checks, review history, and fix instructions for AI-built software.",
+    "Review, compare, and accept AI-built software with evidence.",
+  primaryDomain: "trysimsa.com",
+  developerDomain: "simsa.dev",
 };

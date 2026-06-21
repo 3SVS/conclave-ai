@@ -87,7 +87,7 @@ test("buildEvolutionActionPackText is deterministic markdown without userKey/tok
     experimentTitle: "Multi-agent split",
     targetCandidateLabel: "Builder B",
   });
-  assert.match(text, /^# Conclave Evolution Action Pack/);
+  assert.match(text, /^# Simsa Evolution Action Pack/);
   assert.match(text, /Recommended action: Accept this candidate/);
   assert.match(text, /Experiment: Multi-agent split/);
   assert.match(text, /Target candidate: Builder B/);

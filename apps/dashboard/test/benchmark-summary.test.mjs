@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { buildBenchmarkSummaryText } from "../src/lib/agent-benchmark.mjs";
 
 const base = {
-  heading: "Conclave benchmark result",
+  heading: "Simsa benchmark result",
   projectLine: "Project: proj_x",
   benchmarkLine: "Benchmark: Single vs multi",
   candidatesHeading: "Candidates",
@@ -24,7 +24,7 @@ test("winner case: includes recommendation, candidates, why, blockers", () => {
     whyLines: ["Multi-agent passed more acceptance items.", "Multi-agent had fewer critical issues."],
     blockerLines: ["Multi-agent: 1 issues, 0 need a decision, 1 not verified"],
   });
-  assert.match(text, /^Conclave benchmark result\n\nProject: proj_x\nBenchmark: Single vs multi\nRecommendation: Multi-agent\n\nCandidates:\n- Single agent:/);
+  assert.match(text, /^Simsa benchmark result\n\nProject: proj_x\nBenchmark: Single vs multi\nRecommendation: Multi-agent\n\nCandidates:\n- Single agent:/);
   assert.match(text, /\nWhy:\n- Multi-agent passed more acceptance items\./);
   assert.match(text, /\nRemaining blockers:\n- Multi-agent: 1 issues/);
 });

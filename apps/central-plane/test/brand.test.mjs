@@ -1,6 +1,7 @@
-// Stage 84: central-plane BRAND constants and how they flow into canonical
-// user-visible text. A future rename should update BRAND in one place; tests
-// here guard against drift between BRAND and the canonical pack heading.
+// Stage 84 (intro) + Stage 85 (rename): central-plane BRAND constants and how
+// they flow into canonical user-visible text. A future rename should update
+// BRAND in one place; tests here guard against drift between BRAND and the
+// canonical pack heading.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -11,10 +12,12 @@ const {
   buildEvolutionActionPackText,
 } = await import("../dist/workspace/evolution-action-pack.js");
 
-test("BRAND exports the spec keys with stable values", () => {
-  assert.equal(BRAND.productName, "Conclave");
-  assert.equal(BRAND.productShortName, "Conclave");
-  assert.equal(BRAND.actionPackHeading, "Conclave Evolution Action Pack");
+test("BRAND exports the spec keys with the current Simsa values", () => {
+  assert.equal(BRAND.productName, "Simsa");
+  assert.equal(BRAND.productShortName, "Simsa");
+  assert.equal(BRAND.actionPackHeading, "Simsa Evolution Action Pack");
+  assert.equal(BRAND.prCommentHeading, "Simsa Review");
+  assert.equal(BRAND.tagline, "The acceptance layer for AI-built software.");
 });
 
 test("DEFAULT_EVOLUTION_STRINGS.packHeading is sourced from BRAND.actionPackHeading", () => {
@@ -23,10 +26,10 @@ test("DEFAULT_EVOLUTION_STRINGS.packHeading is sourced from BRAND.actionPackHead
   assert.equal(DEFAULT_EVOLUTION_STRINGS.packHeading, BRAND.actionPackHeading);
 });
 
-test("buildEvolutionActionPackText still starts with the Conclave-era heading", () => {
-  // Stage 77 contract: server-saved packs are canonical English; their
-  // markdown begins with the BRAND-driven heading. Until a deliberate rebrand,
-  // the value MUST remain "Conclave Evolution Action Pack".
+test("buildEvolutionActionPackText starts with the current Simsa-era heading", () => {
+  // Stage 85 contract: NEW server-saved packs use the Simsa heading. Saved
+  // pack_json rows from before Stage 85 keep their baked-in heading
+  // (immutable artifact policy — Stage 77 limitation, Stage 85 §5).
   const scorecard = {
     experimentId: "wexp_t",
     projectId: "proj_t",
@@ -51,5 +54,5 @@ test("buildEvolutionActionPackText still starts with the Conclave-era heading", 
     DEFAULT_EVOLUTION_STRINGS,
   );
   const text = buildEvolutionActionPackText(pack, DEFAULT_EVOLUTION_STRINGS);
-  assert.match(text, /^# Conclave Evolution Action Pack/);
+  assert.match(text, /^# Simsa Evolution Action Pack/);
 });

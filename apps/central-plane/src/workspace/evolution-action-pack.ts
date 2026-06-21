@@ -173,7 +173,7 @@ export const DEFAULT_EVOLUTION_STRINGS: EvolutionStrings = {
   secPreMergeBody:
     "- Confirm remaining non-blocking items are acceptable.\n- Verify nothing already-passing regressed.\n- Confirm the PR is up to date.",
   secNextReview: "Next review",
-  secNextReviewBody: "Re-run Conclave PR review after merge to capture the final state.",
+  secNextReviewBody: "Re-run Simsa PR review after merge to capture the final state.",
   secGoal: "Goal",
   secGoalBody:
     "Improve the selected implementation. Do not rewrite the product intent. Focus only on the listed acceptance items and preserve already-passing behavior.",
@@ -184,11 +184,11 @@ export const DEFAULT_EVOLUTION_STRINGS: EvolutionStrings = {
   secExpectedOutput: "Expected output",
   oUpdate: "Update the implementation.",
   oPr: "Open or update the PR.",
-  oReport: "Report the PR number back to Conclave.",
-  oRerun: "Re-run Conclave PR review after changes.",
+  oReport: "Report the PR number back to Simsa.",
+  oRerun: "Re-run Simsa PR review after changes.",
   secAfterCompletion: "After completion",
   secAfterCompletionBody:
-    "Record the outcome in the experiment decision so Conclave can score the next loop.",
+    "Record the outcome in the experiment decision so Simsa can score the next loop.",
   secWhyRerun: "Why rerun",
   secWhyRerunBody:
     "The current candidates did not produce a clearly acceptable outcome. Run another experiment with adjusted roles to get a better comparison.",
@@ -213,7 +213,7 @@ export const DEFAULT_EVOLUTION_STRINGS: EvolutionStrings = {
   secSteps: "Steps",
   secStepsBody: "Link each candidate's PR review run, then create a benchmark from the experiment.",
   secWhatExpect: "What to expect",
-  secWhatExpectBody: "Conclave will compare acceptance results and recommend the next action.",
+  secWhatExpectBody: "Simsa will compare acceptance results and recommend the next action.",
 };
 
 function actionLabel(action: EvolutionAction, s: EvolutionStrings): string {

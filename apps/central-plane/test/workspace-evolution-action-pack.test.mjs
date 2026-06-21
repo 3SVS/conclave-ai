@@ -229,7 +229,7 @@ test("POST action-pack: no benchmark → create_benchmark pack saved", async () 
   assert.equal(res.json.actionPack.pack.focusItemIds.length, 0);
   assert.equal(res.json.actionPack.pack.sections.length, 4);
   // copy text deterministic
-  assert.match(res.json.actionPack.text, /^# Conclave Evolution Action Pack/);
+  assert.match(res.json.actionPack.text, /^# Simsa Evolution Action Pack/);
 });
 
 test("POST action-pack: with benchmark + selected → fix_selected/accept pack saved", async () => {
@@ -334,7 +334,7 @@ test("GET action-pack detail: returns full pack + text", async () => {
   assert.equal(res.json.actionPack.id, apId);
   assert.ok(res.json.actionPack.pack);
   assert.equal(res.json.actionPack.pack.recommendedAction, "create_benchmark");
-  assert.match(res.json.actionPack.text, /^# Conclave Evolution Action Pack/);
+  assert.match(res.json.actionPack.text, /^# Simsa Evolution Action Pack/);
 });
 
 test("GET action-pack detail: pack id from another experiment → 404", async () => {
