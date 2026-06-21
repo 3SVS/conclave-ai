@@ -474,6 +474,78 @@ export async function getEvolutionImpactSummary(
   }
 }
 
+// Stage 81 — project-level Evolution Learning Signals.
+export type ProjectLearningSignal =
+  | {
+      type: "action_often_improves";
+      recommendedAction: string;
+      improved: number;
+      totalComparable: number;
+    }
+  | {
+      type: "action_often_regresses";
+      recommendedAction: string;
+      regressed: number;
+      totalComparable: number;
+    }
+  | { type: "not_enough_data" };
+
+export type ProjectActionEffectiveness = {
+  recommendedAction: string;
+  total: number;
+  followed: number;
+  comparable: number;
+  improved: number;
+  regressed: number;
+  unchanged: number;
+  inconclusive: number;
+  improvementRate: number | null;
+  regressionRate: number | null;
+};
+
+export type ProjectEvolutionLearningSignals = {
+  projectId: string;
+  experimentCount: number;
+  actionPackCount: number;
+  followedPackCount: number;
+  comparablePackCount: number;
+  verdictCounts: {
+    improved: number;
+    regressed: number;
+    unchanged: number;
+    inconclusive: number;
+  };
+  recommendedActionEffectiveness: ProjectActionEffectiveness[];
+  averageDelta: {
+    passRateDelta: number | null;
+    criticalIssueDelta: number | null;
+    notVerifiedDelta: number | null;
+    blockerDelta: number | null;
+  };
+  topSignals: ProjectLearningSignal[];
+  limitations: string[];
+};
+
+type GetLearningResponse =
+  | { ok: true; learning: ProjectEvolutionLearningSignals }
+  | { ok: false; error: string };
+
+export async function getProjectEvolutionLearning(
+  projectId: string,
+  userKey: string,
+): Promise<GetLearningResponse> {
+  try {
+    const params = new URLSearchParams({ userKey });
+    const resp = await fetch(
+      `${CENTRAL_PLANE_URL}/workspace/projects/${encodeURIComponent(projectId)}/evolution-learning?${params}`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    return (await resp.json()) as GetLearningResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
 export type ActionPackFollowupInput = {
   userKey: string;
   status: ActionPackFollowupStatus;

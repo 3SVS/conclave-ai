@@ -59,6 +59,10 @@ import {
 } from "../workspace/evolution-impact.js";
 import type { EvolutionImpactSnapshot } from "../workspace/evolution-impact.js";
 import { buildEvolutionImpactSummary } from "../workspace/evolution-impact-summary.js";
+import {
+  buildProjectEvolutionLearning,
+  type ProjectLearningEntry,
+} from "../workspace/project-evolution-learning.js";
 
 const DECISION_STATUSES = ["undecided", "selected", "needs_fix", "no_clear_winner"];
 const CANDIDATE_OUTCOMES = ["selected", "rejected", "needs_fix", "undecided"];
@@ -996,6 +1000,75 @@ export function createWorkspaceExperimentRoutes(): Hono<{ Bindings: Env }> {
       }
     },
   );
+
+  // ── Stage 81: project-level Evolution Learning Signals ──────────────────────
+  // Walks every experiment owned by userKey, then every saved action pack of
+  // each experiment, running each through the SAME Stage 79 impact path used
+  // by the per-pack endpoint + Stage 80 summary endpoint. Deterministic,
+  // on-demand, no persistence. Per spec: top signals are conservative and
+  // never use subjective phrasing.
+  app.get("/workspace/projects/:id/evolution-learning", async (c) => {
+    const projectId = c.req.param("id");
+    const userKey = c.req.query("userKey") ?? "";
+    if (!userKey) return c.json({ ok: false, error: "userKey_required" }, 400);
+
+    try {
+      const list = await listExperiments(c.env, projectId, { limit: 50 });
+      const entries: ProjectLearningEntry[] = [];
+      let experimentCount = 0;
+
+      for (const item of list) {
+        // Re-fetch full experiment so we can confirm ownership BEFORE touching
+        // its action packs. Lightweight list query has no user_key column.
+        const exp = await getExperimentById(c.env, item.id);
+        if (!exp || exp.projectId !== projectId || exp.userKey !== userKey) continue;
+        experimentCount += 1;
+
+        // Per-experiment fallback benchmark id, hoisted once for that exp's
+        // pack loop (matches the Stage 80 pattern).
+        const cands = await listExperimentCandidates(c.env, item.id).catch(() => []);
+        const experimentLinkedBenchmarkId = cands.find((cc) => cc.benchmarkId)?.benchmarkId;
+
+        const packs = await listEvolutionActionPacks(c.env, {
+          projectId,
+          experimentId: item.id,
+        });
+        for (const p of packs) {
+          const row = await getEvolutionActionPackById(c.env, p.id);
+          if (
+            !row ||
+            row.projectId !== projectId ||
+            row.userKey !== userKey ||
+            row.experimentId !== item.id
+          ) {
+            continue;
+          }
+          const comparison = await loadImpactForActionPack(c.env, row, {
+            projectId,
+            experimentId: item.id,
+            userKey,
+            experimentLinkedBenchmarkId,
+          });
+          const followed =
+            row.followup.status !== "not_started" ||
+            row.followup.reviewRunId !== undefined ||
+            row.followup.benchmarkId !== undefined ||
+            row.followup.pullRequestNumber !== undefined;
+          entries.push({ comparison, followed, recommendedAction: row.recommendedAction });
+        }
+      }
+
+      const learning = buildProjectEvolutionLearning({
+        projectId,
+        experimentCount,
+        entries,
+      });
+      return c.json({ ok: true, learning });
+    } catch (err) {
+      console.error("[workspace/projects/:id/evolution-learning GET] failed:", err);
+      return c.json({ ok: false, error: "learning_failed" }, 500);
+    }
+  });
 
   return app;
 }

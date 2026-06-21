@@ -132,6 +132,19 @@ function makeDb({
             return null;
           },
           async all() {
+            if (sql.includes("FROM workspace_agent_experiments e") && sql.includes("WHERE e.project_id = ?")) {
+              const results = experiments
+                .filter((e) => e.project_id === args[0])
+                .map((e) => ({
+                  id: e.id,
+                  title: e.title,
+                  template_id: e.template_id,
+                  status: e.status,
+                  created_at: e.created_at,
+                  candidate_count: candidates.filter((c) => c.experiment_id === e.id).length,
+                }));
+              return { results };
+            }
             if (sql.includes("FROM workspace_agent_experiment_candidates") && sql.includes("WHERE experiment_id = ?")) {
               return { results: candidates.filter((c) => c.experiment_id === args[0]) };
             }
@@ -905,6 +918,174 @@ test("GET summary: no userKey/token leakage in response with real data", async (
     userKey: USER, status: "copied",
   });
   const res = await req(env, "GET", `${summaryPath(eid)}?userKey=${USER}`);
+  const flat = JSON.stringify(res.json);
+  assert.ok(!flat.includes(USER));
+  assert.ok(!/uk_/.test(flat));
+  assert.ok(!/userKey/i.test(flat));
+});
+
+// ─── Stage 81: GET project evolution-learning ───────────────────────────────
+
+const learningPath = (proj = PROJECT) => `/workspace/projects/${proj}/evolution-learning`;
+
+test("GET learning: missing userKey → 400", async () => {
+  const env = makeEnv();
+  const res = await req(env, "GET", learningPath());
+  assert.equal(res.status, 400);
+  assert.equal(res.json.error, "userKey_required");
+});
+
+test("GET learning: empty project (no experiments) → not_enough_data", async () => {
+  const env = makeEnv();
+  const res = await req(env, "GET", `${learningPath()}?userKey=${USER}`);
+  assert.equal(res.status, 200);
+  assert.equal(res.json.learning.experimentCount, 0);
+  assert.equal(res.json.learning.actionPackCount, 0);
+  assert.deepEqual(res.json.learning.topSignals, [{ type: "not_enough_data" }]);
+});
+
+test("GET learning: experiments exist but no action packs → not_enough_data", async () => {
+  const env = makeEnv();
+  await createExp(env);
+  await createExp(env);
+  const res = await req(env, "GET", `${learningPath()}?userKey=${USER}`);
+  assert.equal(res.status, 200);
+  assert.equal(res.json.learning.experimentCount, 2);
+  assert.equal(res.json.learning.actionPackCount, 0);
+  assert.deepEqual(res.json.learning.topSignals, [{ type: "not_enough_data" }]);
+});
+
+test("GET learning: only inconclusive packs → comparablePackCount=0 + not_enough_data", async () => {
+  const env = makeEnv();
+  const { eid } = await createExp(env);
+  await req(env, "POST", path(eid), { userKey: USER });
+  await req(env, "POST", path(eid), { userKey: USER });
+  await req(env, "POST", path(eid), { userKey: USER });
+  const res = await req(env, "GET", `${learningPath()}?userKey=${USER}`);
+  assert.equal(res.status, 200);
+  assert.equal(res.json.learning.actionPackCount, 3);
+  assert.equal(res.json.learning.comparablePackCount, 0);
+  assert.deepEqual(res.json.learning.topSignals, [{ type: "not_enough_data" }]);
+});
+
+test("GET learning: action_often_improves emerges across multiple experiments", async () => {
+  // Two separate experiments, each yielding a comparable improved pack via a
+  // benchmark + follow-up review run. fix_selected fires once per experiment.
+  const runs = new Map();
+  function addBenchRuns(label) {
+    runs.set(`wprr_a_${label}`, makeRun(`wprr_a_${label}`, {
+      summary: { passed: 3, failed: 1 },
+      results: [
+        { itemId: "i1", title: "A", status: "passed" },
+        { itemId: "i2", title: "B", status: "passed" },
+        { itemId: "i3", title: "C", status: "passed" },
+        { itemId: "i4", title: "D", status: "failed" },
+      ],
+    }));
+    runs.set(`wprr_b_${label}`, makeRun(`wprr_b_${label}`, {
+      summary: { passed: 2, failed: 2 },
+      results: [
+        { itemId: "i1", title: "A", status: "passed" },
+        { itemId: "i2", title: "B", status: "passed" },
+        { itemId: "i3", title: "C", status: "failed" },
+        { itemId: "i4", title: "D", status: "failed" },
+      ],
+    }));
+    runs.set(`wprr_fu_${label}`, makeRun(`wprr_fu_${label}`, {
+      summary: { passed: 4 },
+      results: [
+        { itemId: "i1", title: "A", status: "passed" },
+        { itemId: "i2", title: "B", status: "passed" },
+        { itemId: "i3", title: "C", status: "passed" },
+        { itemId: "i4", title: "D", status: "passed" },
+      ],
+    }));
+  }
+  addBenchRuns("x");
+  addBenchRuns("y");
+  addBenchRuns("z");
+
+  const env = makeEnv({ runs });
+
+  async function makeImprovedPack(label) {
+    const { eid, cands } = await createExp(env);
+    await link(env, eid, cands[0].id, `wprr_a_${label}`);
+    await link(env, eid, cands[1].id, `wprr_b_${label}`);
+    await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/benchmark`, { userKey: USER });
+    await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/decision`, {
+      userKey: USER, selectedCandidateId: "a", decisionStatus: "selected",
+      candidateOutcomes: [{ candidateId: "a", outcome: "selected" }],
+    });
+    const created = await req(env, "POST", path(eid), { userKey: USER });
+    await req(env, "PATCH", followupPath(eid, created.json.actionPack.id), {
+      userKey: USER, status: "reviewed", reviewRunId: `wprr_fu_${label}`,
+    });
+  }
+
+  await makeImprovedPack("x");
+  await makeImprovedPack("y");
+  await makeImprovedPack("z");
+
+  const res = await req(env, "GET", `${learningPath()}?userKey=${USER}`);
+  assert.equal(res.status, 200);
+  assert.equal(res.json.learning.experimentCount, 3);
+  assert.equal(res.json.learning.actionPackCount, 3);
+  assert.equal(res.json.learning.followedPackCount, 3);
+  assert.equal(res.json.learning.comparablePackCount, 3);
+  assert.equal(res.json.learning.verdictCounts.improved, 3);
+
+  const improvesSignal = res.json.learning.topSignals.find((s) => s.type === "action_often_improves");
+  assert.ok(improvesSignal, "expected action_often_improves at the project level");
+  assert.equal(improvesSignal.recommendedAction, "fix_selected");
+
+  const eff = res.json.learning.recommendedActionEffectiveness.find(
+    (x) => x.recommendedAction === "fix_selected",
+  );
+  assert.equal(eff.total, 3);
+  assert.equal(eff.followed, 3);
+  assert.equal(eff.comparable, 3);
+  assert.equal(eff.improved, 3);
+  assert.equal(eff.improvementRate, 1);
+});
+
+test("GET learning: other-user's experiments excluded (cross-tenant isolation)", async () => {
+  // Use a different `runs` map so links resolve, but create one experiment as
+  // owner USER and one as OTHER, then verify only USER's data shows.
+  const runs = new Map([
+    ["wprr_a", makeRun("wprr_a", { summary: { passed: 1 } })],
+    ["wprr_b", makeRun("wprr_b", { summary: { passed: 1 } })],
+  ]);
+  const env = makeEnv({ runs });
+  // Owner USER: one experiment + one pack.
+  const { eid: eidMine } = await createExp(env);
+  await req(env, "POST", path(eidMine), { userKey: USER });
+  // A second experiment created by another user in the same project namespace.
+  const other = await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments`, {
+    userKey: "uk_other",
+    title: "Other",
+    templateId: "multi_agent_split",
+    candidates: [
+      { id: "a", label: "Builder A", mode: "multi_agent", role: "builder", suggestedAgent: "claude_code" },
+      { id: "b", label: "Builder B", mode: "multi_agent", role: "builder", suggestedAgent: "codex" },
+    ],
+  });
+  await req(env, "POST", path(other.json.experiment.id), { userKey: "uk_other" });
+  await req(env, "POST", path(other.json.experiment.id), { userKey: "uk_other" });
+
+  const res = await req(env, "GET", `${learningPath()}?userKey=${USER}`);
+  assert.equal(res.status, 200);
+  assert.equal(res.json.learning.experimentCount, 1);
+  assert.equal(res.json.learning.actionPackCount, 1);
+});
+
+test("GET learning: response contains no userKey/token even with real data", async () => {
+  const env = makeEnv();
+  const { eid } = await createExp(env);
+  await req(env, "POST", path(eid), { userKey: USER });
+  await req(env, "PATCH", followupPath(eid, env._db._actionPacks[0].id), {
+    userKey: USER, status: "copied",
+  });
+  const res = await req(env, "GET", `${learningPath()}?userKey=${USER}`);
   const flat = JSON.stringify(res.json);
   assert.ok(!flat.includes(USER));
   assert.ok(!/uk_/.test(flat));
