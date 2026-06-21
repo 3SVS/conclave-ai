@@ -542,3 +542,225 @@ test("GET detail after PATCH: followup persisted across reload", async () => {
   assert.equal(detail.json.actionPack.followup.pullRequestNumber, 7);
   assert.equal(detail.json.actionPack.followup.note, "x");
 });
+
+// ─── Stage 79: GET impact ─────────────────────────────────────────────────────
+
+const impactPath = (eid, apId) => `${path(eid)}/${apId}/impact`;
+
+test("GET impact: missing userKey → 400", async () => {
+  const env = makeEnv();
+  const { eid, apId } = await createPack(env);
+  const res = await req(env, "GET", impactPath(eid, apId));
+  assert.equal(res.status, 400);
+  assert.equal(res.json.error, "userKey_required");
+});
+
+test("GET impact: unknown action pack → 404", async () => {
+  const env = makeEnv();
+  const { eid } = await createExp(env);
+  const res = await req(env, "GET", `${impactPath(eid, "weap_nope")}?userKey=${USER}`);
+  assert.equal(res.status, 404);
+});
+
+test("GET impact: pack id from another experiment → 404", async () => {
+  const env = makeEnv();
+  const { eid: eidA, apId } = await createPack(env);
+  const { eid: eidB } = await createExp(env);
+  assert.notEqual(eidA, eidB);
+  const res = await req(env, "GET", `${impactPath(eidB, apId)}?userKey=${USER}`);
+  assert.equal(res.status, 404);
+});
+
+test("GET impact: other user → 403", async () => {
+  const env = makeEnv();
+  const { eid, apId } = await createPack(env);
+  const res = await req(env, "GET", `${impactPath(eid, apId)}?userKey=uk_intruder`);
+  assert.equal(res.status, 403);
+});
+
+test("GET impact: no benchmark + no follow-up → inconclusive (missing_followup + missing_before)", async () => {
+  const env = makeEnv();
+  const { eid, apId } = await createPack(env);
+  const res = await req(env, "GET", `${impactPath(eid, apId)}?userKey=${USER}`);
+  assert.equal(res.status, 200);
+  assert.equal(res.json.impact.verdict, "inconclusive");
+  assert.ok(res.json.impact.reasons.includes("missing_followup"));
+  assert.ok(res.json.impact.reasons.includes("missing_before"));
+  assert.equal(res.json.impact.before, null);
+  assert.equal(res.json.impact.after, null);
+});
+
+test("GET impact: benchmark + follow-up reviewRunId with improvement → improved", async () => {
+  // Source benchmark: candidate b has 5/8 pass, 2 failed (critical=2, blockers=3).
+  const runs = new Map([
+    ["wprr_a", makeRun("wprr_a", { summary: { passed: 3 }, results: [{ itemId: "i1", title: "X", status: "passed" }] })],
+    ["wprr_b", makeRun("wprr_b", {
+      summary: { passed: 5, failed: 2, inconclusive: 1 },
+      results: [
+        { itemId: "i1", title: "Login", status: "passed" },
+        { itemId: "i2", title: "Logout", status: "passed" },
+        { itemId: "i3", title: "Share", status: "passed" },
+        { itemId: "i4", title: "Perms", status: "passed" },
+        { itemId: "i5", title: "Export", status: "passed" },
+        { itemId: "i6", title: "Notify", status: "failed" },
+        { itemId: "i7", title: "Login2", status: "failed" },
+        { itemId: "i8", title: "Share2", status: "inconclusive" },
+      ],
+    })],
+    // Follow-up review run: 7/8 pass, 1 failed.
+    ["wprr_followup", makeRun("wprr_followup", {
+      summary: { passed: 7, failed: 1 },
+      results: [
+        { itemId: "i1", title: "Login", status: "passed" },
+        { itemId: "i2", title: "Logout", status: "passed" },
+        { itemId: "i3", title: "Share", status: "passed" },
+        { itemId: "i4", title: "Perms", status: "passed" },
+        { itemId: "i5", title: "Export", status: "passed" },
+        { itemId: "i6", title: "Notify", status: "passed" },
+        { itemId: "i7", title: "Login2", status: "passed" },
+        { itemId: "i8", title: "Share2", status: "failed" },
+      ],
+    })],
+  ]);
+  const env = makeEnv({ runs });
+  const { eid, cands } = await createExp(env);
+  await link(env, eid, cands[0].id, "wprr_a");
+  await link(env, eid, cands[1].id, "wprr_b");
+  await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/benchmark`, { userKey: USER });
+  await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/decision`, {
+    userKey: USER, selectedCandidateId: "b", decisionStatus: "selected",
+    candidateOutcomes: [{ candidateId: "b", outcome: "selected" }],
+  });
+  const created = await req(env, "POST", path(eid), { userKey: USER });
+  const apId = created.json.actionPack.id;
+
+  // Link a follow-up review run.
+  await req(env, "PATCH", followupPath(eid, apId), {
+    userKey: USER, status: "reviewed", reviewRunId: "wprr_followup",
+  });
+
+  const res = await req(env, "GET", `${impactPath(eid, apId)}?userKey=${USER}`);
+  assert.equal(res.status, 200);
+  assert.equal(res.json.impact.verdict, "improved");
+  assert.equal(res.json.impact.before.source, "benchmark");
+  assert.equal(res.json.impact.after.source, "review_run");
+  assert.equal(res.json.impact.after.sourceId, "wprr_followup");
+  assert.ok(res.json.impact.delta.passRateDelta > 0);
+  assert.ok(res.json.impact.delta.blockerDelta < 0);
+  assert.ok(res.json.impact.reasons.includes("pass_rate_increased"));
+  assert.ok(res.json.impact.reasons.includes("blockers_decreased"));
+});
+
+test("GET impact: benchmark + follow-up reviewRunId with regression → regressed", async () => {
+  const runs = new Map([
+    ["wprr_a", makeRun("wprr_a", { summary: { passed: 3 } })],
+    ["wprr_b", makeRun("wprr_b", {
+      summary: { passed: 7, failed: 0, inconclusive: 1 },
+      results: [
+        { itemId: "i1", title: "X1", status: "passed" },
+        { itemId: "i2", title: "X2", status: "passed" },
+        { itemId: "i3", title: "X3", status: "passed" },
+        { itemId: "i4", title: "X4", status: "passed" },
+        { itemId: "i5", title: "X5", status: "passed" },
+        { itemId: "i6", title: "X6", status: "passed" },
+        { itemId: "i7", title: "X7", status: "passed" },
+        { itemId: "i8", title: "X8", status: "inconclusive" },
+      ],
+    })],
+    ["wprr_followup", makeRun("wprr_followup", {
+      summary: { passed: 5, failed: 2, inconclusive: 1 },
+      results: [
+        { itemId: "i1", title: "X1", status: "passed" },
+        { itemId: "i2", title: "X2", status: "passed" },
+        { itemId: "i3", title: "X3", status: "passed" },
+        { itemId: "i4", title: "X4", status: "passed" },
+        { itemId: "i5", title: "X5", status: "passed" },
+        { itemId: "i6", title: "X6", status: "failed" },
+        { itemId: "i7", title: "X7", status: "failed" },
+        { itemId: "i8", title: "X8", status: "inconclusive" },
+      ],
+    })],
+  ]);
+  const env = makeEnv({ runs });
+  const { eid, cands } = await createExp(env);
+  await link(env, eid, cands[0].id, "wprr_a");
+  await link(env, eid, cands[1].id, "wprr_b");
+  await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/benchmark`, { userKey: USER });
+  await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/decision`, {
+    userKey: USER, selectedCandidateId: "b", decisionStatus: "selected",
+    candidateOutcomes: [{ candidateId: "b", outcome: "selected" }],
+  });
+  const created = await req(env, "POST", path(eid), { userKey: USER });
+  const apId = created.json.actionPack.id;
+  await req(env, "PATCH", followupPath(eid, apId), {
+    userKey: USER, status: "reviewed", reviewRunId: "wprr_followup",
+  });
+  const res = await req(env, "GET", `${impactPath(eid, apId)}?userKey=${USER}`);
+  assert.equal(res.status, 200);
+  assert.equal(res.json.impact.verdict, "regressed");
+  assert.ok(res.json.impact.reasons.includes("pass_rate_decreased"));
+  assert.ok(res.json.impact.reasons.includes("critical_issues_increased"));
+});
+
+test("GET impact: different acceptance set between before benchmark and follow-up run → inconclusive", async () => {
+  const runs = new Map([
+    ["wprr_a", makeRun("wprr_a", { summary: { passed: 1 } })],
+    ["wprr_b", makeRun("wprr_b", {
+      summary: { passed: 2, failed: 1 },
+      results: [
+        { itemId: "i1", title: "A", status: "passed" },
+        { itemId: "i2", title: "B", status: "passed" },
+        { itemId: "i3", title: "C", status: "failed" },
+      ],
+    })],
+    ["wprr_followup", makeRun("wprr_followup", {
+      summary: { passed: 3 },
+      results: [
+        { itemId: "j1", title: "D", status: "passed" },
+        { itemId: "j2", title: "E", status: "passed" },
+        { itemId: "j3", title: "F", status: "passed" },
+      ],
+    })],
+  ]);
+  const env = makeEnv({ runs });
+  const { eid, cands } = await createExp(env);
+  await link(env, eid, cands[0].id, "wprr_a");
+  await link(env, eid, cands[1].id, "wprr_b");
+  await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/benchmark`, { userKey: USER });
+  await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/decision`, {
+    userKey: USER, selectedCandidateId: "b", decisionStatus: "selected",
+    candidateOutcomes: [{ candidateId: "b", outcome: "selected" }],
+  });
+  const created = await req(env, "POST", path(eid), { userKey: USER });
+  const apId = created.json.actionPack.id;
+  await req(env, "PATCH", followupPath(eid, apId), {
+    userKey: USER, status: "reviewed", reviewRunId: "wprr_followup",
+  });
+  const res = await req(env, "GET", `${impactPath(eid, apId)}?userKey=${USER}`);
+  assert.equal(res.status, 200);
+  assert.equal(res.json.impact.verdict, "inconclusive");
+  assert.ok(res.json.impact.reasons.includes("different_acceptance_set"));
+});
+
+test("GET impact: response contains no userKey/token even with full data", async () => {
+  const runs = new Map([
+    ["wprr_a", makeRun("wprr_a", { summary: { passed: 1 } })],
+    ["wprr_b", makeRun("wprr_b", { summary: { passed: 2 } })],
+    ["wprr_followup", makeRun("wprr_followup", { summary: { passed: 2 } })],
+  ]);
+  const env = makeEnv({ runs });
+  const { eid, cands } = await createExp(env);
+  await link(env, eid, cands[0].id, "wprr_a");
+  await link(env, eid, cands[1].id, "wprr_b");
+  await req(env, "POST", `/workspace/projects/${PROJECT}/agent-experiments/${eid}/benchmark`, { userKey: USER });
+  const created = await req(env, "POST", path(eid), { userKey: USER });
+  const apId = created.json.actionPack.id;
+  await req(env, "PATCH", followupPath(eid, apId), {
+    userKey: USER, status: "reviewed", reviewRunId: "wprr_followup",
+  });
+  const res = await req(env, "GET", `${impactPath(eid, apId)}?userKey=${USER}`);
+  const flat = JSON.stringify(res.json);
+  assert.ok(!flat.includes(USER), "must not include the userKey value");
+  assert.ok(!/uk_/.test(flat), "must not include any uk_ token");
+  assert.ok(!/userKey/i.test(flat), "must not even mention userKey");
+});

@@ -52,6 +52,12 @@ import {
   FOLLOWUP_STATUSES,
 } from "../workspace/evolution-action-pack-db.js";
 import type { FollowupStatus } from "../workspace/evolution-action-pack-db.js";
+import {
+  buildImpactComparison,
+  snapshotFromBenchmark,
+  snapshotFromReviewRun,
+} from "../workspace/evolution-impact.js";
+import type { EvolutionImpactSnapshot } from "../workspace/evolution-impact.js";
 
 const DECISION_STATUSES = ["undecided", "selected", "needs_fix", "no_clear_winner"];
 const CANDIDATE_OUTCOMES = ["selected", "rejected", "needs_fix", "undecided"];
@@ -802,6 +808,108 @@ export function createWorkspaceExperimentRoutes(): Hono<{ Bindings: Env }> {
       } catch (err) {
         console.error("[workspace/agent-experiments evolution-action-packs followup PATCH] failed:", err);
         return c.json({ ok: false, error: "update_failed" }, 500);
+      }
+    },
+  );
+
+  // ── Stage 79: before/after evolution impact comparison ──────────────────────
+  // On-demand only (no D1 persistence — formula keeps evolving). Compares the
+  // action pack's source benchmark (selected/winner/basis candidate metrics)
+  // against the Stage-78 follow-up benchmark or review run. Deterministic.
+  app.get(
+    "/workspace/projects/:id/agent-experiments/:experimentId/evolution-action-packs/:actionPackId/impact",
+    async (c) => {
+      const projectId = c.req.param("id");
+      const experimentId = c.req.param("experimentId");
+      const actionPackId = c.req.param("actionPackId");
+      const userKey = c.req.query("userKey") ?? "";
+      if (!userKey) return c.json({ ok: false, error: "userKey_required" }, 400);
+
+      try {
+        const row = await getEvolutionActionPackById(c.env, actionPackId);
+        if (!row || row.projectId !== projectId || row.experimentId !== experimentId) {
+          return c.json({ ok: false, error: "not_found" }, 404);
+        }
+        if (row.userKey !== userKey) return c.json({ ok: false, error: "forbidden" }, 403);
+
+        const limitations: string[] = [];
+
+        // Recover pack's saved target candidate (Stage 76 + 77 metadata in pack_json).
+        let packTargetCandidateId: string | undefined;
+        try {
+          const pack = JSON.parse(row.packJson) as { targetCandidateId?: string };
+          packTargetCandidateId = pack.targetCandidateId;
+        } catch {
+          limitations.push("pack_json_unreadable");
+        }
+
+        // ── BEFORE: pack.benchmarkId column (Stage 77) → experiment's linked benchmark fallback ──
+        let before: EvolutionImpactSnapshot | null = null;
+        let beforeBenchmarkId = row.benchmarkId;
+        if (!beforeBenchmarkId) {
+          const cands = await listExperimentCandidates(c.env, experimentId).catch(() => []);
+          beforeBenchmarkId = cands.find((cc) => cc.benchmarkId)?.benchmarkId;
+        }
+        if (beforeBenchmarkId) {
+          const benchRow = await getAgentBenchmarkById(c.env, beforeBenchmarkId).catch(() => null);
+          if (benchRow && benchRow.projectId === projectId && benchRow.userKey === userKey) {
+            try {
+              const benchmark = JSON.parse(benchRow.resultJson) as AgentBenchmarkResult;
+              before = snapshotFromBenchmark(benchmark, {
+                sourceId: beforeBenchmarkId,
+                selectedCandidateId: row.selectedCandidateId,
+                packTargetCandidateId,
+              });
+            } catch {
+              limitations.push("before_benchmark_unreadable");
+            }
+          } else if (benchRow) {
+            limitations.push("before_benchmark_other_owner");
+          }
+        }
+
+        // ── AFTER: followup_benchmark_id → followup_review_run_id fallback ──
+        let after: EvolutionImpactSnapshot | null = null;
+        if (row.followup.benchmarkId) {
+          const benchRow = await getAgentBenchmarkById(c.env, row.followup.benchmarkId).catch(() => null);
+          if (benchRow && benchRow.projectId === projectId && benchRow.userKey === userKey) {
+            try {
+              const benchmark = JSON.parse(benchRow.resultJson) as AgentBenchmarkResult;
+              after = snapshotFromBenchmark(benchmark, {
+                sourceId: row.followup.benchmarkId,
+                selectedCandidateId: row.selectedCandidateId,
+                packTargetCandidateId,
+              });
+            } catch {
+              limitations.push("after_benchmark_unreadable");
+            }
+          } else if (benchRow) {
+            limitations.push("after_benchmark_other_owner");
+          }
+        }
+        if (!after && row.followup.reviewRunId) {
+          const run = await getReviewRunById(c.env, row.followup.reviewRunId).catch(() => null);
+          if (run && run.projectId === projectId && run.userKey === userKey) {
+            after = snapshotFromReviewRun(run.resultJson, { sourceId: row.followup.reviewRunId });
+            if (!after) limitations.push("after_review_run_unreadable");
+          } else if (run) {
+            limitations.push("after_review_run_other_owner");
+          }
+        }
+
+        const impact = buildImpactComparison({
+          actionPackId: row.id,
+          experimentId: row.experimentId,
+          projectId: row.projectId,
+          recommendedAction: row.recommendedAction,
+          before,
+          after,
+          limitations,
+        });
+        return c.json({ ok: true, impact });
+      } catch (err) {
+        console.error("[workspace/agent-experiments evolution-action-packs impact GET] failed:", err);
+        return c.json({ ok: false, error: "impact_failed" }, 500);
       }
     },
   );

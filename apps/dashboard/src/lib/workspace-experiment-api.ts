@@ -346,6 +346,68 @@ export async function getEvolutionActionPack(
   }
 }
 
+// Stage 79 — Before/After Evolution Impact comparison.
+export type EvolutionImpactVerdict = "improved" | "regressed" | "unchanged" | "inconclusive";
+export type EvolutionImpactSource = "benchmark" | "review_run";
+
+export type EvolutionImpactSnapshot = {
+  source: EvolutionImpactSource;
+  sourceId: string;
+  passRate: number | null;
+  passedCount: number;
+  failedCount: number;
+  inconclusiveCount: number;
+  needsDecisionCount: number;
+  criticalIssueCount: number;
+  notVerifiedCount: number;
+  blockerCount: number;
+  totalCount: number;
+  itemIds?: string[];
+};
+
+export type EvolutionImpactDelta = {
+  passRateDelta: number | null;
+  passedDelta: number;
+  criticalIssueDelta: number;
+  notVerifiedDelta: number;
+  blockerDelta: number;
+};
+
+export type EvolutionImpactComparison = {
+  actionPackId: string;
+  experimentId: string;
+  projectId: string;
+  recommendedAction: string;
+  before: EvolutionImpactSnapshot | null;
+  after: EvolutionImpactSnapshot | null;
+  delta: EvolutionImpactDelta | null;
+  verdict: EvolutionImpactVerdict;
+  reasons: string[];
+  limitations: string[];
+};
+
+type GetImpactResponse =
+  | { ok: true; impact: EvolutionImpactComparison }
+  | { ok: false; error: string };
+
+export async function getEvolutionActionPackImpact(
+  projectId: string,
+  experimentId: string,
+  actionPackId: string,
+  userKey: string,
+): Promise<GetImpactResponse> {
+  try {
+    const params = new URLSearchParams({ userKey });
+    const resp = await fetch(
+      `${base(projectId)}/${encodeURIComponent(experimentId)}/evolution-action-packs/${encodeURIComponent(actionPackId)}/impact?${params}`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    return (await resp.json()) as GetImpactResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
 export type ActionPackFollowupInput = {
   userKey: string;
   status: ActionPackFollowupStatus;

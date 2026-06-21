@@ -29,6 +29,7 @@ import {
   listEvolutionActionPacks,
   getEvolutionActionPack,
   patchEvolutionActionPackFollowup,
+  getEvolutionActionPackImpact,
   type SavedExperimentListItem,
   type SavedExperiment,
   type ExperimentCandidate,
@@ -36,12 +37,21 @@ import {
   type SavedEvolutionActionPackDetail,
   type SavedEvolutionActionPackListItem,
   type ActionPackFollowupStatus,
+  type EvolutionImpactComparison,
 } from "@/lib/workspace-experiment-api";
 import {
   FOLLOWUP_STATUSES,
   followupStatusLabelKey,
   buildFollowupPayload,
 } from "@/lib/action-pack-followup.mjs";
+import {
+  impactVerdictLabelKey,
+  impactReasonLabelKey,
+  formatDeltaInt,
+  formatDeltaPercent,
+  formatRate,
+  isImpactEmpty,
+} from "@/lib/evolution-impact.mjs";
 import { listProjectReviewHistory, type ProjectReviewHistoryItem } from "@/lib/workspace-github-api";
 import { getSavedBenchmark } from "@/lib/workspace-benchmark-api";
 import { gradeLabelKey, actionLabelKey, reasonLabelKey } from "@/lib/outcome-labels.mjs";
@@ -737,6 +747,10 @@ function OutcomeQualitySection({
   const [followupPhase, setFollowupPhase] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [followupError, setFollowupError] = useState<string | null>(null);
 
+  // Stage 79: before/after impact (auto-loaded when a saved pack opens).
+  const [impact, setImpact] = useState<EvolutionImpactComparison | null>(null);
+  const [impactPhase, setImpactPhase] = useState<"idle" | "loading" | "ready" | "error">("idle");
+
   // Reset the generated pack whenever the scorecard changes (new experiment / decision).
   useEffect(() => {
     setPack(null);
@@ -747,6 +761,8 @@ function OutcomeQualitySection({
     setOpenPhase("idle");
     setSavePhase("idle");
     setSaveError(null);
+    setImpact(null);
+    setImpactPhase("idle");
   }, [scorecard]);
 
   // Load saved action packs whenever the experiment changes.
@@ -774,6 +790,31 @@ function OutcomeQualitySection({
     setFollowupPhase("idle");
     setFollowupError(null);
   }, [openedPack]);
+
+  // Stage 79: auto-load impact whenever the opened pack changes (or after a
+  // follow-up save updates the snapshot).
+  useEffect(() => {
+    if (!openedPack || !userKey) {
+      setImpact(null);
+      setImpactPhase("idle");
+      return;
+    }
+    let cancelled = false;
+    setImpactPhase("loading");
+    getEvolutionActionPackImpact(projectId, experiment.id, openedPack.id, userKey).then((res) => {
+      if (cancelled) return;
+      if (res.ok) {
+        setImpact(res.impact);
+        setImpactPhase("ready");
+      } else {
+        setImpact(null);
+        setImpactPhase("error");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [openedPack, userKey, projectId, experiment.id]);
 
   const s = t.evolution as unknown as Record<string, string>;
 
@@ -1266,6 +1307,127 @@ function OutcomeQualitySection({
                       {t.evolution.followupFailed}
                       {followupError ? `: ${followupError}` : ""}
                     </p>
+                  )}
+                </div>
+
+                {/* Stage 79: before/after evolution impact comparison (auto-loaded) */}
+                <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-semibold text-gray-800">{t.evolution.impact}</p>
+                      <p className="text-[11px] text-gray-400">{t.evolution.impactDesc}</p>
+                    </div>
+                    {impact && (
+                      <span
+                        className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${
+                          impact.verdict === "improved"
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : impact.verdict === "regressed"
+                              ? "border-red-200 bg-red-50 text-red-700"
+                              : impact.verdict === "unchanged"
+                                ? "border-gray-200 bg-white text-gray-600"
+                                : "border-amber-200 bg-amber-50 text-amber-700"
+                        }`}
+                      >
+                        {t.evolution[impactVerdictLabelKey(impact.verdict) as keyof typeof t.evolution]}
+                      </span>
+                    )}
+                  </div>
+
+                  {impactPhase === "loading" && (
+                    <p className="mt-2 text-xs text-gray-400">{t.outcome.loading}</p>
+                  )}
+
+                  {impactPhase === "ready" && impact && (
+                    <>
+                      {isImpactEmpty(impact) ? (
+                        <p className="mt-2 text-xs text-gray-500">{t.evolution.impactMissingFollowup}</p>
+                      ) : (
+                        <>
+                          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                            <div className="rounded-md border border-gray-100 bg-white p-2">
+                              <p className="text-[10px] uppercase tracking-wide text-gray-400">{t.evolution.impactBefore}</p>
+                              {impact.before ? (
+                                <dl className="mt-1 space-y-0.5 text-[11px]">
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.impactPassRate}</dt><dd className="font-semibold text-gray-700">{formatRate(impact.before.passRate)}</dd></div>
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.impactCritical}</dt><dd className="font-semibold text-gray-700">{impact.before.criticalIssueCount}</dd></div>
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.impactNotVerified}</dt><dd className="font-semibold text-gray-700">{impact.before.notVerifiedCount}</dd></div>
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.impactBlockers}</dt><dd className="font-semibold text-gray-700">{impact.before.blockerCount}</dd></div>
+                                </dl>
+                              ) : (
+                                <p className="mt-1 text-[11px] text-gray-400">—</p>
+                              )}
+                            </div>
+                            <div className="rounded-md border border-gray-100 bg-white p-2">
+                              <p className="text-[10px] uppercase tracking-wide text-gray-400">{t.evolution.impactAfter}</p>
+                              {impact.after ? (
+                                <dl className="mt-1 space-y-0.5 text-[11px]">
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.impactPassRate}</dt><dd className="font-semibold text-gray-700">{formatRate(impact.after.passRate)}</dd></div>
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.impactCritical}</dt><dd className="font-semibold text-gray-700">{impact.after.criticalIssueCount}</dd></div>
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.impactNotVerified}</dt><dd className="font-semibold text-gray-700">{impact.after.notVerifiedCount}</dd></div>
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.impactBlockers}</dt><dd className="font-semibold text-gray-700">{impact.after.blockerCount}</dd></div>
+                                </dl>
+                              ) : (
+                                <p className="mt-1 text-[11px] text-gray-400">—</p>
+                              )}
+                            </div>
+                            <div className="rounded-md border border-gray-100 bg-white p-2">
+                              <p className="text-[10px] uppercase tracking-wide text-gray-400">{t.evolution.impactDelta}</p>
+                              {impact.delta ? (
+                                <dl className="mt-1 space-y-0.5 text-[11px]">
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.deltaPassRate}</dt><dd className="font-semibold text-gray-700">{formatDeltaPercent(impact.delta.passRateDelta)}</dd></div>
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.deltaCritical}</dt><dd className="font-semibold text-gray-700">{formatDeltaInt(impact.delta.criticalIssueDelta)}</dd></div>
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.deltaNotVerified}</dt><dd className="font-semibold text-gray-700">{formatDeltaInt(impact.delta.notVerifiedDelta)}</dd></div>
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.deltaBlockers}</dt><dd className="font-semibold text-gray-700">{formatDeltaInt(impact.delta.blockerDelta)}</dd></div>
+                                </dl>
+                              ) : (
+                                <p className="mt-1 text-[11px] text-gray-400">—</p>
+                              )}
+                            </div>
+                          </div>
+
+                          {impact.verdict === "inconclusive" && (
+                            <p className="mt-2 text-[11px] text-amber-700">{t.evolution.impactInconclusiveExplanation}</p>
+                          )}
+
+                          {impact.reasons.length > 0 && (
+                            <div className="mt-3">
+                              <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{t.evolution.impactReasons}</p>
+                              <ul className="mt-1 flex flex-wrap gap-1.5">
+                                {impact.reasons.map((r) => (
+                                  <li
+                                    key={r}
+                                    className="rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-600"
+                                  >
+                                    {t.evolution[impactReasonLabelKey(r) as keyof typeof t.evolution]}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {impact.limitations.length > 0 && (
+                            <div className="mt-2">
+                              <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{t.evolution.impactLimitations}</p>
+                              <ul className="mt-1 flex flex-wrap gap-1.5">
+                                {impact.limitations.map((l) => (
+                                  <li
+                                    key={l}
+                                    className="rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-mono text-gray-500"
+                                  >
+                                    {l}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </>
+                  )}
+
+                  {impactPhase === "error" && (
+                    <p className="mt-2 text-xs text-red-600">{t.errors.loadFailed}</p>
                   )}
                 </div>
               </div>
