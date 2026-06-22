@@ -1,0 +1,38 @@
+// Stage 94 — minimal developer surface for simsa.dev.
+// Static, host-agnostic, separate Vercel project. Intentionally a placeholder:
+// no API/SDK/MCP docs are promised (MCP package is not yet published), and the
+// "coming soon" item is plain text, not a broken link.
+const APP_URL = "https://app.trysimsa.com";
+const REPO_URL = "https://github.com/3SVS/conclave-ai"; // public repo
+
+export default function Home() {
+  return (
+    <main className="wrap">
+      <section className="card">
+        <p className="wordmark">Simsa for Developers</p>
+        <h1 className="tagline">Developer docs are coming soon.</h1>
+        <p className="lede">
+          Simsa helps teams review, compare, and accept AI-built software with
+          evidence.
+        </p>
+        <div className="actions">
+          <a className="cta" href={APP_URL}>
+            Open Simsa
+          </a>
+          <a
+            className="cta-secondary"
+            href={REPO_URL}
+            target="_blank"
+            rel="noreferrer"
+          >
+            View on GitHub
+          </a>
+          <span className="soon">MCP package — coming soon</span>
+        </div>
+      </section>
+      <footer className="foot">
+        Built for AI-built software acceptance.
+      </footer>
+    </main>
+  );
+}
