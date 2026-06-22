@@ -37,6 +37,12 @@ import {
   NEXT_STEP_LABELS,
 } from "@/lib/intake-acceptance-map.mjs";
 import type { IntakeAcceptanceMap } from "@/lib/intake-acceptance-map.mjs";
+import {
+  buildIntakeStagePlan,
+  STAGE_STATUS_LABELS,
+  STAGE_KIND_LABELS,
+} from "@/lib/intake-stage-plan.mjs";
+import type { IntakeStagePlan } from "@/lib/intake-stage-plan.mjs";
 
 export default function IntakePage() {
   const [type, setType] = useState<WorkspaceIntakeType | null>(null);
@@ -47,6 +53,7 @@ export default function IntakePage() {
   const [repoPreview, setRepoPreview] = useState<GitHubRepoIntakePreview | null>(null);
   const [appPreview, setAppPreview] = useState<AiBuiltAppRecoveryPreview | null>(null);
   const [acceptanceMap, setAcceptanceMap] = useState<IntakeAcceptanceMap | null>(null);
+  const [stagePlan, setStagePlan] = useState<IntakeStagePlan | null>(null);
 
   const meta = type ? INTAKE_META[type] : null;
 
@@ -57,6 +64,7 @@ export default function IntakePage() {
     setRepoPreview(null);
     setAppPreview(null);
     setAcceptanceMap(null);
+    setStagePlan(null);
   }
 
   function selectType(next: WorkspaceIntakeType) {
@@ -79,8 +87,9 @@ export default function IntakePage() {
     setAppPreview(
       type === "ai_built_app" ? buildAiBuiltAppRecoveryPreview(rawInput) : null,
     );
-    // Stage 106: shared acceptance map for every intake type.
+    // Stage 106/107: shared acceptance map + ordered stage plan for every type.
     setAcceptanceMap(buildIntakeAcceptanceMap({ type, rawInput }));
+    setStagePlan(buildIntakeStagePlan({ type, rawInput }));
   }
 
   return (
@@ -470,7 +479,79 @@ export default function IntakePage() {
             </p>
           </div>
         )}
+
+        {/* Stage 107 — shared Stage Plan (all intake types) */}
+        {stagePlan && (
+          <div className="card mt-6 p-5">
+            <p className="text-xs uppercase tracking-wide text-gray-400">
+              Stage Plan · confidence: {stagePlan.confidence}
+            </p>
+            <p className="mt-2 text-sm text-gray-500">
+              Simsa turns the acceptance map into an ordered review workflow.
+            </p>
+            <p className="mt-3 text-sm text-gray-700">
+              Recommended start: stage {stagePlan.recommendedStartStage}
+            </p>
+
+            <div className="mt-3 space-y-2">
+              {stagePlan.stages.map((s) => (
+                <div
+                  key={s.number}
+                  className={`rounded-lg border p-3 ${
+                    s.number === stagePlan.recommendedStartStage
+                      ? "border-brand-300 bg-brand-50"
+                      : "border-gray-200 bg-white"
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-gray-900">
+                      Stage {s.number}: {s.title}
+                    </span>
+                    <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                      {STAGE_KIND_LABELS[s.kind]}
+                    </span>
+                    <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                      {STAGE_STATUS_LABELS[s.status]}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm text-gray-600">{s.goal}</p>
+                  <StageDetail label="Candidate checks" items={s.candidateChecks} />
+                  <StageDetail label="Evidence to collect" items={s.evidenceToCollect} />
+                  <StageDetail label="Exit criteria" items={s.exitCriteria} />
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <p className="text-sm font-medium text-gray-900">
+                {stagePlan.releaseGate.title}
+              </p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-gray-600">
+                {stagePlan.releaseGate.checks.map((c) => (
+                  <li key={c}>{c}</li>
+                ))}
+              </ul>
+            </div>
+
+            <p className="mt-4 text-xs text-gray-400">
+              Preview only — stage plan is deterministic and not yet saved.
+            </p>
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+function StageDetail({ label, items }: { label: string; items: string[] }) {
+  return (
+    <div className="mt-2">
+      <p className="text-xs font-medium text-gray-500">{label}</p>
+      <ul className="mt-0.5 list-disc space-y-0.5 pl-5 text-sm text-gray-600">
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
     </div>
   );
 }
