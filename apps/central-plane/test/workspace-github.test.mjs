@@ -112,6 +112,14 @@ describe("github-oauth helpers", () => {
     assert.ok(!isAllowedReturnTo("https://evil-dashboard.vercel.app/projects/x"));
   });
 
+  it("isAllowedReturnTo accepts the Simsa launch origins (exact, no wildcard) — Stage 89", () => {
+    assert.ok(isAllowedReturnTo("https://app.trysimsa.com/projects/x/github"));
+    assert.ok(isAllowedReturnTo("https://trysimsa.com/projects/x"));
+    // exact-match only — a look-alike subdomain must still be rejected
+    assert.ok(!isAllowedReturnTo("https://evil.trysimsa.com/projects/x"));
+    assert.ok(!isAllowedReturnTo("https://app.trysimsa.com.evil.com/projects/x"));
+  });
+
   it("appendGitHubConnected adds query param", () => {
     assert.equal(
       appendGitHubConnected("/projects/abc", "https://dashboard.conclave-ai.dev"),

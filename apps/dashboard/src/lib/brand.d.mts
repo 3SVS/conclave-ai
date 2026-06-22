@@ -8,6 +8,8 @@ export type Brand = {
   metadataDescription: string;
   primaryDomain: string;
   developerDomain: string;
+  appDomain: string;
+  legacyDashboardDomain: string;
 };
 
 export const BRAND: Brand;

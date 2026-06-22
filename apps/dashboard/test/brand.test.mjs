@@ -13,6 +13,9 @@ test("BRAND exports the current Simsa product strings", () => {
   assert.equal(BRAND.tagline, "The acceptance layer for AI-built software.");
   assert.equal(BRAND.primaryDomain, "trysimsa.com");
   assert.equal(BRAND.developerDomain, "simsa.dev");
+  // Stage 89: launch-surface domains (config constants — DNS wired separately).
+  assert.equal(BRAND.appDomain, "app.trysimsa.com");
+  assert.equal(BRAND.legacyDashboardDomain, "conclave-dashboard.vercel.app");
   // metadataTitle and description are concatenated server-side via Next; assert
   // they stay non-empty so a future rename doesn't accidentally drop them.
   assert.ok(BRAND.metadataTitle && BRAND.metadataTitle.includes(BRAND.productName));
