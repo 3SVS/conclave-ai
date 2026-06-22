@@ -12,6 +12,7 @@
  * Ledger rows, sourceEventId, and internal status are NOT exposed.
  */
 import { Hono } from "hono";
+import { corsMiddleware } from "./cors.js";
 import type { Env } from "../env.js";
 import { listCreditBalances } from "../workspace/credits.js";
 import type { CreditType } from "../workspace/credits.js";
@@ -26,6 +27,9 @@ const VALID_CREDIT_TYPES: CreditType[] = ["review", "fix", "workspace"];
 
 export function createWorkspaceCreditsRoutes(): Hono<{ Bindings: Env }> {
   const app = new Hono<{ Bindings: Env }>();
+
+  // Stage 91: browser-facing CORS (preflight + headers on every response).
+  app.use("*", corsMiddleware);
 
   /**
    * GET /workspace/credits?userKey=...

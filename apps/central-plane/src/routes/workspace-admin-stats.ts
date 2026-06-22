@@ -10,6 +10,7 @@
  * No billing, no credit deduction — read-only analytics + dry-run billing estimate.
  */
 import { Hono } from "hono";
+import { corsMiddleware } from "./cors.js";
 import type { Env } from "../env.js";
 import { getBillingRule, estimateCredits } from "../workspace/billing-rules.js";
 import type { BillingStatus, CreditType } from "../workspace/billing-rules.js";
@@ -242,6 +243,9 @@ function computeDryRunBilling(
 
 export function createWorkspaceAdminStatsRoutes(): Hono<{ Bindings: Env }> {
   const app = new Hono<{ Bindings: Env }>();
+
+  // Stage 91: browser-facing CORS (preflight + headers on every response).
+  app.use("*", corsMiddleware);
 
   /**
    * GET /admin/usage-stats?range=24h|7d|30d

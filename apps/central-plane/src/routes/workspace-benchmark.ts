@@ -13,6 +13,7 @@
  * userKey that created them.
  */
 import { Hono } from "hono";
+import { corsMiddleware } from "./cors.js";
 import type { Env } from "../env.js";
 import { getReviewRunById } from "../workspace/pr-review-db.js";
 import {
@@ -67,6 +68,9 @@ function parseResultItems(resultJson: string | undefined): ReviewItemInput[] {
 
 export function createWorkspaceBenchmarkRoutes(): Hono<{ Bindings: Env }> {
   const app = new Hono<{ Bindings: Env }>();
+
+  // Stage 91: browser-facing CORS (preflight + headers on every response).
+  app.use("*", corsMiddleware);
 
   // ── POST /workspace/projects/:id/agent-benchmarks ──────────────────────────
   app.post("/workspace/projects/:id/agent-benchmarks", async (c) => {
