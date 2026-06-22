@@ -265,6 +265,100 @@ a {
   color: var(--faint);
 }
 
+/* Public demo (/demo) */
+.demo-label {
+  display: inline-block;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.2rem 0.65rem;
+  margin-bottom: 1rem;
+}
+
+.demo-card {
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--panel);
+  padding: 1.1rem 1.2rem;
+  margin-top: 0.75rem;
+}
+
+.kv {
+  margin: 0;
+}
+
+.kv dt {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 0.7rem;
+}
+
+.kv dt:first-child {
+  margin-top: 0;
+}
+
+.kv dd {
+  margin: 0.15rem 0 0;
+  font-size: 0.97rem;
+  color: var(--fg);
+}
+
+.ev-group {
+  margin-top: 1.1rem;
+}
+
+.ev-group h3 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 0 0 0.35rem;
+}
+
+.ev-accepted h3 {
+  color: var(--accent);
+}
+
+.ev-fix h3 {
+  color: #b45309; /* amber-700 */
+}
+
+.ev-unverified h3 {
+  color: var(--faint);
+}
+
+.ev-group ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--muted);
+  font-size: 0.96rem;
+}
+
+.ev-group ul li {
+  margin: 0.25rem 0;
+}
+
+.decision {
+  margin-top: 1.35rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 0.5rem;
+  background: var(--accent-soft);
+  padding: 0.9rem 1.1rem;
+  font-size: 0.97rem;
+}
+
+.decision strong {
+  display: block;
+  margin-bottom: 0.2rem;
+}
+
 /* Legal-lite pages (/privacy, /terms) */
 .legal {
   padding: 3rem 0 4rem;

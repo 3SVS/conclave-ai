@@ -59,6 +59,9 @@ export default function Home() {
             <a className="cta" href={APP_URL}>
               Open Simsa
             </a>
+            <Link className="cta-secondary" href="/demo">
+              View demo
+            </Link>
             <a className="cta-secondary" href={EARLY_ACCESS_MAILTO}>
               Request early access
             </a>
@@ -166,6 +169,7 @@ export default function Home() {
       <footer className="foot">
         <div className="container">
           <nav className="foot-links">
+            <Link href="/demo">Demo</Link>
             <Link href="/privacy">Privacy</Link>
             <Link href="/terms">Terms</Link>
             <a href={`mailto:${CONTACT_EMAIL}`}>Contact</a>
