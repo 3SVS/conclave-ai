@@ -14,8 +14,9 @@ export default function Home() {
         <p className="wordmark">Simsa for Developers</p>
         <h1 className="tagline">Developer docs are coming soon.</h1>
         <p className="lede">
-          Simsa helps teams review, compare, and accept AI-built software with
-          evidence.
+          Simsa accepts ideas, PRDs, repos, and AI-built apps as input, then
+          turns them into staged acceptance workflows — review, compare, and
+          decide what to accept, fix, or rerun with evidence.
         </p>
         <div className="actions">
           <a className="cta" href={APP_URL}>

@@ -5,6 +5,7 @@
   --faint: #71717a;     /* zinc-500 */
   --accent: #15803d;    /* deep green (dashboard brand-600) */
   --accent-hover: #166534;
+  --accent-soft: #f0f7f2;
   --border: #e7e5e4;
   --panel: #ffffff;
 }
@@ -34,7 +35,7 @@ a {
 
 .container {
   width: 100%;
-  max-width: 44rem;
+  max-width: 46rem;
   margin: 0 auto;
   padding: 0 1.5rem;
 }
@@ -59,13 +60,21 @@ a {
   line-height: 1.12;
   font-weight: 600;
   letter-spacing: -0.02em;
-  margin: 0 0 1rem;
+  margin: 0 0 0.75rem;
+}
+
+.subline {
+  font-size: clamp(1.05rem, 2.5vw, 1.25rem);
+  font-weight: 600;
+  color: var(--accent);
+  margin: 0 0 0.75rem;
 }
 
 .lede {
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   color: var(--muted);
-  margin: 0 0 2rem;
+  margin: 0 auto 2rem;
+  max-width: 34rem;
 }
 
 .cta {
@@ -88,7 +97,7 @@ a {
 
 /* Sections */
 .section {
-  padding: 2.25rem 0;
+  padding: 2.5rem 0;
   border-top: 1px solid var(--border);
 }
 
@@ -96,13 +105,59 @@ a {
   font-size: 1.25rem;
   font-weight: 600;
   letter-spacing: -0.01em;
-  margin: 0 0 0.75rem;
+  margin: 0 0 0.5rem;
 }
 
 .section p {
   font-size: 1rem;
   color: var(--muted);
-  margin: 0 0 0.5rem;
+  margin: 0 0 1rem;
+  max-width: 38rem;
+}
+
+/* Input chips ("start from anything") */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+/* Output grid ("what Simsa creates") */
+.outputs {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.outputs li {
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--panel);
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+@media (max-width: 30rem) {
+  .outputs {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* How it works */
@@ -113,17 +168,24 @@ a {
 }
 
 .steps li {
-  margin: 0.4rem 0;
+  margin: 0.45rem 0;
 }
 
 .steps li span {
   color: var(--muted);
 }
 
-/* Contact */
+/* Trust / contact */
+.note {
+  font-size: 1rem;
+  color: var(--fg);
+  margin: 0 0 1rem;
+  max-width: 38rem;
+}
+
 .contact-link {
   display: inline-block;
-  margin-top: 0.5rem;
+  margin-top: 0.25rem;
   color: var(--accent);
   font-weight: 600;
   text-decoration: none;
