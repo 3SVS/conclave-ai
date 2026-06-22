@@ -30,6 +30,11 @@ export const BRAND = {
   tagline: "The acceptance layer for AI-built software.",
   actionPackHeading: "Simsa Evolution Action Pack",
   prCommentHeading: "Simsa Review",
+  // Stage 92: live public app/dashboard URL. app.trysimsa.com is wired
+  // (Stage 90B) and serves the Simsa dashboard. Used in user-facing generated
+  // links (PR comment footer, dashboard-link fallback). NOT trysimsa.com apex
+  // / simsa.dev (no routing yet). Internal infra hostnames stay `conclave-*`.
+  appUrl: "https://app.trysimsa.com",
 } as const;
 
 export type BrandKey = keyof typeof BRAND;

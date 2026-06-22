@@ -107,7 +107,7 @@ export interface Env {
    *   WORKSPACE_GH_CLIENT_ID = "..."
    *   WORKSPACE_GH_REDIRECT_URI = "..."  (defaults to workers.dev/callback if unset)
    *   WORKSPACE_GH_SCOPES = "read:user public_repo"  (optional, has default)
-   *   WORKSPACE_GH_DASHBOARD_URL = "https://dashboard.conclave-ai.dev"  (optional)
+   *   WORKSPACE_GH_DASHBOARD_URL = "https://app.trysimsa.com"  (optional; Stage 92 default)
    *
    * Set via `wrangler secret put` (client secret must NOT be in wrangler.toml):
    *   WORKSPACE_GH_CLIENT_SECRET = "..."
@@ -119,7 +119,7 @@ export interface Env {
   WORKSPACE_GH_DASHBOARD_URL?: string;
   /**
    * Stage 17 — base URL of the dashboard. Used when building Telegram notification
-   * message links. Defaults to https://dashboard.conclave-ai.dev when unset.
+   * message links. Defaults to https://app.trysimsa.com when unset (Stage 92).
    * Set via wrangler.toml [vars] or `wrangler secret put DASHBOARD_BASE_URL`.
    */
   DASHBOARD_BASE_URL?: string;

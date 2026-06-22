@@ -395,7 +395,10 @@ describe("buildCommentBody — comparison section", () => {
       includeComparison: true,
       comparisonData: COMPARISON_DATA,
     });
-    assert.ok(body.includes("conclave-ai.dev"), "footer present");
+    // Stage 92: footer now links to the live Simsa app domain (was conclave-ai.dev).
+    assert.ok(body.includes("https://app.trysimsa.com"), "footer links to Simsa app domain");
+    assert.ok(body.includes("[Simsa]"), "footer carries the Simsa label");
+    assert.ok(!body.includes("conclave-ai.dev"), "footer no longer points to legacy conclave-ai.dev");
   });
 });
 
