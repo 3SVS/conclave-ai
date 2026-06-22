@@ -32,6 +32,11 @@ import {
   SAMPLE_AI_BUILT_APP,
 } from "@/lib/intake-ai-built-app.mjs";
 import type { AiBuiltAppRecoveryPreview } from "@/lib/intake-ai-built-app.mjs";
+import {
+  buildIntakeAcceptanceMap,
+  NEXT_STEP_LABELS,
+} from "@/lib/intake-acceptance-map.mjs";
+import type { IntakeAcceptanceMap } from "@/lib/intake-acceptance-map.mjs";
 
 export default function IntakePage() {
   const [type, setType] = useState<WorkspaceIntakeType | null>(null);
@@ -41,6 +46,7 @@ export default function IntakePage() {
   const [urlPreview, setUrlPreview] = useState<ProductUrlIntakePreview | null>(null);
   const [repoPreview, setRepoPreview] = useState<GitHubRepoIntakePreview | null>(null);
   const [appPreview, setAppPreview] = useState<AiBuiltAppRecoveryPreview | null>(null);
+  const [acceptanceMap, setAcceptanceMap] = useState<IntakeAcceptanceMap | null>(null);
 
   const meta = type ? INTAKE_META[type] : null;
 
@@ -50,6 +56,7 @@ export default function IntakePage() {
     setUrlPreview(null);
     setRepoPreview(null);
     setAppPreview(null);
+    setAcceptanceMap(null);
   }
 
   function selectType(next: WorkspaceIntakeType) {
@@ -72,6 +79,8 @@ export default function IntakePage() {
     setAppPreview(
       type === "ai_built_app" ? buildAiBuiltAppRecoveryPreview(rawInput) : null,
     );
+    // Stage 106: shared acceptance map for every intake type.
+    setAcceptanceMap(buildIntakeAcceptanceMap({ type, rawInput }));
   }
 
   return (
@@ -400,6 +409,64 @@ export default function IntakePage() {
 
             <p className="mt-4 text-xs text-gray-400">
               Preview only — no live inspection, repo scan, or external fetch.
+            </p>
+          </div>
+        )}
+
+        {/* Stage 106 — shared Acceptance Map (all intake types) */}
+        {acceptanceMap && (
+          <div className="card mt-6 p-5">
+            <p className="text-xs uppercase tracking-wide text-gray-400">
+              Acceptance Map · confidence: {acceptanceMap.confidence}
+            </p>
+            <p className="mt-2 text-sm text-gray-500">
+              Simsa organizes your input into candidate acceptance areas,
+              questions, and next steps.
+            </p>
+
+            <p className="mt-4 text-sm font-medium text-gray-900">Summary</p>
+            <p className="mt-1 text-sm text-gray-600">{acceptanceMap.summary}</p>
+
+            <p className="mt-4 text-sm font-medium text-gray-900">Areas</p>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {acceptanceMap.areas.map((a) => (
+                <span
+                  key={a}
+                  className="rounded-full border border-gray-200 bg-white px-2.5 py-0.5 text-xs text-gray-600"
+                >
+                  {a.replace(/_/g, " ")}
+                </span>
+              ))}
+            </div>
+
+            <p className="mt-4 text-sm font-medium text-gray-900">
+              Acceptance items
+            </p>
+            <ul className="mt-1 space-y-1">
+              {acceptanceMap.items.map((it) => (
+                <li
+                  key={it.title}
+                  className="rounded-md border border-gray-100 bg-gray-50 px-3 py-1.5 text-sm text-gray-700"
+                >
+                  <span>{it.title}</span>
+                  <span className="ml-2 text-xs text-gray-400">
+                    · {it.status.replace(/_/g, " ")}
+                  </span>
+                </li>
+              ))}
+            </ul>
+
+            <PrdList title="Missing questions" items={acceptanceMap.missingQuestions} />
+
+            <p className="mt-4 text-sm font-medium text-gray-900">
+              Recommended next step
+            </p>
+            <p className="mt-1 text-sm text-gray-700">
+              {NEXT_STEP_LABELS[acceptanceMap.recommendedNextStep]}
+            </p>
+
+            <p className="mt-4 text-xs text-gray-400">
+              Preview only — acceptance map is deterministic and not yet saved.
             </p>
           </div>
         )}
