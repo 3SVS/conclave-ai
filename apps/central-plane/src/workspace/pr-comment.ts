@@ -9,6 +9,7 @@
  */
 import type { FetchLike } from "../github.js";
 import type { SpecificRunComparison } from "./pr-review-compare.js";
+import { BRAND } from "./brand.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -294,10 +295,9 @@ function buildFooterPart(): string {
     "<details>",
     "<summary>이 코멘트에 대하여</summary>",
     "",
-    // The Simsa product name is current; the legacy `conclave-ai.dev` domain
-    // remains the live URL until DNS for trysimsa.com / simsa.dev is wired
-    // in a separate operational stage. Stage 85 ships the rename, not DNS.
-    "이 코멘트는 [Simsa](https://conclave-ai.dev)에서 PR 코드 확인 결과를 바탕으로 자동 생성했습니다.  ",
+    // Stage 92: link to the live Simsa app domain (app.trysimsa.com, wired in
+    // Stage 90B). Sourced from BRAND.appUrl so the brand + URL move in lockstep.
+    `이 코멘트는 [${BRAND.productName}](${BRAND.appUrl})에서 PR 코드 확인 결과를 바탕으로 자동 생성했습니다.  `,
     "이 단계에서는 코드를 자동으로 고치지 않습니다.",
     "",
     "</details>",

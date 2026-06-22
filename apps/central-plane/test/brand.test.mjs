@@ -18,6 +18,8 @@ test("BRAND exports the spec keys with the current Simsa values", () => {
   assert.equal(BRAND.actionPackHeading, "Simsa Evolution Action Pack");
   assert.equal(BRAND.prCommentHeading, "Simsa Review");
   assert.equal(BRAND.tagline, "The acceptance layer for AI-built software.");
+  // Stage 92: live public app URL used in user-facing generated links.
+  assert.equal(BRAND.appUrl, "https://app.trysimsa.com");
 });
 
 test("DEFAULT_EVOLUTION_STRINGS.packHeading is sourced from BRAND.actionPackHeading", () => {

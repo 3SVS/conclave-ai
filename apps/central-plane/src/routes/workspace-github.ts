@@ -22,6 +22,7 @@
 import { Hono } from "hono";
 import type { Env } from "../env.js";
 import { ALLOWED_ORIGINS } from "./cors.js";
+import { BRAND } from "../workspace/brand.js";
 import type { FetchLike } from "../github.js";
 import { encryptToken, decryptToken } from "../crypto.js";
 import {
@@ -90,7 +91,11 @@ function corsHeaders(origin: string | null): Record<string, string> {
   };
 }
 
-const DEFAULT_DASHBOARD_URL = "https://dashboard.conclave-ai.dev";
+// Stage 92: default to the live Simsa app domain (app.trysimsa.com) for
+// user-facing post-connect redirects / Telegram links when WORKSPACE_GH_DASHBOARD_URL
+// (or DASHBOARD_BASE_URL) is unset. The old default (dashboard.conclave-ai.dev)
+// never had DNS. Production env, if set, still takes precedence.
+const DEFAULT_DASHBOARD_URL = BRAND.appUrl;
 
 function json(data: unknown, status = 200, origin: string | null = null): Response {
   return new Response(JSON.stringify(data), {
