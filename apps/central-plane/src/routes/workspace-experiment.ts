@@ -12,6 +12,7 @@
  * PATCH  /workspace/projects/:id/agent-experiments/:experimentId/candidates/:candidateId
  */
 import { Hono } from "hono";
+import { corsMiddleware } from "./cors.js";
 import type { Env } from "../env.js";
 import { getReviewRunById } from "../workspace/pr-review-db.js";
 import { getAgentBenchmarkById, insertAgentBenchmark } from "../workspace/agent-benchmark-db.js";
@@ -208,6 +209,9 @@ async function loadImpactForActionPack(
 
 export function createWorkspaceExperimentRoutes(): Hono<{ Bindings: Env }> {
   const app = new Hono<{ Bindings: Env }>();
+
+  // Stage 91: browser-facing CORS (preflight + headers on every response).
+  app.use("*", corsMiddleware);
 
   // ── POST create ────────────────────────────────────────────────────────────
   app.post("/workspace/projects/:id/agent-experiments", async (c) => {

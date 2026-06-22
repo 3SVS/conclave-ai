@@ -1,0 +1,59 @@
+/**
+ * routes/cors.ts — Stage 91
+ *
+ * Single source of truth for browser-facing CORS on central-plane.
+ *
+ * Before Stage 91 the allowlist + corsHeaders were duplicated in
+ * workspace.ts / workspace-github.ts / workspace-notifications.ts, and several
+ * browser-facing route modules (experiment, benchmark, credits, admin-credits,
+ * admin-stats) shipped NO CORS at all — so the dashboard's client-side calls to
+ * those features were blocked from every origin. This module centralizes the
+ * allowlist and provides a Hono middleware those modules can mount.
+ *
+ * Exact origins only — NO wildcards. The `.conclave-ai.dev` suffix is kept for
+ * legacy dashboard subdomains.
+ */
+import type { MiddlewareHandler } from "hono";
+import type { Env } from "../env.js";
+
+export const ALLOWED_ORIGINS = [
+  "http://localhost:3002",
+  "http://localhost:3000",
+  "https://dashboard.conclave-ai.dev",
+  "https://conclave-dashboard.vercel.app", // Vercel production dashboard (beta QA)
+  "https://app.trysimsa.com", // Stage 89/91: Simsa dashboard app domain (exact origin)
+  "https://trysimsa.com", // Stage 89/91: Simsa marketing domain (exact origin)
+];
+
+/** Returns CORS headers for `origin`; disallowed origins fall back to the first
+ * allowed origin (never echoed). */
+export function corsHeaders(origin: string | null): Record<string, string> {
+  const allowed: string =
+    origin && (ALLOWED_ORIGINS.includes(origin) || origin.endsWith(".conclave-ai.dev"))
+      ? origin
+      : (ALLOWED_ORIGINS[0] as string);
+  return {
+    "Access-Control-Allow-Origin": allowed,
+    "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Max-Age": "86400",
+    Vary: "Origin",
+  };
+}
+
+/**
+ * Hono middleware: answers preflight OPTIONS with 204 + CORS, and attaches CORS
+ * headers to every other response (incl. error responses). Mount per
+ * browser-facing module: `app.use("*", corsMiddleware)`.
+ */
+export const corsMiddleware: MiddlewareHandler<{ Bindings: Env }> = async (c, next) => {
+  const origin = c.req.header("origin") ?? null;
+  if (c.req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders(origin) });
+  }
+  await next();
+  const headers = corsHeaders(origin);
+  for (const [key, value] of Object.entries(headers)) {
+    c.res.headers.set(key, value);
+  }
+};

@@ -21,6 +21,7 @@
  */
 import { Hono } from "hono";
 import type { Env } from "../env.js";
+import { ALLOWED_ORIGINS } from "./cors.js";
 import type { FetchLike } from "../github.js";
 import { encryptToken, decryptToken } from "../crypto.js";
 import {
@@ -74,14 +75,7 @@ import {
 
 // ─── CORS helpers (shared with workspace.ts) ──────────────────────────────────
 
-const ALLOWED_ORIGINS = [
-  "http://localhost:3002",
-  "http://localhost:3000",
-  "https://dashboard.conclave-ai.dev",
-  "https://conclave-dashboard.vercel.app", // Vercel production dashboard (beta QA)
-  "https://app.trysimsa.com", // Stage 89: Simsa dashboard app domain (exact origin)
-  "https://trysimsa.com", // Stage 89: Simsa marketing domain (exact origin)
-];
+// ALLOWED_ORIGINS centralized in ./cors.ts (Stage 91) — imported at top.
 
 function corsHeaders(origin: string | null): Record<string, string> {
   const allowed =

@@ -16,6 +16,7 @@
  * actualDebitsEnabled is always false.
  */
 import { Hono } from "hono";
+import { corsMiddleware } from "./cors.js";
 import type { Env } from "../env.js";
 import {
   listCreditBalances,
@@ -54,6 +55,9 @@ const VALID_CREDIT_TYPES: CreditType[] = ["review", "fix", "workspace"];
 
 export function createWorkspaceAdminCreditsRoutes(): Hono<{ Bindings: Env }> {
   const app = new Hono<{ Bindings: Env }>();
+
+  // Stage 91: browser-facing CORS (preflight + headers on every response).
+  app.use("*", corsMiddleware);
 
   /**
    * GET /admin/credits?userKey=...
