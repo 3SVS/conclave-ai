@@ -27,6 +27,11 @@ import {
   SAMPLE_GITHUB_REPO,
 } from "@/lib/intake-github-repo.mjs";
 import type { GitHubRepoIntakePreview } from "@/lib/intake-github-repo.mjs";
+import {
+  buildAiBuiltAppRecoveryPreview,
+  SAMPLE_AI_BUILT_APP,
+} from "@/lib/intake-ai-built-app.mjs";
+import type { AiBuiltAppRecoveryPreview } from "@/lib/intake-ai-built-app.mjs";
 
 export default function IntakePage() {
   const [type, setType] = useState<WorkspaceIntakeType | null>(null);
@@ -35,6 +40,7 @@ export default function IntakePage() {
   const [prdPreview, setPrdPreview] = useState<PrdIntakePreview | null>(null);
   const [urlPreview, setUrlPreview] = useState<ProductUrlIntakePreview | null>(null);
   const [repoPreview, setRepoPreview] = useState<GitHubRepoIntakePreview | null>(null);
+  const [appPreview, setAppPreview] = useState<AiBuiltAppRecoveryPreview | null>(null);
 
   const meta = type ? INTAKE_META[type] : null;
 
@@ -43,6 +49,7 @@ export default function IntakePage() {
     setPrdPreview(null);
     setUrlPreview(null);
     setRepoPreview(null);
+    setAppPreview(null);
   }
 
   function selectType(next: WorkspaceIntakeType) {
@@ -61,6 +68,9 @@ export default function IntakePage() {
     );
     setRepoPreview(
       type === "github_repo" ? buildGitHubRepoIntakePreview(rawInput) : null,
+    );
+    setAppPreview(
+      type === "ai_built_app" ? buildAiBuiltAppRecoveryPreview(rawInput) : null,
     );
   }
 
@@ -149,6 +159,18 @@ export default function IntakePage() {
                   className="btn btn-secondary btn-md"
                 >
                   Use example repo
+                </button>
+              )}
+              {type === "ai_built_app" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRawInput(SAMPLE_AI_BUILT_APP);
+                    resetPreviews();
+                  }}
+                  className="btn btn-secondary btn-md"
+                >
+                  Use example app
                 </button>
               )}
               {type === "prd" && (
@@ -325,7 +347,78 @@ export default function IntakePage() {
             </p>
           </div>
         )}
+
+        {/* Stage 105 — deterministic AI-built app recovery (ai_built_app only) */}
+        {appPreview && (
+          <div className="card mt-6 p-5">
+            <p className="text-xs uppercase tracking-wide text-gray-400">
+              Existing app recovery preview · confidence: {appPreview.confidence}
+            </p>
+
+            <p className="mt-3 text-sm font-medium text-gray-900">
+              Current state summary
+            </p>
+            <p className="mt-1 text-sm text-gray-600">
+              {appPreview.currentStateSummary}
+            </p>
+
+            <p className="mt-4 text-sm font-medium text-gray-900">
+              Likely product surface
+            </p>
+            <p className="mt-1 text-sm text-gray-700">
+              {appPreview.likelyProductSurface}
+            </p>
+
+            <p className="mt-4 text-sm font-medium text-gray-900">
+              Recommended next action
+            </p>
+            <p className="mt-1 text-sm text-gray-700">
+              {appPreview.recommendedNextAction.replace(/_/g, " ")}
+            </p>
+
+            <PrdList title="Recovery focus areas" items={appPreview.recoveryFocusAreas} />
+            <PrdList
+              title="Candidate acceptance items"
+              items={appPreview.candidateAcceptanceItems}
+            />
+            <PrdList title="Likely risks" items={appPreview.likelyRisks} />
+
+            <p className="mt-4 text-sm font-medium text-gray-900">
+              Fix vs rebuild signals
+            </p>
+            <div className="mt-1 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <FixRebuild title="Likely keep" items={appPreview.fixVsRebuildSignals.likelyKeep} />
+              <FixRebuild title="Likely fix" items={appPreview.fixVsRebuildSignals.likelyFix} />
+              <FixRebuild title="Likely rebuild" items={appPreview.fixVsRebuildSignals.likelyRebuild} />
+              <FixRebuild
+                title="Needs verification"
+                items={appPreview.fixVsRebuildSignals.needsVerification}
+              />
+            </div>
+
+            <PrdList title="Missing questions" items={appPreview.missingQuestions} />
+
+            <p className="mt-4 text-xs text-gray-400">
+              Preview only — no live inspection, repo scan, or external fetch.
+            </p>
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+function FixRebuild({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="rounded-md border border-gray-100 bg-gray-50 p-3">
+      <p className="text-xs font-medium text-gray-500">{title}</p>
+      <ul className="mt-1 space-y-1">
+        {items.map((item) => (
+          <li key={item} className="text-sm text-gray-700">
+            {item}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
