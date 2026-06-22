@@ -1,10 +1,26 @@
 // Simsa marketing entry for trysimsa.com.
-// Stage 93 hero · Stage 95 trust/contact · Stage 96 staged-acceptance positioning.
-// Static, host-agnostic, no new dependencies. Tone: clear, serious, non-hype.
+// Stage 93 hero · 95 trust/contact · 96 staged-acceptance positioning ·
+// 97 early-access request path. Static, host-agnostic, no new dependencies.
 const APP_URL = "https://app.trysimsa.com";
 // Real contact mailbox (operator-provided). No trysimsa.com mailbox is wired
 // yet — do not invent hi@trysimsa.com until it exists.
 const CONTACT_EMAIL = "seunghunbae@b2w.kr";
+
+// Stage 97: mailto-based early access — no backend / DB / email provider.
+const EARLY_ACCESS_SUBJECT = "Simsa early access request";
+const EARLY_ACCESS_BODY = `Hi Simsa team,
+
+I'd like early access.
+
+What I'm building:
+
+What I already have (idea / PRD / repo / URL / AI-built app):
+
+What I need Simsa to help with:
+`;
+const EARLY_ACCESS_MAILTO = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(
+  EARLY_ACCESS_SUBJECT,
+)}&body=${encodeURIComponent(EARLY_ACCESS_BODY)}`;
 
 const INPUTS = [
   "Idea",
@@ -37,9 +53,14 @@ export default function Home() {
             review, compare, and decide what to accept, fix, or rerun — with
             evidence.
           </p>
-          <a className="cta" href={APP_URL}>
-            Open Simsa
-          </a>
+          <div className="hero-actions">
+            <a className="cta" href={APP_URL}>
+              Open Simsa
+            </a>
+            <a className="cta-secondary" href={EARLY_ACCESS_MAILTO}>
+              Request early access
+            </a>
+          </div>
         </div>
       </section>
 
@@ -112,9 +133,30 @@ export default function Home() {
             evidence, and release decisions — so you can tell what is actually
             ready to accept, fix, or rerun.
           </p>
-          <p>For early access or partnership inquiries, contact the team.</p>
+          <p>For partnership inquiries, contact the team.</p>
           <a className="contact-link" href={`mailto:${CONTACT_EMAIL}`}>
             {CONTACT_EMAIL}
+          </a>
+        </div>
+      </section>
+
+      <section className="section">
+        <div className="container">
+          <h2>Request early access</h2>
+          <p>
+            Have an idea, PRD, GitHub repo, or AI-built app you want to turn into
+            accepted product work? Send a short note and we will review whether
+            Simsa is a good fit.
+          </p>
+          <p>Include:</p>
+          <ul className="guidance">
+            <li>what you are building</li>
+            <li>what you already have</li>
+            <li>where the current work lives, if shareable</li>
+            <li>what you need to decide next</li>
+          </ul>
+          <a className="cta" href={EARLY_ACCESS_MAILTO}>
+            Request early access
           </a>
         </div>
       </section>
