@@ -35,4 +35,10 @@ export const BRAND = {
     "Review, compare, and accept AI-built software with evidence.",
   primaryDomain: "trysimsa.com",
   developerDomain: "simsa.dev",
+  // Stage 89: launch-surface domains recorded for later wiring. The dashboard
+  // app will be served at appDomain once DNS + Vercel custom domain are live;
+  // legacyDashboardDomain stays as a permanent fallback. Stage 89 does NOT wire
+  // DNS — these are config constants only (see operator checklist in the stage doc).
+  appDomain: "app.trysimsa.com",
+  legacyDashboardDomain: "conclave-dashboard.vercel.app",
 };

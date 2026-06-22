@@ -16,6 +16,8 @@ const ALLOWED_RETURN_ORIGINS = [
   "http://localhost:3002",
   "https://dashboard.conclave-ai.dev",
   "https://conclave-dashboard.vercel.app", // Vercel production dashboard (beta QA)
+  "https://app.trysimsa.com", // Stage 89: Simsa dashboard app domain (exact origin, no wildcard)
+  "https://trysimsa.com", // Stage 89: Simsa marketing domain (exact origin)
 ];
 
 export type GitHubUser = {

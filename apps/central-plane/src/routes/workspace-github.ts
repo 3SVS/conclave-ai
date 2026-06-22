@@ -79,6 +79,8 @@ const ALLOWED_ORIGINS = [
   "http://localhost:3000",
   "https://dashboard.conclave-ai.dev",
   "https://conclave-dashboard.vercel.app", // Vercel production dashboard (beta QA)
+  "https://app.trysimsa.com", // Stage 89: Simsa dashboard app domain (exact origin)
+  "https://trysimsa.com", // Stage 89: Simsa marketing domain (exact origin)
 ];
 
 function corsHeaders(origin: string | null): Record<string, string> {
