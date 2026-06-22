@@ -15,11 +15,14 @@ import type {
   WorkspaceIntakeType,
   WorkspaceIntakeDraft,
 } from "@/lib/intake.mjs";
+import { buildPrdIntakePreview, SAMPLE_PRD } from "@/lib/intake-prd.mjs";
+import type { PrdIntakePreview } from "@/lib/intake-prd.mjs";
 
 export default function IntakePage() {
   const [type, setType] = useState<WorkspaceIntakeType | null>(null);
   const [rawInput, setRawInput] = useState("");
   const [draft, setDraft] = useState<WorkspaceIntakeDraft | null>(null);
+  const [prdPreview, setPrdPreview] = useState<PrdIntakePreview | null>(null);
 
   const meta = type ? INTAKE_META[type] : null;
 
@@ -27,11 +30,14 @@ export default function IntakePage() {
     setType(next);
     setRawInput("");
     setDraft(null);
+    setPrdPreview(null);
   }
 
   function createDraft() {
     if (!type || !rawInput.trim()) return;
     setDraft(buildIntakeDraft(type, rawInput));
+    // Stage 102: deterministic PRD parsing for the prd type only.
+    setPrdPreview(type === "prd" ? buildPrdIntakePreview(rawInput) : null);
   }
 
   return (
@@ -83,19 +89,35 @@ export default function IntakePage() {
               onChange={(e) => {
                 setRawInput(e.target.value);
                 setDraft(null);
+                setPrdPreview(null);
               }}
               placeholder={meta.placeholder}
               rows={5}
               className="input w-full resize-none rounded-lg"
             />
-            <button
-              type="button"
-              onClick={createDraft}
-              disabled={!rawInput.trim()}
-              className="btn btn-primary btn-md mt-3"
-            >
-              Create intake draft
-            </button>
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={createDraft}
+                disabled={!rawInput.trim()}
+                className="btn btn-primary btn-md"
+              >
+                Create intake draft
+              </button>
+              {type === "prd" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRawInput(SAMPLE_PRD);
+                    setDraft(null);
+                    setPrdPreview(null);
+                  }}
+                  className="btn btn-secondary btn-md"
+                >
+                  Use example PRD
+                </button>
+              )}
+            </div>
           </div>
         )}
 
@@ -129,7 +151,67 @@ export default function IntakePage() {
             </p>
           </div>
         )}
+
+        {/* Stage 102 — deterministic PRD / spec preview (prd type only) */}
+        {prdPreview && (
+          <div className="card mt-6 p-5">
+            <p className="text-xs uppercase tracking-wide text-gray-400">
+              PRD / spec preview · confidence: {prdPreview.confidence}
+            </p>
+
+            <p className="mt-3 text-sm font-medium text-gray-900">
+              Product intent
+            </p>
+            <p className="mt-1 text-sm text-gray-600">
+              {prdPreview.productIntent}
+            </p>
+
+            <p className="mt-4 text-sm font-medium text-gray-900">
+              Likely users
+            </p>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {prdPreview.likelyUsers.map((u) => (
+                <span
+                  key={u}
+                  className="rounded-full border border-gray-200 bg-white px-2.5 py-0.5 text-xs text-gray-600"
+                >
+                  {u}
+                </span>
+              ))}
+            </div>
+
+            <PrdList title="Candidate user flows" items={prdPreview.candidateUserFlows} />
+            <PrdList
+              title="Candidate acceptance items"
+              items={prdPreview.candidateAcceptanceItems}
+            />
+            <PrdList title="Missing questions" items={prdPreview.missingQuestions} />
+
+            <p className="mt-4 text-xs text-gray-400">
+              Preview only — deterministic PRD parsing. Full staged analysis
+              arrives in later stages.
+            </p>
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+function PrdList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <>
+      <p className="mt-4 text-sm font-medium text-gray-900">{title}</p>
+      <ul className="mt-1 space-y-1">
+        {items.map((item) => (
+          <li
+            key={item}
+            className="rounded-md border border-gray-100 bg-gray-50 px-3 py-1.5 text-sm text-gray-700"
+          >
+            {item}
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
