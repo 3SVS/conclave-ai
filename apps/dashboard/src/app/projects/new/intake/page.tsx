@@ -17,27 +17,41 @@ import type {
 } from "@/lib/intake.mjs";
 import { buildPrdIntakePreview, SAMPLE_PRD } from "@/lib/intake-prd.mjs";
 import type { PrdIntakePreview } from "@/lib/intake-prd.mjs";
+import {
+  buildProductUrlIntakePreview,
+  SAMPLE_PRODUCT_URL,
+} from "@/lib/intake-url.mjs";
+import type { ProductUrlIntakePreview } from "@/lib/intake-url.mjs";
 
 export default function IntakePage() {
   const [type, setType] = useState<WorkspaceIntakeType | null>(null);
   const [rawInput, setRawInput] = useState("");
   const [draft, setDraft] = useState<WorkspaceIntakeDraft | null>(null);
   const [prdPreview, setPrdPreview] = useState<PrdIntakePreview | null>(null);
+  const [urlPreview, setUrlPreview] = useState<ProductUrlIntakePreview | null>(null);
 
   const meta = type ? INTAKE_META[type] : null;
+
+  function resetPreviews() {
+    setDraft(null);
+    setPrdPreview(null);
+    setUrlPreview(null);
+  }
 
   function selectType(next: WorkspaceIntakeType) {
     setType(next);
     setRawInput("");
-    setDraft(null);
-    setPrdPreview(null);
+    resetPreviews();
   }
 
   function createDraft() {
     if (!type || !rawInput.trim()) return;
     setDraft(buildIntakeDraft(type, rawInput));
-    // Stage 102: deterministic PRD parsing for the prd type only.
+    // Stage 102/103: deterministic per-type previews (prd / product_url only).
     setPrdPreview(type === "prd" ? buildPrdIntakePreview(rawInput) : null);
+    setUrlPreview(
+      type === "product_url" ? buildProductUrlIntakePreview(rawInput) : null,
+    );
   }
 
   return (
@@ -88,8 +102,7 @@ export default function IntakePage() {
               value={rawInput}
               onChange={(e) => {
                 setRawInput(e.target.value);
-                setDraft(null);
-                setPrdPreview(null);
+                resetPreviews();
               }}
               placeholder={meta.placeholder}
               rows={5}
@@ -104,13 +117,24 @@ export default function IntakePage() {
               >
                 Create intake draft
               </button>
+              {type === "product_url" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRawInput(SAMPLE_PRODUCT_URL);
+                    resetPreviews();
+                  }}
+                  className="btn btn-secondary btn-md"
+                >
+                  Use example URL
+                </button>
+              )}
               {type === "prd" && (
                 <button
                   type="button"
                   onClick={() => {
                     setRawInput(SAMPLE_PRD);
-                    setDraft(null);
-                    setPrdPreview(null);
+                    resetPreviews();
                   }}
                   className="btn btn-secondary btn-md"
                 >
@@ -190,6 +214,47 @@ export default function IntakePage() {
             <p className="mt-4 text-xs text-gray-400">
               Preview only — deterministic PRD parsing. Full staged analysis
               arrives in later stages.
+            </p>
+          </div>
+        )}
+
+        {/* Stage 103 — deterministic Product URL preview (product_url type only) */}
+        {urlPreview && (
+          <div className="card mt-6 p-5">
+            <p className="text-xs uppercase tracking-wide text-gray-400">
+              Product URL preview · confidence: {urlPreview.confidence}
+            </p>
+
+            <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+              <div>
+                <dt className="text-xs text-gray-400">Normalized URL</dt>
+                <dd className="break-all text-sm text-gray-700">
+                  {urlPreview.normalizedUrl || "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-gray-400">Domain</dt>
+                <dd className="text-sm text-gray-700">{urlPreview.domain}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-gray-400">Surface type</dt>
+                <dd className="text-sm text-gray-700">{urlPreview.pathType}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-gray-400">Likely surface</dt>
+                <dd className="text-sm text-gray-700">{urlPreview.likelySurface}</dd>
+              </div>
+            </dl>
+
+            <PrdList title="Review focus areas" items={urlPreview.reviewFocusAreas} />
+            <PrdList
+              title="Candidate acceptance items"
+              items={urlPreview.candidateAcceptanceItems}
+            />
+            <PrdList title="Missing questions" items={urlPreview.missingQuestions} />
+
+            <p className="mt-4 text-xs text-gray-400">
+              Preview only — no live crawl or external fetch.
             </p>
           </div>
         )}
