@@ -135,7 +135,7 @@ export function createWorkspaceNotificationRoutes(
       return json({ ok: false, error: "settings_not_found", message: "먼저 채팅 ID를 저장해주세요." }, 400, origin);
     }
 
-    const testText = `Conclave 테스트 메시지\n\n알림이 정상적으로 설정됐어요.\nPR 확인 완료 시 이 채팅으로 결과를 알려드릴게요.`;
+    const testText = `Simsa 테스트 메시지\n\n알림이 정상적으로 설정됐어요.\nPR 확인 완료 시 이 채팅으로 결과를 알려드릴게요.`;
     const result = await sendWorkspaceTelegramMessage(c.env, settings.chatId, testText, fetchImpl);
 
     await insertNotificationRecord(c.env, {

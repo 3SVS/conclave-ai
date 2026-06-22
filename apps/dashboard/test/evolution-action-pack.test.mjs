@@ -136,7 +136,7 @@ test("copy text is deterministic markdown and contains no userKey/token", () => 
     s,
   );
   const text = buildEvolutionActionPackText(pack, s, { experimentTitle: "Multi-agent split", targetCandidateLabel: "Builder B" });
-  assert.match(text, /^# Conclave Evolution Action Pack/);
+  assert.match(text, /^# Simsa Evolution Action Pack/);
   assert.match(text, /Recommended action: Fix the selected candidate/);
   assert.match(text, /Experiment: Multi-agent split/);
   assert.match(text, /Target candidate: Builder B/);

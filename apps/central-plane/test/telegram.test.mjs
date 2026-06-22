@@ -198,7 +198,9 @@ test("POST /telegram/webhook: /start replies with onboarding text", async () => 
   assert.ok(sent);
   const payload = JSON.parse(sent.body);
   assert.equal(payload.chat_id, 42);
-  assert.ok(payload.text.includes("Conclave AI bot"));
+  // Stage 85: product display name in welcome is now Simsa. Bot username on
+  // Telegram (@Conclave_AI) remains frozen — registered with BotFather.
+  assert.ok(payload.text.includes("Simsa AI bot"));
   assert.ok(payload.text.includes("/link"));
 });
 

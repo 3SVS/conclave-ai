@@ -65,14 +65,14 @@ test("reviewer-style role instruction is preserved verbatim (no LLM rewrite)", (
 
 test("copy-all output includes every candidate label and prompt", () => {
   const text = buildAllPromptsText({
-    heading: "Conclave Multi-Agent Experiment",
+    heading: "Simsa Multi-Agent Experiment",
     candidatePrefix: "Candidate",
     candidates: [
       { label: "Builder A", prompt: "PROMPT_A" },
       { label: "Builder B", prompt: "PROMPT_B" },
     ],
   });
-  assert.match(text, /^# Conclave Multi-Agent Experiment/);
+  assert.match(text, /^# Simsa Multi-Agent Experiment/);
   assert.match(text, /## Candidate: Builder A\n\nPROMPT_A/);
   assert.match(text, /## Candidate: Builder B\n\nPROMPT_B/);
 });

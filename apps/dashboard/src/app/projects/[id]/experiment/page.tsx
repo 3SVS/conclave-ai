@@ -25,11 +25,42 @@ import {
   createBenchmarkFromExperiment,
   saveExperimentDecision,
   getOutcomeScorecard,
+  saveEvolutionActionPack,
+  listEvolutionActionPacks,
+  getEvolutionActionPack,
+  patchEvolutionActionPackFollowup,
+  getEvolutionActionPackImpact,
+  getEvolutionImpactSummary,
   type SavedExperimentListItem,
   type SavedExperiment,
   type ExperimentCandidate,
   type OutcomeScorecard,
+  type SavedEvolutionActionPackDetail,
+  type SavedEvolutionActionPackListItem,
+  type ActionPackFollowupStatus,
+  type EvolutionImpactComparison,
+  type EvolutionImpactSummary,
 } from "@/lib/workspace-experiment-api";
+import {
+  FOLLOWUP_STATUSES,
+  followupStatusLabelKey,
+  buildFollowupPayload,
+} from "@/lib/action-pack-followup.mjs";
+import {
+  impactVerdictLabelKey,
+  impactReasonLabelKey,
+  formatDeltaInt,
+  formatDeltaPercent,
+  formatRate,
+  isImpactEmpty,
+} from "@/lib/evolution-impact.mjs";
+import {
+  summaryVerdictLabelKey,
+  summaryReasonLabelKey,
+  formatAverageDeltaPercent,
+  formatAverageDeltaCount,
+  summaryHasNoFollowups,
+} from "@/lib/evolution-impact-summary.mjs";
 import { listProjectReviewHistory, type ProjectReviewHistoryItem } from "@/lib/workspace-github-api";
 import { getSavedBenchmark } from "@/lib/workspace-benchmark-api";
 import { gradeLabelKey, actionLabelKey, reasonLabelKey } from "@/lib/outcome-labels.mjs";
@@ -708,13 +739,119 @@ function OutcomeQualitySection({
   const [packPhase, setPackPhase] = useState<"idle" | "generating" | "ready" | "error">("idle");
   const [copied, setCopied] = useState(false);
 
+  // Stage 77: persisted action packs.
+  const [savedPacks, setSavedPacks] = useState<SavedEvolutionActionPackListItem[]>([]);
+  const [savePhase, setSavePhase] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [openedPack, setOpenedPack] = useState<SavedEvolutionActionPackDetail | null>(null);
+  const [openPhase, setOpenPhase] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [copiedSaved, setCopiedSaved] = useState(false);
+
+  // Stage 78: follow-up tracking form.
+  const [followupStatus, setFollowupStatus] = useState<ActionPackFollowupStatus>("not_started");
+  const [followupPr, setFollowupPr] = useState("");
+  const [followupRunId, setFollowupRunId] = useState("");
+  const [followupBenchId, setFollowupBenchId] = useState("");
+  const [followupNote, setFollowupNote] = useState("");
+  const [followupPhase, setFollowupPhase] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [followupError, setFollowupError] = useState<string | null>(null);
+
+  // Stage 79: before/after impact (auto-loaded when a saved pack opens).
+  const [impact, setImpact] = useState<EvolutionImpactComparison | null>(null);
+  const [impactPhase, setImpactPhase] = useState<"idle" | "loading" | "ready" | "error">("idle");
+
+  // Stage 80: experiment-level impact summary (auto-loaded with the section).
+  const [summary, setSummary] = useState<EvolutionImpactSummary | null>(null);
+  const [summaryPhase, setSummaryPhase] = useState<"idle" | "loading" | "ready" | "error">("idle");
+
   // Reset the generated pack whenever the scorecard changes (new experiment / decision).
   useEffect(() => {
     setPack(null);
     setPackText("");
     setPackPhase("idle");
     setCopied(false);
+    setOpenedPack(null);
+    setOpenPhase("idle");
+    setSavePhase("idle");
+    setSaveError(null);
+    setImpact(null);
+    setImpactPhase("idle");
+    setSummary(null);
+    setSummaryPhase("idle");
   }, [scorecard]);
+
+  // Load saved action packs whenever the experiment changes.
+  useEffect(() => {
+    let cancelled = false;
+    if (!userKey) return;
+    listEvolutionActionPacks(projectId, experiment.id, userKey).then((res) => {
+      if (cancelled) return;
+      if (res.ok) setSavedPacks(res.actionPacks);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, experiment.id, userKey]);
+
+  // Stage 80: auto-load the experiment-level summary whenever saved packs
+  // change (initial mount, after Save, after follow-up Save). One round trip
+  // per material change — no polling.
+  useEffect(() => {
+    if (!userKey) return;
+    let cancelled = false;
+    setSummaryPhase("loading");
+    getEvolutionImpactSummary(projectId, experiment.id, userKey).then((res) => {
+      if (cancelled) return;
+      if (res.ok) {
+        setSummary(res.summary);
+        setSummaryPhase("ready");
+      } else {
+        setSummary(null);
+        setSummaryPhase("error");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, experiment.id, userKey, savedPacks]);
+
+  // Sync follow-up form with the opened pack's snapshot.
+  useEffect(() => {
+    if (!openedPack) return;
+    const f = openedPack.followup;
+    setFollowupStatus(f.status);
+    setFollowupPr(f.pullRequestNumber ? String(f.pullRequestNumber) : "");
+    setFollowupRunId(f.reviewRunId ?? "");
+    setFollowupBenchId(f.benchmarkId ?? "");
+    setFollowupNote(f.note ?? "");
+    setFollowupPhase("idle");
+    setFollowupError(null);
+  }, [openedPack]);
+
+  // Stage 79: auto-load impact whenever the opened pack changes (or after a
+  // follow-up save updates the snapshot).
+  useEffect(() => {
+    if (!openedPack || !userKey) {
+      setImpact(null);
+      setImpactPhase("idle");
+      return;
+    }
+    let cancelled = false;
+    setImpactPhase("loading");
+    getEvolutionActionPackImpact(projectId, experiment.id, openedPack.id, userKey).then((res) => {
+      if (cancelled) return;
+      if (res.ok) {
+        setImpact(res.impact);
+        setImpactPhase("ready");
+      } else {
+        setImpact(null);
+        setImpactPhase("error");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [openedPack, userKey, projectId, experiment.id]);
 
   const s = t.evolution as unknown as Record<string, string>;
 
@@ -749,6 +886,114 @@ function OutcomeQualitySection({
     } catch {
       /* clipboard unavailable — preview still shown */
     }
+  }
+
+  async function handleSave() {
+    if (!scorecard || !userKey) return;
+    setSavePhase("saving");
+    setSaveError(null);
+    const res = await saveEvolutionActionPack(projectId, experiment.id, userKey);
+    if (res.ok) {
+      // Prefer server version after save (Stage 77 contract).
+      setOpenedPack(res.actionPack);
+      setOpenPhase("ready");
+      setSavedPacks((prev) => [
+        {
+          id: res.actionPack.id,
+          experimentId: res.actionPack.experimentId,
+          recommendedAction: res.actionPack.recommendedAction,
+          title: res.actionPack.title,
+          createdAt: res.actionPack.createdAt,
+          followupStatus: res.actionPack.followup.status,
+          followupPullRequestNumber: res.actionPack.followup.pullRequestNumber,
+          followupReviewRunId: res.actionPack.followup.reviewRunId,
+          followupBenchmarkId: res.actionPack.followup.benchmarkId,
+          followedAt: res.actionPack.followup.followedAt,
+        },
+        ...prev,
+      ]);
+      setSavePhase("saved");
+      window.setTimeout(() => setSavePhase("idle"), 1500);
+    } else {
+      setSaveError(res.error);
+      setSavePhase("error");
+    }
+  }
+
+  async function handleOpenSaved(actionPackId: string) {
+    if (!userKey) return;
+    setOpenPhase("loading");
+    const res = await getEvolutionActionPack(projectId, experiment.id, actionPackId, userKey);
+    if (res.ok) {
+      setOpenedPack(res.actionPack);
+      setOpenPhase("ready");
+    } else {
+      setOpenPhase("error");
+    }
+  }
+
+  async function handleCopySaved() {
+    if (!openedPack) return;
+    try {
+      await navigator.clipboard.writeText(openedPack.text);
+      setCopiedSaved(true);
+      window.setTimeout(() => setCopiedSaved(false), 1500);
+    } catch {
+      /* clipboard unavailable */
+    }
+  }
+
+  function refreshSavedPackInList(detail: SavedEvolutionActionPackDetail) {
+    setSavedPacks((prev) =>
+      prev.map((p) =>
+        p.id === detail.id
+          ? {
+              ...p,
+              followupStatus: detail.followup.status,
+              followupPullRequestNumber: detail.followup.pullRequestNumber,
+              followupReviewRunId: detail.followup.reviewRunId,
+              followupBenchmarkId: detail.followup.benchmarkId,
+              followedAt: detail.followup.followedAt,
+            }
+          : p,
+      ),
+    );
+  }
+
+  async function submitFollowup(payload: ReturnType<typeof buildFollowupPayload>) {
+    if (!openedPack) return;
+    setFollowupPhase("saving");
+    setFollowupError(null);
+    const res = await patchEvolutionActionPackFollowup(projectId, experiment.id, openedPack.id, payload);
+    if (res.ok) {
+      setOpenedPack(res.actionPack);
+      refreshSavedPackInList(res.actionPack);
+      setFollowupPhase("saved");
+      window.setTimeout(() => setFollowupPhase("idle"), 1500);
+    } else {
+      setFollowupError(res.error);
+      setFollowupPhase("error");
+    }
+  }
+
+  async function handleSaveFollowup() {
+    if (!userKey || !openedPack) return;
+    const prNumber = followupPr.trim() ? Number(followupPr.trim()) : undefined;
+    const payload = buildFollowupPayload({
+      userKey,
+      status: followupStatus,
+      pullRequestNumber: prNumber,
+      reviewRunId: followupRunId || undefined,
+      benchmarkId: followupBenchId || undefined,
+      note: followupNote || undefined,
+    });
+    await submitFollowup(payload);
+  }
+
+  async function handleMarkCopied() {
+    if (!userKey || !openedPack) return;
+    const payload = buildFollowupPayload({ userKey, status: "copied" });
+    await submitFollowup(payload);
   }
 
   return (
@@ -843,7 +1088,7 @@ function OutcomeQualitySection({
 
           <p className="mt-3 text-[11px] leading-relaxed text-gray-400">{t.outcome.basis}</p>
 
-          {/* Evolution action pack (Stage 76) */}
+          {/* Evolution action pack (Stage 76 + Stage 77 persistence) */}
           <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-4">
             <p className="text-sm font-semibold text-gray-800">{t.evolution.title}</p>
             <p className="mt-0.5 text-xs text-gray-400">{t.evolution.desc}</p>
@@ -866,9 +1111,28 @@ function OutcomeQualitySection({
                   {copied ? t.evolution.copied : t.evolution.copy}
                 </button>
               )}
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={savePhase === "saving"}
+                className="rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-50 disabled:opacity-40"
+              >
+                {savePhase === "saving"
+                  ? t.evolution.saving
+                  : savePhase === "saved"
+                    ? t.evolution.savedOk
+                    : t.evolution.save}
+              </button>
             </div>
 
-            {pack && packPhase === "ready" && (
+            {savePhase === "error" && (
+              <p className="mt-2 text-xs text-red-600">
+                {t.evolution.saveFailed}
+                {saveError ? `: ${saveError}` : ""}
+              </p>
+            )}
+
+            {pack && packPhase === "ready" && !openedPack && (
               <div className="mt-3 space-y-3">
                 <div className="flex flex-wrap items-center gap-2 text-xs">
                   <span className="font-medium text-gray-500">{t.evolution.recommendedAction}:</span>
@@ -887,6 +1151,457 @@ function OutcomeQualitySection({
                     <p className="mt-1 whitespace-pre-line text-xs leading-relaxed text-gray-700">{sec.body}</p>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Stage 80: experiment-level Evolution impact summary */}
+            <div className="mt-4 rounded-lg border border-gray-100 bg-white p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">{t.evolution.summaryTitle}</p>
+                  <p className="mt-0.5 text-[11px] text-gray-400">{t.evolution.summaryDesc}</p>
+                </div>
+                {summary && (
+                  <span
+                    className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${
+                      summary.overallVerdict === "mostly_improved"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : summary.overallVerdict === "regressed"
+                          ? "border-red-200 bg-red-50 text-red-700"
+                          : summary.overallVerdict === "mixed"
+                            ? "border-gray-200 bg-gray-50 text-gray-700"
+                            : summary.overallVerdict === "mostly_inconclusive"
+                              ? "border-amber-200 bg-amber-50 text-amber-700"
+                              : "border-gray-200 bg-white text-gray-500"
+                    }`}
+                  >
+                    {t.evolution[summaryVerdictLabelKey(summary.overallVerdict) as keyof typeof t.evolution]}
+                  </span>
+                )}
+              </div>
+
+              {summaryPhase === "loading" && (
+                <p className="mt-2 text-xs text-gray-400">{t.outcome.loading}</p>
+              )}
+
+              {summaryPhase === "ready" && summary && (
+                <>
+                  {summaryHasNoFollowups(summary) ? (
+                    <p className="mt-2 text-xs text-gray-500">
+                      {summary.actionPackCount === 0
+                        ? t.evolution.summaryEmptyPacks
+                        : t.evolution.summaryEmptyFollowups}
+                    </p>
+                  ) : (
+                    <>
+                      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-3">
+                        <div className="flex items-baseline justify-between gap-2 border-b border-gray-50 py-0.5">
+                          <dt className="text-gray-400">{t.evolution.summaryActionPacks}</dt>
+                          <dd className="font-semibold text-gray-800">{summary.actionPackCount}</dd>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-2 border-b border-gray-50 py-0.5">
+                          <dt className="text-gray-400">{t.evolution.summaryFollowedPacks}</dt>
+                          <dd className="font-semibold text-gray-800">{summary.followedPackCount}</dd>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-2 border-b border-gray-50 py-0.5">
+                          <dt className="text-gray-400">{t.evolution.summaryImprovedPacks}</dt>
+                          <dd className="font-semibold text-emerald-700">{summary.verdictCounts.improved}</dd>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-2 border-b border-gray-50 py-0.5">
+                          <dt className="text-gray-400">{t.evolution.summaryRegressedPacks}</dt>
+                          <dd className="font-semibold text-red-700">{summary.verdictCounts.regressed}</dd>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-2 border-b border-gray-50 py-0.5">
+                          <dt className="text-gray-400">{t.evolution.summaryUnchangedPacks}</dt>
+                          <dd className="font-semibold text-gray-700">{summary.verdictCounts.unchanged}</dd>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-2 border-b border-gray-50 py-0.5">
+                          <dt className="text-gray-400">{t.evolution.summaryInconclusivePacks}</dt>
+                          <dd className="font-semibold text-amber-700">{summary.verdictCounts.inconclusive}</dd>
+                        </div>
+                      </dl>
+
+                      <div className="mt-3 rounded-md border border-gray-100 bg-gray-50 p-2">
+                        <p className="text-[10px] uppercase tracking-wide text-gray-400">{t.evolution.summaryAverageChange}</p>
+                        <dl className="mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5 text-[11px] sm:grid-cols-4">
+                          <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.impactPassRate}</dt><dd className="font-semibold text-gray-700">{formatAverageDeltaPercent(summary.averageDelta.passRateDelta)}</dd></div>
+                          <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.impactCritical}</dt><dd className="font-semibold text-gray-700">{formatAverageDeltaCount(summary.averageDelta.criticalIssueDelta)}</dd></div>
+                          <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.impactNotVerified}</dt><dd className="font-semibold text-gray-700">{formatAverageDeltaCount(summary.averageDelta.notVerifiedDelta)}</dd></div>
+                          <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.impactBlockers}</dt><dd className="font-semibold text-gray-700">{formatAverageDeltaCount(summary.averageDelta.blockerDelta)}</dd></div>
+                        </dl>
+                      </div>
+
+                      {summary.recommendedActionVerdicts.length > 0 && (
+                        <div className="mt-3">
+                          <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{t.evolution.summaryActionBreakdown}</p>
+                          <ul className="mt-1 space-y-1 text-xs">
+                            {summary.recommendedActionVerdicts.map((r) => (
+                              <li
+                                key={r.recommendedAction}
+                                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-gray-100 bg-white px-2 py-1"
+                              >
+                                <span className="font-mono text-[11px] text-gray-600">{r.recommendedAction}</span>
+                                <span className="text-[11px] text-gray-500">
+                                  {r.total} · <span className="text-emerald-700">↑{r.improved}</span> · <span className="text-red-700">↓{r.regressed}</span> · <span className="text-gray-500">={r.unchanged}</span> · <span className="text-amber-700">?{r.inconclusive}</span>
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {summary.reasons.length > 0 && (
+                    <div className="mt-3">
+                      <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{t.evolution.summaryReasonsLabel}</p>
+                      <ul className="mt-1 space-y-0.5 text-xs text-gray-600">
+                        {summary.reasons.map((r) => (
+                          <li key={r} className="flex gap-1.5">
+                            <span className="text-gray-300">•</span>
+                            <span>{t.evolution[summaryReasonLabelKey(r) as keyof typeof t.evolution]}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {summary.limitations.length > 0 && (
+                    <div className="mt-2">
+                      <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{t.evolution.summaryLimitationsLabel}</p>
+                      <ul className="mt-1 flex flex-wrap gap-1.5">
+                        {summary.limitations.map((l) => (
+                          <li
+                            key={l}
+                            className="rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-mono text-gray-500"
+                          >
+                            {l}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {summaryPhase === "error" && (
+                <p className="mt-2 text-xs text-red-600">{t.errors.loadFailed}</p>
+              )}
+            </div>
+
+            {/* Stage 77: saved action packs list */}
+            <div className="mt-4 border-t border-gray-100 pt-3">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{t.evolution.saved}</p>
+              {savedPacks.length === 0 ? (
+                <p className="mt-1 text-xs text-gray-400">{t.evolution.noSaved}</p>
+              ) : (
+                <ul className="mt-2 space-y-1.5">
+                  {savedPacks.map((p) => (
+                    <li
+                      key={p.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-100 bg-white px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-medium text-gray-700">{p.title}</p>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                          <span
+                            className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                              p.followupStatus === "completed" || p.followupStatus === "benchmarked"
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                : p.followupStatus === "abandoned"
+                                  ? "border-gray-200 bg-gray-50 text-gray-500"
+                                  : p.followupStatus === "not_started"
+                                    ? "border-gray-200 bg-white text-gray-500"
+                                    : "border-indigo-200 bg-indigo-50 text-indigo-700"
+                            }`}
+                          >
+                            {t.evolution[followupStatusLabelKey(p.followupStatus) as keyof typeof t.evolution]}
+                          </span>
+                          {p.followupPullRequestNumber && (
+                            <span className="text-[10px] text-gray-400">PR #{p.followupPullRequestNumber}</span>
+                          )}
+                          <span className="text-[10px] text-gray-400">
+                            {t.evolution.createdAt}: {new Date(p.createdAt).toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenSaved(p.id)}
+                        className="rounded-lg border border-gray-200 px-3 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                      >
+                        {t.evolution.open}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* Stage 77 + Stage 78: opened saved pack detail with follow-up tracking */}
+            {openedPack && openPhase === "ready" && (
+              <div className="mt-4 rounded-lg border border-indigo-100 bg-white p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800">{t.evolution.serverGenerated}</p>
+                    <p className="text-[11px] text-gray-400">{t.evolution.serverGeneratedDesc}</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleMarkCopied}
+                      disabled={followupPhase === "saving"}
+                      className="rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-50 disabled:opacity-40"
+                    >
+                      {t.evolution.markCopied}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCopySaved}
+                      className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                    >
+                      {copiedSaved ? t.evolution.copied : t.evolution.copySaved}
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                  <span className="font-medium text-gray-500">{t.evolution.recommendedAction}:</span>
+                  <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
+                    {openedPack.title}
+                  </span>
+                  {openedPack.pack.targetCandidateId && (
+                    <span className="text-gray-400">
+                      {t.evolution.targetCandidate}: {openedPack.pack.targetCandidateId}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-3 space-y-2">
+                  {openedPack.pack.sections.map((sec, i) => (
+                    <div key={i} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{sec.title}</p>
+                      <p className="mt-1 whitespace-pre-line text-xs leading-relaxed text-gray-700">{sec.body}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Stage 78: follow-up tracking form */}
+                <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-semibold text-gray-800">{t.evolution.followup}</p>
+                      <p className="text-[11px] text-gray-400">{t.evolution.followupDesc}</p>
+                    </div>
+                    <span className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-700">
+                      {t.evolution[followupStatusLabelKey(openedPack.followup.status) as keyof typeof t.evolution]}
+                    </span>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <label className="text-[11px] text-gray-500">
+                      {t.evolution.followupStatus}
+                      <select
+                        value={followupStatus}
+                        onChange={(e) => setFollowupStatus(e.target.value as ActionPackFollowupStatus)}
+                        className="mt-0.5 block w-full rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700"
+                      >
+                        {FOLLOWUP_STATUSES.map((st) => (
+                          <option key={st} value={st}>
+                            {t.evolution[followupStatusLabelKey(st) as keyof typeof t.evolution]}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="text-[11px] text-gray-500">
+                      {t.evolution.followupPullRequestNumber}
+                      <input
+                        type="number"
+                        min={1}
+                        value={followupPr}
+                        onChange={(e) => setFollowupPr(e.target.value)}
+                        className="mt-0.5 block w-full rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700"
+                      />
+                    </label>
+                    <label className="text-[11px] text-gray-500">
+                      {t.evolution.followupReviewRun}
+                      <input
+                        type="text"
+                        value={followupRunId}
+                        onChange={(e) => setFollowupRunId(e.target.value)}
+                        placeholder="wprr_…"
+                        className="mt-0.5 block w-full rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-mono text-gray-700"
+                      />
+                    </label>
+                    <label className="text-[11px] text-gray-500">
+                      {t.evolution.followupBenchmark}
+                      <input
+                        type="text"
+                        value={followupBenchId}
+                        onChange={(e) => setFollowupBenchId(e.target.value)}
+                        placeholder="wab_…"
+                        className="mt-0.5 block w-full rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-mono text-gray-700"
+                      />
+                    </label>
+                  </div>
+
+                  <label className="mt-2 block text-[11px] text-gray-500">
+                    {t.evolution.followupNote}
+                    <textarea
+                      value={followupNote}
+                      onChange={(e) => setFollowupNote(e.target.value)}
+                      maxLength={1000}
+                      rows={2}
+                      className="mt-0.5 block w-full rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700"
+                    />
+                  </label>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSaveFollowup}
+                      disabled={followupPhase === "saving"}
+                      className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-40"
+                    >
+                      {followupPhase === "saving"
+                        ? t.evolution.savingFollowup
+                        : followupPhase === "saved"
+                          ? t.evolution.followupSaved
+                          : t.evolution.saveFollowup}
+                    </button>
+                    {openedPack.followup.followedAt && (
+                      <span className="text-[11px] text-gray-400">
+                        {t.evolution.followedAt}: {new Date(openedPack.followup.followedAt).toLocaleString()}
+                      </span>
+                    )}
+                  </div>
+
+                  {followupPhase === "error" && (
+                    <p className="mt-2 text-xs text-red-600">
+                      {t.evolution.followupFailed}
+                      {followupError ? `: ${followupError}` : ""}
+                    </p>
+                  )}
+                </div>
+
+                {/* Stage 79: before/after evolution impact comparison (auto-loaded) */}
+                <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-semibold text-gray-800">{t.evolution.impact}</p>
+                      <p className="text-[11px] text-gray-400">{t.evolution.impactDesc}</p>
+                    </div>
+                    {impact && (
+                      <span
+                        className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${
+                          impact.verdict === "improved"
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : impact.verdict === "regressed"
+                              ? "border-red-200 bg-red-50 text-red-700"
+                              : impact.verdict === "unchanged"
+                                ? "border-gray-200 bg-white text-gray-600"
+                                : "border-amber-200 bg-amber-50 text-amber-700"
+                        }`}
+                      >
+                        {t.evolution[impactVerdictLabelKey(impact.verdict) as keyof typeof t.evolution]}
+                      </span>
+                    )}
+                  </div>
+
+                  {impactPhase === "loading" && (
+                    <p className="mt-2 text-xs text-gray-400">{t.outcome.loading}</p>
+                  )}
+
+                  {impactPhase === "ready" && impact && (
+                    <>
+                      {isImpactEmpty(impact) ? (
+                        <p className="mt-2 text-xs text-gray-500">{t.evolution.impactMissingFollowup}</p>
+                      ) : (
+                        <>
+                          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                            <div className="rounded-md border border-gray-100 bg-white p-2">
+                              <p className="text-[10px] uppercase tracking-wide text-gray-400">{t.evolution.impactBefore}</p>
+                              {impact.before ? (
+                                <dl className="mt-1 space-y-0.5 text-[11px]">
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.impactPassRate}</dt><dd className="font-semibold text-gray-700">{formatRate(impact.before.passRate)}</dd></div>
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.impactCritical}</dt><dd className="font-semibold text-gray-700">{impact.before.criticalIssueCount}</dd></div>
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.impactNotVerified}</dt><dd className="font-semibold text-gray-700">{impact.before.notVerifiedCount}</dd></div>
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.impactBlockers}</dt><dd className="font-semibold text-gray-700">{impact.before.blockerCount}</dd></div>
+                                </dl>
+                              ) : (
+                                <p className="mt-1 text-[11px] text-gray-400">—</p>
+                              )}
+                            </div>
+                            <div className="rounded-md border border-gray-100 bg-white p-2">
+                              <p className="text-[10px] uppercase tracking-wide text-gray-400">{t.evolution.impactAfter}</p>
+                              {impact.after ? (
+                                <dl className="mt-1 space-y-0.5 text-[11px]">
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.impactPassRate}</dt><dd className="font-semibold text-gray-700">{formatRate(impact.after.passRate)}</dd></div>
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.impactCritical}</dt><dd className="font-semibold text-gray-700">{impact.after.criticalIssueCount}</dd></div>
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.impactNotVerified}</dt><dd className="font-semibold text-gray-700">{impact.after.notVerifiedCount}</dd></div>
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.impactBlockers}</dt><dd className="font-semibold text-gray-700">{impact.after.blockerCount}</dd></div>
+                                </dl>
+                              ) : (
+                                <p className="mt-1 text-[11px] text-gray-400">—</p>
+                              )}
+                            </div>
+                            <div className="rounded-md border border-gray-100 bg-white p-2">
+                              <p className="text-[10px] uppercase tracking-wide text-gray-400">{t.evolution.impactDelta}</p>
+                              {impact.delta ? (
+                                <dl className="mt-1 space-y-0.5 text-[11px]">
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.deltaPassRate}</dt><dd className="font-semibold text-gray-700">{formatDeltaPercent(impact.delta.passRateDelta)}</dd></div>
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.deltaCritical}</dt><dd className="font-semibold text-gray-700">{formatDeltaInt(impact.delta.criticalIssueDelta)}</dd></div>
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.deltaNotVerified}</dt><dd className="font-semibold text-gray-700">{formatDeltaInt(impact.delta.notVerifiedDelta)}</dd></div>
+                                  <div className="flex justify-between"><dt className="text-gray-400">{t.evolution.deltaBlockers}</dt><dd className="font-semibold text-gray-700">{formatDeltaInt(impact.delta.blockerDelta)}</dd></div>
+                                </dl>
+                              ) : (
+                                <p className="mt-1 text-[11px] text-gray-400">—</p>
+                              )}
+                            </div>
+                          </div>
+
+                          {impact.verdict === "inconclusive" && (
+                            <p className="mt-2 text-[11px] text-amber-700">{t.evolution.impactInconclusiveExplanation}</p>
+                          )}
+
+                          {impact.reasons.length > 0 && (
+                            <div className="mt-3">
+                              <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{t.evolution.impactReasons}</p>
+                              <ul className="mt-1 flex flex-wrap gap-1.5">
+                                {impact.reasons.map((r) => (
+                                  <li
+                                    key={r}
+                                    className="rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-600"
+                                  >
+                                    {t.evolution[impactReasonLabelKey(r) as keyof typeof t.evolution]}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {impact.limitations.length > 0 && (
+                            <div className="mt-2">
+                              <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{t.evolution.impactLimitations}</p>
+                              <ul className="mt-1 flex flex-wrap gap-1.5">
+                                {impact.limitations.map((l) => (
+                                  <li
+                                    key={l}
+                                    className="rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-mono text-gray-500"
+                                  >
+                                    {l}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </>
+                  )}
+
+                  {impactPhase === "error" && (
+                    <p className="mt-2 text-xs text-red-600">{t.errors.loadFailed}</p>
+                  )}
+                </div>
               </div>
             )}
           </div>

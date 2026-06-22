@@ -161,7 +161,7 @@ describe("buildPrReviewTelegramMessage", () => {
       prNumber: 42,
       summary: { passed: 3, failed: 1, inconclusive: 0, needsDecision: 0 },
     });
-    assert.ok(msg.includes("Conclave PR 확인 완료"));
+    assert.ok(msg.includes("Simsa PR 확인 완료"));
     assert.ok(msg.includes("org/repo"));
     assert.ok(msg.includes("#42"));
     assert.ok(msg.includes("통과: 3"));
@@ -372,7 +372,7 @@ describe("POST /workspace/notifications/test", () => {
     assert.equal(body.ok, true);
     assert.equal(body.status, "sent");
     assert.ok(telegramCalled, "sendMessage must be called");
-    assert.ok(sentText.includes("Conclave 테스트 메시지"));
+    assert.ok(sentText.includes("Simsa 테스트 메시지"));
   });
 
   it("records error when Telegram sendMessage fails", async () => {

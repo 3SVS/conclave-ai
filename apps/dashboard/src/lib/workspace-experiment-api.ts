@@ -212,6 +212,425 @@ export async function saveExperimentDecision(
   }
 }
 
+// ─── Stage 77: persisted Evolution Action Packs ─────────────────────────────
+
+export type SavedEvolutionActionPackSection = { title: string; body: string };
+
+export type SavedEvolutionActionPack = {
+  projectId: string;
+  experimentId: string;
+  recommendedAction: string;
+  title: string;
+  summary: string;
+  targetCandidateId?: string;
+  focusItemIds: string[];
+  sections: SavedEvolutionActionPackSection[];
+};
+
+// Stage 78 — follow-up tracking.
+export type ActionPackFollowupStatus =
+  | "not_started"
+  | "copied"
+  | "in_progress"
+  | "reviewed"
+  | "benchmarked"
+  | "completed"
+  | "abandoned";
+
+export const ACTION_PACK_FOLLOWUP_STATUSES: ActionPackFollowupStatus[] = [
+  "not_started",
+  "copied",
+  "in_progress",
+  "reviewed",
+  "benchmarked",
+  "completed",
+  "abandoned",
+];
+
+export type ActionPackFollowup = {
+  status: ActionPackFollowupStatus;
+  pullRequestNumber?: number;
+  reviewRunId?: string;
+  benchmarkId?: string;
+  note?: string;
+  followedAt?: string;
+};
+
+export type SavedEvolutionActionPackListItem = {
+  id: string;
+  experimentId: string;
+  recommendedAction: string;
+  title: string;
+  createdAt: string;
+  followupStatus: ActionPackFollowupStatus;
+  followupPullRequestNumber?: number;
+  followupReviewRunId?: string;
+  followupBenchmarkId?: string;
+  followedAt?: string;
+};
+
+export type SavedEvolutionActionPackDetail = {
+  id: string;
+  experimentId: string;
+  recommendedAction: string;
+  title: string;
+  createdAt: string;
+  pack: SavedEvolutionActionPack;
+  text: string;
+  followup: ActionPackFollowup;
+};
+
+type SaveActionPackResponse =
+  | { ok: true; actionPack: SavedEvolutionActionPackDetail }
+  | { ok: false; error: string };
+type ListActionPacksResponse =
+  | { ok: true; actionPacks: SavedEvolutionActionPackListItem[] }
+  | { ok: false; error: string };
+type GetActionPackResponse =
+  | { ok: true; actionPack: SavedEvolutionActionPackDetail }
+  | { ok: false; error: string };
+
+export async function saveEvolutionActionPack(
+  projectId: string,
+  experimentId: string,
+  userKey: string,
+): Promise<SaveActionPackResponse> {
+  try {
+    const resp = await fetch(
+      `${base(projectId)}/${encodeURIComponent(experimentId)}/evolution-action-packs`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userKey }),
+        signal: AbortSignal.timeout(8000),
+      },
+    );
+    return (await resp.json()) as SaveActionPackResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+export async function listEvolutionActionPacks(
+  projectId: string,
+  experimentId: string,
+  userKey: string,
+): Promise<ListActionPacksResponse> {
+  try {
+    const params = new URLSearchParams({ userKey });
+    const resp = await fetch(
+      `${base(projectId)}/${encodeURIComponent(experimentId)}/evolution-action-packs?${params}`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    return (await resp.json()) as ListActionPacksResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+export async function getEvolutionActionPack(
+  projectId: string,
+  experimentId: string,
+  actionPackId: string,
+  userKey: string,
+): Promise<GetActionPackResponse> {
+  try {
+    const params = new URLSearchParams({ userKey });
+    const resp = await fetch(
+      `${base(projectId)}/${encodeURIComponent(experimentId)}/evolution-action-packs/${encodeURIComponent(actionPackId)}?${params}`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    return (await resp.json()) as GetActionPackResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+// Stage 79 — Before/After Evolution Impact comparison.
+export type EvolutionImpactVerdict = "improved" | "regressed" | "unchanged" | "inconclusive";
+export type EvolutionImpactSource = "benchmark" | "review_run";
+
+export type EvolutionImpactSnapshot = {
+  source: EvolutionImpactSource;
+  sourceId: string;
+  passRate: number | null;
+  passedCount: number;
+  failedCount: number;
+  inconclusiveCount: number;
+  needsDecisionCount: number;
+  criticalIssueCount: number;
+  notVerifiedCount: number;
+  blockerCount: number;
+  totalCount: number;
+  itemIds?: string[];
+};
+
+export type EvolutionImpactDelta = {
+  passRateDelta: number | null;
+  passedDelta: number;
+  criticalIssueDelta: number;
+  notVerifiedDelta: number;
+  blockerDelta: number;
+};
+
+export type EvolutionImpactComparison = {
+  actionPackId: string;
+  experimentId: string;
+  projectId: string;
+  recommendedAction: string;
+  before: EvolutionImpactSnapshot | null;
+  after: EvolutionImpactSnapshot | null;
+  delta: EvolutionImpactDelta | null;
+  verdict: EvolutionImpactVerdict;
+  reasons: string[];
+  limitations: string[];
+};
+
+type GetImpactResponse =
+  | { ok: true; impact: EvolutionImpactComparison }
+  | { ok: false; error: string };
+
+export async function getEvolutionActionPackImpact(
+  projectId: string,
+  experimentId: string,
+  actionPackId: string,
+  userKey: string,
+): Promise<GetImpactResponse> {
+  try {
+    const params = new URLSearchParams({ userKey });
+    const resp = await fetch(
+      `${base(projectId)}/${encodeURIComponent(experimentId)}/evolution-action-packs/${encodeURIComponent(actionPackId)}/impact?${params}`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    return (await resp.json()) as GetImpactResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+// Stage 80 — experiment-level Evolution Impact Summary.
+export type EvolutionImpactSummaryOverallVerdict =
+  | "mostly_improved"
+  | "mixed"
+  | "mostly_inconclusive"
+  | "no_followups"
+  | "regressed";
+
+export type EvolutionImpactSummaryVerdictCounts = {
+  improved: number;
+  regressed: number;
+  unchanged: number;
+  inconclusive: number;
+};
+
+export type EvolutionImpactSummaryRecommendedActionVerdict = {
+  recommendedAction: string;
+  total: number;
+  improved: number;
+  regressed: number;
+  unchanged: number;
+  inconclusive: number;
+};
+
+export type EvolutionImpactSummaryAverageDelta = {
+  passRateDelta: number | null;
+  criticalIssueDelta: number | null;
+  notVerifiedDelta: number | null;
+  blockerDelta: number | null;
+};
+
+export type EvolutionImpactSummary = {
+  projectId: string;
+  experimentId: string;
+  actionPackCount: number;
+  followedPackCount: number;
+  verdictCounts: EvolutionImpactSummaryVerdictCounts;
+  recommendedActionCounts: Record<string, number>;
+  recommendedActionVerdicts: EvolutionImpactSummaryRecommendedActionVerdict[];
+  averageDelta: EvolutionImpactSummaryAverageDelta;
+  overallVerdict: EvolutionImpactSummaryOverallVerdict;
+  reasons: string[];
+  limitations: string[];
+};
+
+type GetImpactSummaryResponse =
+  | { ok: true; summary: EvolutionImpactSummary }
+  | { ok: false; error: string };
+
+export async function getEvolutionImpactSummary(
+  projectId: string,
+  experimentId: string,
+  userKey: string,
+): Promise<GetImpactSummaryResponse> {
+  try {
+    const params = new URLSearchParams({ userKey });
+    const resp = await fetch(
+      `${base(projectId)}/${encodeURIComponent(experimentId)}/evolution-impact-summary?${params}`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    return (await resp.json()) as GetImpactSummaryResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+// Stage 81 — project-level Evolution Learning Signals.
+export type ProjectLearningSignal =
+  | {
+      type: "action_often_improves";
+      recommendedAction: string;
+      improved: number;
+      totalComparable: number;
+    }
+  | {
+      type: "action_often_regresses";
+      recommendedAction: string;
+      regressed: number;
+      totalComparable: number;
+    }
+  | { type: "not_enough_data" };
+
+export type ProjectActionEffectiveness = {
+  recommendedAction: string;
+  total: number;
+  followed: number;
+  comparable: number;
+  improved: number;
+  regressed: number;
+  unchanged: number;
+  inconclusive: number;
+  improvementRate: number | null;
+  regressionRate: number | null;
+};
+
+export type ProjectEvolutionLearningSignals = {
+  projectId: string;
+  experimentCount: number;
+  actionPackCount: number;
+  followedPackCount: number;
+  comparablePackCount: number;
+  verdictCounts: {
+    improved: number;
+    regressed: number;
+    unchanged: number;
+    inconclusive: number;
+  };
+  recommendedActionEffectiveness: ProjectActionEffectiveness[];
+  averageDelta: {
+    passRateDelta: number | null;
+    criticalIssueDelta: number | null;
+    notVerifiedDelta: number | null;
+    blockerDelta: number | null;
+  };
+  topSignals: ProjectLearningSignal[];
+  limitations: string[];
+};
+
+type GetLearningResponse =
+  | { ok: true; learning: ProjectEvolutionLearningSignals }
+  | { ok: false; error: string };
+
+export async function getProjectEvolutionLearning(
+  projectId: string,
+  userKey: string,
+): Promise<GetLearningResponse> {
+  try {
+    const params = new URLSearchParams({ userKey });
+    const resp = await fetch(
+      `${CENTRAL_PLANE_URL}/workspace/projects/${encodeURIComponent(projectId)}/evolution-learning?${params}`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    return (await resp.json()) as GetLearningResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+// Stage 82 — project-level Evolution Timeline.
+export type ProjectTimelineEventType =
+  | "experiment_created"
+  | "benchmark_created"
+  | "decision_recorded"
+  | "action_pack_saved"
+  | "followup_recorded"
+  | "impact_improved"
+  | "impact_regressed"
+  | "impact_inconclusive"
+  | "impact_unchanged";
+
+export type ProjectEvolutionTimelineEvent = {
+  id: string;
+  type: ProjectTimelineEventType;
+  occurredAt: string;
+  experimentId?: string;
+  benchmarkId?: string;
+  actionPackId?: string;
+  title: string;
+  summary: string;
+  status?: string;
+  recommendedAction?: string;
+  verdict?: string;
+  href?: string;
+};
+
+export type ProjectEvolutionTimeline = {
+  projectId: string;
+  eventCount: number;
+  events: ProjectEvolutionTimelineEvent[];
+  limitations: string[];
+};
+
+type GetTimelineResponse =
+  | { ok: true; timeline: ProjectEvolutionTimeline }
+  | { ok: false; error: string };
+
+export async function getProjectEvolutionTimeline(
+  projectId: string,
+  userKey: string,
+): Promise<GetTimelineResponse> {
+  try {
+    const params = new URLSearchParams({ userKey });
+    const resp = await fetch(
+      `${CENTRAL_PLANE_URL}/workspace/projects/${encodeURIComponent(projectId)}/evolution-timeline?${params}`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    return (await resp.json()) as GetTimelineResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+export type ActionPackFollowupInput = {
+  userKey: string;
+  status: ActionPackFollowupStatus;
+  pullRequestNumber?: number;
+  reviewRunId?: string;
+  benchmarkId?: string;
+  note?: string;
+};
+
+export async function patchEvolutionActionPackFollowup(
+  projectId: string,
+  experimentId: string,
+  actionPackId: string,
+  input: ActionPackFollowupInput,
+): Promise<GetActionPackResponse> {
+  try {
+    const resp = await fetch(
+      `${base(projectId)}/${encodeURIComponent(experimentId)}/evolution-action-packs/${encodeURIComponent(actionPackId)}/followup`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+        signal: AbortSignal.timeout(8000),
+      },
+    );
+    return (await resp.json()) as GetActionPackResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
 export async function patchExperimentCandidate(
   projectId: string,
   experimentId: string,

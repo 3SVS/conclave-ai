@@ -299,7 +299,7 @@ describe("POST /workspace/projects/:id/github/pulls/:number/comment/preview with
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.ok(body.ok);
-    assert.ok(body.comment?.body?.includes("Conclave"), "comment body should be generated");
+    assert.ok(body.comment?.body?.includes("Simsa"), "comment body should be generated");
     assert.equal(body.comment.selectedItemIds.length, 2);
   });
 

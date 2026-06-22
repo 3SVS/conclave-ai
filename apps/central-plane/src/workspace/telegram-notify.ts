@@ -41,7 +41,7 @@ const STATUS_KO: Record<string, string> = {
 };
 
 export function buildPrReviewTelegramMessage(opts: PrReviewTelegramMessageOptions): string {
-  const lines: string[] = ["Conclave PR 확인 완료", ""];
+  const lines: string[] = ["Simsa PR 확인 완료", ""];
 
   if (opts.projectName) lines.push(`프로젝트: ${opts.projectName}`);
   lines.push(`저장소: ${opts.repoFullName}`);

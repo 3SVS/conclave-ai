@@ -123,7 +123,7 @@ function buildRequiredPart(opts: BuildCommentOptions): string {
   }
 
   const lines: string[] = [
-    "## 🔍 Conclave PR 확인 결과",
+    "## 🔍 Simsa Review (PR 확인 결과)",
     "",
     `**저장소:** \`${repoFullName}\`  `,
     `**PR:** #${prNumber} ${prTitle}`,
@@ -294,7 +294,10 @@ function buildFooterPart(): string {
     "<details>",
     "<summary>이 코멘트에 대하여</summary>",
     "",
-    "이 코멘트는 [Conclave](https://conclave-ai.dev)에서 PR 코드 확인 결과를 바탕으로 자동 생성했습니다.  ",
+    // The Simsa product name is current; the legacy `conclave-ai.dev` domain
+    // remains the live URL until DNS for trysimsa.com / simsa.dev is wired
+    // in a separate operational stage. Stage 85 ships the rename, not DNS.
+    "이 코멘트는 [Simsa](https://conclave-ai.dev)에서 PR 코드 확인 결과를 바탕으로 자동 생성했습니다.  ",
     "이 단계에서는 코드를 자동으로 고치지 않습니다.",
     "",
     "</details>",

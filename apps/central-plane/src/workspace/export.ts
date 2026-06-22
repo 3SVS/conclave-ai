@@ -129,7 +129,7 @@ function genReadme(
   const lines = [
     `# 만들기 패키지 — ${title}`,
     "",
-    "이 패키지는 Conclave Workspace에서 내보낸 제품 설명서와 개발 지시서입니다.",
+    "이 패키지는 Simsa Workspace에서 내보낸 제품 설명서와 개발 지시서입니다.",
     "",
   ];
 
@@ -255,7 +255,7 @@ function genChecksMd(checkResults?: ExportCheckResults, totalItems?: number): st
       "",
       disclaimer,
       "",
-      "확인 결과가 없습니다. Conclave Workspace에서 확인을 실행해주세요.",
+      "확인 결과가 없습니다. Simsa Workspace에서 확인을 실행해주세요.",
     ].join("\n");
   }
 
@@ -347,7 +347,7 @@ function genFixesMd(
       }
     } else {
       lines.push(
-        "> 아직 수정 제안이 없습니다. Conclave Workspace에서 고쳐보기를 실행해주세요.",
+        "> 아직 수정 제안이 없습니다. Simsa Workspace에서 고쳐보기를 실행해주세요.",
         "",
       );
     }

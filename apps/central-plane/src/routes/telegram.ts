@@ -97,11 +97,13 @@ export function createTelegramRoutes(
         await telegram.sendMessage({
           chatId,
           text: [
-            "<b>Conclave AI bot</b>",
+            "<b>Simsa AI bot</b>",
             "",
-            "This bot receives review notifications from your Conclave AI installs and ",
+            "This bot receives review notifications from your Simsa AI installs and ",
             "fires the 🤖 Auto-fix / ✅ Merge / ❌ Close actions when you tap them.",
             "",
+            // CLI binary and env var prefix stay `conclave` / `CONCLAVE_*` —
+            // those are internal namespace (Stage 84 Category B, frozen).
             "To link this chat to a repo install, run <code>conclave init</code> on your ",
             "machine, then send:",
             "",

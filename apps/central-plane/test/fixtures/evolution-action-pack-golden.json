@@ -1,0 +1,221 @@
+{
+  "_comment": "Stage 77 shared golden fixture. Asserted by BOTH apps/central-plane/test/evolution-action-pack.test.mjs (dist .ts) AND apps/dashboard/test/evolution-action-pack-parity.test.mjs (.mjs). Keep the two implementations in lock-step: if you change action-pack logic, update both and this fixture. Strings used are the canonical EN bundle so the two helpers can be invoked with their respective default/EN dictionary.",
+  "cases": [
+    {
+      "name": "accept pack with strong evidence",
+      "input": {
+        "projectId": "proj_1",
+        "experiment": { "id": "wexp_a", "title": "Multi-agent split" },
+        "scorecard": {
+          "experimentId": "wexp_a",
+          "projectId": "proj_1",
+          "selectedCandidateId": "b",
+          "decisionStatus": "selected",
+          "quality": {
+            "acceptancePassRate": 1,
+            "unresolvedBlockerCount": 0,
+            "criticalIssueCount": 0,
+            "notVerifiedCount": 0,
+            "needsDecisionCount": 0,
+            "evidenceCoverageRate": 1,
+            "score": 27,
+            "grade": "strong"
+          },
+          "signals": {
+            "hasBenchmark": true,
+            "hasDecision": true,
+            "hasSelectedCandidate": true,
+            "hasItemLevelEvidence": true,
+            "acceptanceSetAligned": true
+          },
+          "nextEvolution": {
+            "recommendedAction": "accept",
+            "reasons": ["strong_acceptance_result"],
+            "suggestedFocusItemIds": []
+          }
+        }
+      },
+      "expected": {
+        "recommendedAction": "accept",
+        "targetCandidateId": "b",
+        "focusItemIds": [],
+        "sectionTitles": ["Decision", "Evidence summary", "Pre-merge checklist", "Next review"],
+        "evidenceBodyContains": "100%"
+      }
+    },
+    {
+      "name": "fix_selected pack with focus items resolved from benchmark",
+      "input": {
+        "projectId": "proj_1",
+        "experiment": { "id": "wexp_b", "title": "Fix me" },
+        "scorecard": {
+          "experimentId": "wexp_b",
+          "projectId": "proj_1",
+          "selectedCandidateId": "b",
+          "decisionStatus": "selected",
+          "quality": {
+            "acceptancePassRate": 0.5,
+            "unresolvedBlockerCount": 2,
+            "criticalIssueCount": 1,
+            "notVerifiedCount": 1,
+            "needsDecisionCount": 0,
+            "evidenceCoverageRate": 0.5,
+            "score": 1,
+            "grade": "needs_work"
+          },
+          "signals": {
+            "hasBenchmark": true,
+            "hasDecision": true,
+            "hasSelectedCandidate": true,
+            "hasItemLevelEvidence": true,
+            "acceptanceSetAligned": true
+          },
+          "nextEvolution": {
+            "recommendedAction": "fix_selected",
+            "reasons": ["selected_candidate_has_remaining_blockers"],
+            "suggestedFocusItemIds": ["i_share", "i_comment"]
+          }
+        },
+        "benchmark": {
+          "projectId": "proj_1",
+          "candidates": [{ "id": "b", "label": "Builder B", "mode": "multi_agent", "source": "codex" }],
+          "metricsByCandidate": {},
+          "itemOutcomesByCandidate": {
+            "b": [
+              { "candidateId": "b", "itemId": "i_share", "title": "Task sharing permissions", "status": "failed" },
+              { "candidateId": "b", "itemId": "i_comment", "title": "Comment error handling", "status": "inconclusive" }
+            ]
+          }
+        }
+      },
+      "expected": {
+        "recommendedAction": "fix_selected",
+        "targetCandidateId": "b",
+        "focusItemIds": ["i_share", "i_comment"],
+        "sectionTitles": ["Goal", "Focus acceptance items", "Constraints", "Expected output", "After completion"],
+        "focusBodyContains": ["Issue found — Task sharing permissions", "Not verified — Comment error handling"]
+      }
+    },
+    {
+      "name": "rerun_experiment pack (no target candidate)",
+      "input": {
+        "projectId": "proj_1",
+        "experiment": { "id": "wexp_c", "title": "Rerun me" },
+        "scorecard": {
+          "experimentId": "wexp_c",
+          "projectId": "proj_1",
+          "decisionStatus": "undecided",
+          "quality": {
+            "acceptancePassRate": 0.4,
+            "unresolvedBlockerCount": 3,
+            "criticalIssueCount": 2,
+            "notVerifiedCount": 0,
+            "needsDecisionCount": 0,
+            "evidenceCoverageRate": null,
+            "score": -3,
+            "grade": "needs_work"
+          },
+          "signals": {
+            "hasBenchmark": true,
+            "hasDecision": false,
+            "hasSelectedCandidate": false,
+            "hasItemLevelEvidence": false
+          },
+          "nextEvolution": {
+            "recommendedAction": "rerun_experiment",
+            "reasons": ["missing_selected_candidate"],
+            "suggestedFocusItemIds": []
+          }
+        }
+      },
+      "expected": {
+        "recommendedAction": "rerun_experiment",
+        "targetCandidateId": null,
+        "focusItemIds": [],
+        "sectionTitles": ["Why rerun", "Suggested experiment setup", "Candidate roles", "How to compare results"]
+      }
+    },
+    {
+      "name": "clarify_acceptance_items pack with focus title from acceptance items",
+      "input": {
+        "projectId": "proj_1",
+        "experiment": { "id": "wexp_d", "title": "Clarify me" },
+        "scorecard": {
+          "experimentId": "wexp_d",
+          "projectId": "proj_1",
+          "selectedCandidateId": "b",
+          "decisionStatus": "selected",
+          "quality": {
+            "acceptancePassRate": 0.6,
+            "unresolvedBlockerCount": 2,
+            "criticalIssueCount": 0,
+            "notVerifiedCount": 2,
+            "needsDecisionCount": 1,
+            "evidenceCoverageRate": null,
+            "score": 0,
+            "grade": "needs_work"
+          },
+          "signals": {
+            "hasBenchmark": true,
+            "hasDecision": true,
+            "hasSelectedCandidate": true,
+            "hasItemLevelEvidence": false,
+            "acceptanceSetAligned": false
+          },
+          "nextEvolution": {
+            "recommendedAction": "clarify_acceptance_items",
+            "reasons": ["acceptance_set_misaligned"],
+            "suggestedFocusItemIds": ["i_login", "i_unknown"]
+          }
+        },
+        "acceptanceItems": [{ "id": "i_login", "title": "Login flow" }]
+      },
+      "expected": {
+        "recommendedAction": "clarify_acceptance_items",
+        "targetCandidateId": null,
+        "focusItemIds": ["i_login", "i_unknown"],
+        "sectionTitles": ["Why clarify", "Items needing clarification", "Questions to answer", "After clarification"],
+        "focusBodyContains": ["Login flow", "i_unknown"]
+      }
+    },
+    {
+      "name": "create_benchmark pack (no benchmark, inconclusive)",
+      "input": {
+        "projectId": "proj_1",
+        "experiment": { "id": "wexp_e", "title": "Bench me" },
+        "scorecard": {
+          "experimentId": "wexp_e",
+          "projectId": "proj_1",
+          "decisionStatus": "undecided",
+          "quality": {
+            "acceptancePassRate": null,
+            "unresolvedBlockerCount": 0,
+            "criticalIssueCount": 0,
+            "notVerifiedCount": 0,
+            "needsDecisionCount": 0,
+            "evidenceCoverageRate": null,
+            "score": 0,
+            "grade": "inconclusive"
+          },
+          "signals": {
+            "hasBenchmark": false,
+            "hasDecision": false,
+            "hasSelectedCandidate": false,
+            "hasItemLevelEvidence": false
+          },
+          "nextEvolution": {
+            "recommendedAction": "create_benchmark",
+            "reasons": ["missing_benchmark", "missing_selected_candidate"],
+            "suggestedFocusItemIds": []
+          }
+        }
+      },
+      "expected": {
+        "recommendedAction": "create_benchmark",
+        "targetCandidateId": null,
+        "focusItemIds": [],
+        "sectionTitles": ["Why benchmark first", "Required inputs", "Steps", "What to expect"]
+      }
+    }
+  ]
+}
