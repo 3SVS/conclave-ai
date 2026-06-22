@@ -2,9 +2,11 @@
   --bg: #faf8f3;
   --fg: #18181b;        /* zinc-900 */
   --muted: #52525b;     /* zinc-600 */
+  --faint: #71717a;     /* zinc-500 */
   --accent: #15803d;    /* deep green (dashboard brand-600) */
   --accent-hover: #166534;
   --border: #e7e5e4;
+  --panel: #ffffff;
 }
 
 * {
@@ -23,21 +25,24 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
+  line-height: 1.5;
 }
 
-.wrap {
-  min-height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2.5rem;
-  padding: 2rem;
+a {
+  color: inherit;
+}
+
+.container {
+  width: 100%;
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+/* Hero */
+.hero {
+  padding: 5.5rem 0 3rem;
   text-align: center;
-}
-
-.card {
-  max-width: 34rem;
 }
 
 .wordmark {
@@ -50,16 +55,15 @@ body {
 }
 
 .tagline {
-  font-size: clamp(1.6rem, 4vw, 2.4rem);
-  line-height: 1.15;
+  font-size: clamp(1.7rem, 4.5vw, 2.5rem);
+  line-height: 1.12;
   font-weight: 600;
   letter-spacing: -0.02em;
   margin: 0 0 1rem;
 }
 
 .lede {
-  font-size: 1.05rem;
-  line-height: 1.5;
+  font-size: 1.1rem;
   color: var(--muted);
   margin: 0 0 2rem;
 }
@@ -82,7 +86,58 @@ body {
   background: var(--accent-hover);
 }
 
-.foot {
-  font-size: 0.8rem;
+/* Sections */
+.section {
+  padding: 2.25rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.section h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0 0 0.75rem;
+}
+
+.section p {
+  font-size: 1rem;
   color: var(--muted);
+  margin: 0 0 0.5rem;
+}
+
+/* How it works */
+.steps {
+  margin: 0.5rem 0 0;
+  padding: 0 0 0 1.25rem;
+  color: var(--fg);
+}
+
+.steps li {
+  margin: 0.4rem 0;
+}
+
+.steps li span {
+  color: var(--muted);
+}
+
+/* Contact */
+.contact-link {
+  display: inline-block;
+  margin-top: 0.5rem;
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.contact-link:hover {
+  text-decoration: underline;
+}
+
+/* Footer */
+.foot {
+  padding: 2.5rem 0 3rem;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--faint);
+  border-top: 1px solid var(--border);
 }

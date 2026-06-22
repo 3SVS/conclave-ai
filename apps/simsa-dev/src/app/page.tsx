@@ -4,6 +4,8 @@
 // "coming soon" item is plain text, not a broken link.
 const APP_URL = "https://app.trysimsa.com";
 const REPO_URL = "https://github.com/3SVS/conclave-ai"; // public repo
+// Real contact mailbox (operator-provided), shared with the trysimsa.com surface.
+const CONTACT_EMAIL = "seunghunbae@b2w.kr";
 
 export default function Home() {
   return (
@@ -31,6 +33,9 @@ export default function Home() {
         </div>
       </section>
       <footer className="foot">
+        Questions or early access?{" "}
+        <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
+        <br />
         Built for AI-built software acceptance.
       </footer>
     </main>

@@ -123,4 +123,14 @@ body {
 .foot {
   font-size: 0.8rem;
   color: var(--muted);
+  line-height: 1.6;
+}
+
+.foot a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.foot a:hover {
+  text-decoration: underline;
 }
