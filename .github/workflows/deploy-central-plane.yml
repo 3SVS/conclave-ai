@@ -1,16 +1,17 @@
 name: deploy-central-plane
 
-# v0.16 (Problem 3) — auto-deploy the central-plane Worker to Cloudflare
-# whenever apps/central-plane/** changes land on main. Replaces the
-# manual `pnpm -C apps/central-plane ship` step so SaaS endpoint changes
-# go live without a developer's machine + Docker dependencies.
+# Stage 90A — MANUAL deploy only. This workflow NO LONGER auto-deploys on push
+# to main. Merging apps/central-plane/** (or packages/core/**) to main runs CI
+# (ci.yml) for validation but does NOT deploy. Production deploy is an explicit,
+# human-triggered action:
+#   Actions → deploy-central-plane → Run workflow (workflow_dispatch, on main).
 #
-# How it works:
-#   1. Detect that a push to main touched apps/central-plane/** (or this
-#      workflow file).
-#   2. Build the central-plane TS → JS via the standard monorepo build.
-#   3. Run wrangler deploy with the CF API token from secrets.
-#   4. Apply pending D1 migrations (forward-only, idempotent).
+# Why: this separates "code merged" from "code deployed" so a code-only merge can
+# never accidentally ship to production. (Stage 89 hit exactly this: a docs/config
+# merge auto-triggered a deploy that had to be cancelled mid-run.)
+#
+# On dispatch it builds → (optionally) applies pending D1 migrations → wrangler
+# deploy → smoke. Migrations are forward-only + idempotent.
 #
 # Required repo secrets:
 #   CLOUDFLARE_API_TOKEN  — token with "Edit Cloudflare Workers" + "D1 Edit"
@@ -22,18 +23,17 @@ name: deploy-central-plane
 #                            (also embedded in any worker URL)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'apps/central-plane/**'
-      - 'packages/core/**'
-      - '.github/workflows/deploy-central-plane.yml'
+  # No `push` trigger by design — see header. Deploy is manual-only.
   workflow_dispatch:
     inputs:
       apply-migrations:
         description: 'Apply D1 migrations after deploy (default: true)'
         required: false
         default: 'true'
+      confirm:
+        description: 'Type "deploy" to confirm a production deploy'
+        required: true
+        default: ''
 
 concurrency:
   group: deploy-central-plane
@@ -44,6 +44,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Confirm deploy intent
+        if: inputs.confirm != 'deploy'
+        run: |
+          echo "Refusing to deploy: the 'confirm' input must be exactly 'deploy'."
+          echo "Re-run via Actions → deploy-central-plane → Run workflow and type 'deploy'."
+          exit 1
+
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v5
@@ -57,7 +64,7 @@ jobs:
         run: pnpm turbo run build --filter @conclave-ai/central-plane
 
       - name: Apply D1 migrations
-        if: github.event_name != 'workflow_dispatch' || inputs.apply-migrations != 'false'
+        if: inputs.apply-migrations != 'false'
         working-directory: apps/central-plane
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
