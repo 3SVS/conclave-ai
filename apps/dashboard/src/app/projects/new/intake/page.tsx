@@ -22,6 +22,11 @@ import {
   SAMPLE_PRODUCT_URL,
 } from "@/lib/intake-url.mjs";
 import type { ProductUrlIntakePreview } from "@/lib/intake-url.mjs";
+import {
+  buildGitHubRepoIntakePreview,
+  SAMPLE_GITHUB_REPO,
+} from "@/lib/intake-github-repo.mjs";
+import type { GitHubRepoIntakePreview } from "@/lib/intake-github-repo.mjs";
 
 export default function IntakePage() {
   const [type, setType] = useState<WorkspaceIntakeType | null>(null);
@@ -29,6 +34,7 @@ export default function IntakePage() {
   const [draft, setDraft] = useState<WorkspaceIntakeDraft | null>(null);
   const [prdPreview, setPrdPreview] = useState<PrdIntakePreview | null>(null);
   const [urlPreview, setUrlPreview] = useState<ProductUrlIntakePreview | null>(null);
+  const [repoPreview, setRepoPreview] = useState<GitHubRepoIntakePreview | null>(null);
 
   const meta = type ? INTAKE_META[type] : null;
 
@@ -36,6 +42,7 @@ export default function IntakePage() {
     setDraft(null);
     setPrdPreview(null);
     setUrlPreview(null);
+    setRepoPreview(null);
   }
 
   function selectType(next: WorkspaceIntakeType) {
@@ -51,6 +58,9 @@ export default function IntakePage() {
     setPrdPreview(type === "prd" ? buildPrdIntakePreview(rawInput) : null);
     setUrlPreview(
       type === "product_url" ? buildProductUrlIntakePreview(rawInput) : null,
+    );
+    setRepoPreview(
+      type === "github_repo" ? buildGitHubRepoIntakePreview(rawInput) : null,
     );
   }
 
@@ -127,6 +137,18 @@ export default function IntakePage() {
                   className="btn btn-secondary btn-md"
                 >
                   Use example URL
+                </button>
+              )}
+              {type === "github_repo" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRawInput(SAMPLE_GITHUB_REPO);
+                    resetPreviews();
+                  }}
+                  className="btn btn-secondary btn-md"
+                >
+                  Use example repo
                 </button>
               )}
               {type === "prd" && (
@@ -255,6 +277,51 @@ export default function IntakePage() {
 
             <p className="mt-4 text-xs text-gray-400">
               Preview only — no live crawl or external fetch.
+            </p>
+          </div>
+        )}
+
+        {/* Stage 104 — deterministic GitHub repo preview (github_repo type only) */}
+        {repoPreview && (
+          <div className="card mt-6 p-5">
+            <p className="text-xs uppercase tracking-wide text-gray-400">
+              GitHub repo preview · confidence: {repoPreview.confidence}
+            </p>
+
+            <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+              <div>
+                <dt className="text-xs text-gray-400">Normalized repo</dt>
+                <dd className="text-sm text-gray-700">{repoPreview.normalizedRepo}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-gray-400">Owner</dt>
+                <dd className="text-sm text-gray-700">{repoPreview.owner}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-gray-400">Repository</dt>
+                <dd className="text-sm text-gray-700">{repoPreview.repo}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-gray-400">Likely repo type</dt>
+                <dd className="text-sm text-gray-700">{repoPreview.likelyRepoType}</dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="text-xs text-gray-400">Repo URL</dt>
+                <dd className="break-all text-sm text-gray-700">
+                  {repoPreview.repoUrl || "—"}
+                </dd>
+              </div>
+            </dl>
+
+            <PrdList title="Review focus areas" items={repoPreview.reviewFocusAreas} />
+            <PrdList
+              title="Candidate acceptance items"
+              items={repoPreview.candidateAcceptanceItems}
+            />
+            <PrdList title="Missing questions" items={repoPreview.missingQuestions} />
+
+            <p className="mt-4 text-xs text-gray-400">
+              Preview only — no GitHub API, clone, or remote file fetch.
             </p>
           </div>
         )}
