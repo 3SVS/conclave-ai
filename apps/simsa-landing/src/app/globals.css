@@ -237,7 +237,89 @@ a {
 .foot {
   padding: 2.5rem 0 3rem;
   text-align: center;
+  border-top: 1px solid var(--border);
+}
+
+.foot-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: center;
+  margin-bottom: 0.75rem;
+}
+
+.foot-links a {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.foot-links a:hover {
+  text-decoration: underline;
+}
+
+.foot-tag {
+  margin: 0;
   font-size: 0.8rem;
   color: var(--faint);
-  border-top: 1px solid var(--border);
+}
+
+/* Legal-lite pages (/privacy, /terms) */
+.legal {
+  padding: 3rem 0 4rem;
+}
+
+.back {
+  display: inline-block;
+  margin-bottom: 1.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.back:hover {
+  text-decoration: underline;
+}
+
+.legal h1 {
+  font-size: 1.6rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.5rem;
+}
+
+.legal .status {
+  font-size: 0.9rem;
+  color: var(--faint);
+  margin: 0 0 1.75rem;
+}
+
+.legal h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 1.75rem 0 0.5rem;
+}
+
+.legal p {
+  font-size: 0.98rem;
+  color: var(--fg);
+  margin: 0 0 0.75rem;
+  max-width: 40rem;
+}
+
+.legal ul {
+  margin: 0 0 0.75rem;
+  padding-left: 1.25rem;
+  color: var(--muted);
+  font-size: 0.98rem;
+}
+
+.legal ul li {
+  margin: 0.3rem 0;
+}
+
+.legal a {
+  color: var(--accent);
 }

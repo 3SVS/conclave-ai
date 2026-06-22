@@ -1,6 +1,8 @@
 // Simsa marketing entry for trysimsa.com.
 // Stage 93 hero · 95 trust/contact · 96 staged-acceptance positioning ·
 // 97 early-access request path. Static, host-agnostic, no new dependencies.
+import Link from "next/link";
+
 const APP_URL = "https://app.trysimsa.com";
 // Real contact mailbox (operator-provided). No trysimsa.com mailbox is wired
 // yet — do not invent hi@trysimsa.com until it exists.
@@ -162,7 +164,14 @@ export default function Home() {
       </section>
 
       <footer className="foot">
-        <div className="container">Built for AI-built software acceptance.</div>
+        <div className="container">
+          <nav className="foot-links">
+            <Link href="/privacy">Privacy</Link>
+            <Link href="/terms">Terms</Link>
+            <a href={`mailto:${CONTACT_EMAIL}`}>Contact</a>
+          </nav>
+          <p className="foot-tag">Built for AI-built software acceptance.</p>
+        </div>
       </footer>
     </main>
   );

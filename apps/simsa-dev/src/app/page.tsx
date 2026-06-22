@@ -42,6 +42,10 @@ export default function Home() {
         {" · "}
         <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
         <br />
+        <a href="https://trysimsa.com/privacy">Privacy</a>
+        {" · "}
+        <a href="https://trysimsa.com/terms">Terms</a>
+        <br />
         Built for AI-built software acceptance.
       </footer>
     </main>
