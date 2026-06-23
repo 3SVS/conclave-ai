@@ -69,6 +69,7 @@ import type {
   WorkflowRecordListItem,
 } from "@/lib/workspace-agent-workflow-api";
 import { getUserKey } from "@/lib/workflow-store";
+import { buildBetaFeedbackMailto } from "@/lib/beta-feedback.mjs";
 import { buildBenchmarkHandoffPreview } from "@/lib/intake-benchmark-handoff.mjs";
 import { buildDecisionOutcomeLinkPreview } from "@/lib/intake-decision-outcome-link.mjs";
 import { buildEvolutionActionPackPreview } from "@/lib/intake-evolution-action-preview.mjs";
@@ -290,8 +291,14 @@ export default function IntakePage() {
         <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
           What do you want Simsa to review?
         </h1>
-        <p className="mb-8 mt-2 text-sm text-gray-500">
+        <p className="mt-2 text-sm text-gray-500">
           Start from anything. Simsa turns it into a staged acceptance workflow.
+        </p>
+        {/* Stage 119 — page-level beta feedback CTA */}
+        <p className="mb-8 mt-2 text-xs text-gray-400">
+          <FeedbackLink label="Share beta feedback" context={{ section: "Intake workflow" }} />{" "}
+          — opens an email with safe context only (no pasted content or workflow
+          snapshots are included).
         </p>
 
         {/* Step 1 — pick a starting point */}
@@ -839,6 +846,13 @@ export default function IntakePage() {
             <p className="mt-4 text-xs text-gray-400">
               Preview only — evidence is expected, not collected or verified.
             </p>
+            {/* Stage 119 — preview-section feedback CTA */}
+            <p className="mt-2">
+              <FeedbackLink
+                label="Feedback on this preview"
+                context={{ intakeType: type ?? undefined, section: "Evidence Plan" }}
+              />
+            </p>
           </div>
         )}
 
@@ -1041,6 +1055,17 @@ export default function IntakePage() {
               <p className="mt-2 text-xs text-gray-400">
                 Read-only snapshot of a saved plan. No agent execution or evidence
                 collection happened.
+              </p>
+              {/* Stage 119 — saved-workflow feedback CTA */}
+              <p className="mt-2">
+                <FeedbackLink
+                  label="Send feedback on this saved workflow"
+                  context={{
+                    intakeType: openRecord.intakeType,
+                    workflowRecordId: openRecord.id,
+                    section: "Saved workflow detail",
+                  }}
+                />
               </p>
 
               {/* Stage 113 — benchmark handoff preview from the saved record */}
@@ -1318,6 +1343,32 @@ export default function IntakePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Stage 119 — beta feedback CTA. Opens a mailto with SAFE context only (no
+// pasted content, workflow snapshots, or userKey are ever included).
+function FeedbackLink({
+  label,
+  context,
+  className,
+}: {
+  label: string;
+  context?: {
+    route?: string;
+    intakeType?: string;
+    workflowRecordId?: string;
+    section?: string;
+  };
+  className?: string;
+}) {
+  return (
+    <a
+      href={buildBetaFeedbackMailto({ route: "/projects/new/intake", ...context })}
+      className={className ?? "text-xs font-medium text-brand-600 hover:underline"}
+    >
+      {label}
+    </a>
   );
 }
 
