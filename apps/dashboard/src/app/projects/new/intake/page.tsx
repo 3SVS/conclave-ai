@@ -61,6 +61,8 @@ import {
   saveWorkflowRecord,
   listWorkflowRecords,
   getWorkflowRecord,
+  patchWorkflowRecordStatus,
+  deleteWorkflowRecord,
 } from "@/lib/workspace-agent-workflow-api";
 import type {
   WorkflowRecord,
@@ -92,6 +94,10 @@ export default function IntakePage() {
   const [listLoading, setListLoading] = useState(false);
   const [openRecord, setOpenRecord] = useState<WorkflowRecord | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  // Stage 118 — saved workflow management (archive / restore / delete).
+  const [showArchived, setShowArchived] = useState(false);
+  const [manageBusyId, setManageBusyId] = useState<string | null>(null);
+  const [manageMsg, setManageMsg] = useState<string | null>(null);
 
   const meta = type ? INTAKE_META[type] : null;
 
@@ -197,11 +203,17 @@ export default function IntakePage() {
     setSaving(false);
   }
 
-  async function refreshSavedList() {
+  async function refreshSavedList(includeArchived = showArchived) {
     setListLoading(true);
-    const res = await listWorkflowRecords(getUserKey());
+    const res = await listWorkflowRecords(getUserKey(), { includeArchived });
     setSavedList(res.ok ? res.records : []);
     setListLoading(false);
+  }
+
+  function toggleShowArchived() {
+    const next = !showArchived;
+    setShowArchived(next);
+    void refreshSavedList(next);
   }
 
   async function openSavedRecord(id: string) {
@@ -210,6 +222,39 @@ export default function IntakePage() {
     const res = await getWorkflowRecord(id, getUserKey());
     if (res.ok) setOpenRecord(res.record);
     setDetailLoading(false);
+  }
+
+  // Stage 118 — archive / restore a saved record, then refresh the list.
+  async function setRecordStatus(id: string, status: "planned" | "archived") {
+    setManageBusyId(id);
+    setManageMsg(null);
+    const res = await patchWorkflowRecordStatus(id, getUserKey(), status);
+    if (res.ok) {
+      setManageMsg(status === "archived" ? "Workflow archived." : "Workflow restored.");
+      if (openRecord?.id === id) setOpenRecord(res.record);
+      await refreshSavedList();
+    } else {
+      setManageMsg(`Could not update: ${res.error}`);
+    }
+    setManageBusyId(null);
+  }
+
+  // Stage 118 — explicit delete (with confirmation), then refresh the list.
+  async function removeRecord(id: string) {
+    if (typeof window !== "undefined" && !window.confirm("Delete this saved workflow plan? This cannot be undone.")) {
+      return;
+    }
+    setManageBusyId(id);
+    setManageMsg(null);
+    const res = await deleteWorkflowRecord(id, getUserKey());
+    if (res.ok) {
+      setManageMsg("Workflow deleted.");
+      if (openRecord?.id === id) setOpenRecord(null);
+      await refreshSavedList();
+    } else {
+      setManageMsg(`Could not delete: ${res.error}`);
+    }
+    setManageBusyId(null);
   }
 
   function selectType(next: WorkspaceIntakeType) {
@@ -856,15 +901,29 @@ export default function IntakePage() {
             <p className="text-xs uppercase tracking-wide text-gray-400">
               Saved workflow plans
             </p>
-            <button
-              type="button"
-              onClick={refreshSavedList}
-              disabled={listLoading}
-              className="btn btn-secondary btn-sm"
-            >
-              {listLoading ? "Loading…" : "Refresh"}
-            </button>
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-1.5 text-xs text-gray-500">
+                <input
+                  type="checkbox"
+                  checked={showArchived}
+                  onChange={toggleShowArchived}
+                />
+                Show archived
+              </label>
+              <button
+                type="button"
+                onClick={() => refreshSavedList()}
+                disabled={listLoading}
+                className="btn btn-secondary btn-sm"
+              >
+                {listLoading ? "Loading…" : "Refresh"}
+              </button>
+            </div>
           </div>
+
+          {manageMsg && (
+            <p className="mt-2 text-xs text-gray-500">{manageMsg}</p>
+          )}
 
           {savedList === null && (
             <p className="mt-3 text-sm text-gray-500">
@@ -896,15 +955,44 @@ export default function IntakePage() {
                   </div>
                   <p className="mt-1 text-xs text-gray-500">{r.sourceSummary}</p>
                   <p className="mt-1 text-xs text-gray-400">
-                    {r.id} · {r.createdAt}
+                    {r.id} · created {r.createdAt} · updated {r.updatedAt}
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => openSavedRecord(r.id)}
-                    className="btn btn-secondary btn-sm mt-2"
-                  >
-                    Open
-                  </button>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openSavedRecord(r.id)}
+                      className="btn btn-secondary btn-sm"
+                    >
+                      Open
+                    </button>
+                    {r.status === "archived" ? (
+                      <button
+                        type="button"
+                        onClick={() => setRecordStatus(r.id, "planned")}
+                        disabled={manageBusyId === r.id}
+                        className="btn btn-secondary btn-sm"
+                      >
+                        {manageBusyId === r.id ? "…" : "Restore"}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setRecordStatus(r.id, "archived")}
+                        disabled={manageBusyId === r.id}
+                        className="btn btn-secondary btn-sm"
+                      >
+                        {manageBusyId === r.id ? "…" : "Archive"}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeRecord(r.id)}
+                      disabled={manageBusyId === r.id}
+                      className="btn btn-secondary btn-sm text-red-600"
+                    >
+                      {manageBusyId === r.id ? "…" : "Delete"}
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>

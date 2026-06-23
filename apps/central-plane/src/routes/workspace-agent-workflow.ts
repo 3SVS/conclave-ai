@@ -15,9 +15,11 @@
  * under that key and only ever read back under the same key, so a record made by
  * one userKey is invisible to another (list excludes it; detail returns 404).
  *
- * POST /workspace/agent-workflows
- * GET  /workspace/agent-workflows
- * GET  /workspace/agent-workflows/:id
+ * POST   /workspace/agent-workflows
+ * GET    /workspace/agent-workflows           (?includeArchived=true to include archived)
+ * GET    /workspace/agent-workflows/:id
+ * PATCH  /workspace/agent-workflows/:id        (Stage 118 — archive/restore via status)
+ * DELETE /workspace/agent-workflows/:id        (Stage 118 — explicit removal)
  */
 import { Hono } from "hono";
 import { corsMiddleware } from "./cors.js";
@@ -26,9 +28,15 @@ import {
   insertWorkflowRecord,
   listWorkflowRecords,
   getOwnedWorkflowRecordById,
+  updateWorkflowRecordStatus,
+  deleteWorkflowRecordById,
   WORKFLOW_RECORD_STATUSES,
   type WorkflowRecordStatus,
 } from "../workspace/agent-workflow-record-db.js";
+
+// Stage 118 — statuses a user may set via PATCH (archive/restore/relabel).
+// 'draft' is creation-only; PATCH allows planned/needs_evidence/archived.
+const PATCHABLE_STATUSES = ["planned", "needs_evidence", "archived"];
 
 // Mirror the dashboard's WORKSPACE_INTAKE_TYPES (Stage 101).
 const INTAKE_TYPES = ["idea", "prd", "product_url", "github_repo", "pull_request", "ai_built_app"];
@@ -153,8 +161,14 @@ export function createWorkspaceAgentWorkflowRoutes(): Hono<{ Bindings: Env }> {
     const userKey = c.req.query("userKey") ?? "";
     if (!userKey) return c.json({ ok: false, error: "userKey_required" }, 400);
     const projectId = c.req.query("projectId") || undefined;
+    const includeArchived = c.req.query("includeArchived") === "true";
     try {
-      const records = await listWorkflowRecords(c.env, { userKey, projectId, limit: 50 });
+      const records = await listWorkflowRecords(c.env, {
+        userKey,
+        projectId,
+        includeArchived,
+        limit: 50,
+      });
       return c.json({ ok: true, records });
     } catch (err) {
       console.error("[workspace/agent-workflows GET] failed:", err);
@@ -194,6 +208,77 @@ export function createWorkspaceAgentWorkflowRoutes(): Hono<{ Bindings: Env }> {
     } catch (err) {
       console.error("[workspace/agent-workflows detail GET] failed:", err);
       return c.json({ ok: false, error: "query_failed" }, 500);
+    }
+  });
+
+  // ── PATCH status (Stage 118 — archive / restore / relabel; own record only) ──
+  app.patch("/workspace/agent-workflows/:id", async (c) => {
+    const id = c.req.param("id");
+    let body: { userKey?: unknown; status?: unknown };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ ok: false, error: "invalid_json" }, 400);
+    }
+    const userKey = typeof body.userKey === "string" ? body.userKey : "";
+    if (!userKey) return c.json({ ok: false, error: "userKey_required" }, 400);
+
+    const status = typeof body.status === "string" ? body.status : "";
+    if (!PATCHABLE_STATUSES.includes(status)) {
+      return c.json({ ok: false, error: "invalid_status" }, 400);
+    }
+
+    try {
+      const owned = await getOwnedWorkflowRecordById(c.env, id);
+      // 404 (not 403) for missing OR cross-tenant — do not reveal existence.
+      if (!owned || owned.userKey !== userKey) {
+        return c.json({ ok: false, error: "not_found" }, 404);
+      }
+      const updatedAt = await updateWorkflowRecordStatus(
+        c.env,
+        id,
+        status as WorkflowRecordStatus,
+      );
+      return c.json({
+        ok: true,
+        record: {
+          id: owned.id,
+          projectId: owned.projectId,
+          intakeType: owned.intakeType,
+          title: owned.title,
+          sourceSummary: owned.sourceSummary,
+          rawInputExcerpt: owned.rawInputExcerpt,
+          acceptanceMap: owned.acceptanceMap,
+          stagePlan: owned.stagePlan,
+          agentRunPlan: owned.agentRunPlan,
+          evidencePlan: owned.evidencePlan,
+          status,
+          createdAt: owned.createdAt,
+          updatedAt,
+        },
+      });
+    } catch (err) {
+      console.error("[workspace/agent-workflows PATCH] failed:", err);
+      return c.json({ ok: false, error: "update_failed" }, 500);
+    }
+  });
+
+  // ── DELETE (Stage 118 — explicit removal; own record only) ───────────────────
+  app.delete("/workspace/agent-workflows/:id", async (c) => {
+    const id = c.req.param("id");
+    const userKey = c.req.query("userKey") ?? "";
+    if (!userKey) return c.json({ ok: false, error: "userKey_required" }, 400);
+    try {
+      const owned = await getOwnedWorkflowRecordById(c.env, id);
+      // 404 (not 403) for missing OR cross-tenant. A repeated delete also 404s.
+      if (!owned || owned.userKey !== userKey) {
+        return c.json({ ok: false, error: "not_found" }, 404);
+      }
+      await deleteWorkflowRecordById(c.env, id);
+      return c.json({ ok: true, deleted: true, id });
+    } catch (err) {
+      console.error("[workspace/agent-workflows DELETE] failed:", err);
+      return c.json({ ok: false, error: "delete_failed" }, 500);
     }
   });
 

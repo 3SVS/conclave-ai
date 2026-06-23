@@ -153,28 +153,32 @@ export async function insertWorkflowRecord(
 
 export async function listWorkflowRecords(
   env: Env,
-  opts: { userKey: string; projectId?: string; limit?: number },
+  opts: { userKey: string; projectId?: string; includeArchived?: boolean; limit?: number },
 ): Promise<WorkflowRecordListItem[]> {
   const limit = opts.limit && opts.limit > 0 ? Math.min(opts.limit, 100) : 50;
   // Always scoped to the caller's user_key. The optional project_id filter
-  // applies WITHIN that scope (records may exist without a project).
-  const stmt = opts.projectId
-    ? env.DB.prepare(
-        `SELECT id, project_id, intake_type, title, source_summary, status, created_at, updated_at
-           FROM workspace_agent_workflow_records
-          WHERE user_key = ? AND project_id = ?
-          ORDER BY created_at DESC
-          LIMIT ?`,
-      ).bind(opts.userKey, opts.projectId, limit)
-    : env.DB.prepare(
-        `SELECT id, project_id, intake_type, title, source_summary, status, created_at, updated_at
-           FROM workspace_agent_workflow_records
-          WHERE user_key = ?
-          ORDER BY created_at DESC
-          LIMIT ?`,
-      ).bind(opts.userKey, limit);
+  // applies WITHIN that scope. Archived records are excluded by default
+  // (Stage 118) unless includeArchived is set.
+  const where = ["user_key = ?"];
+  const binds: Array<string | number> = [opts.userKey];
+  if (opts.projectId) {
+    where.push("project_id = ?");
+    binds.push(opts.projectId);
+  }
+  if (!opts.includeArchived) {
+    where.push("status != 'archived'");
+  }
+  binds.push(limit);
 
-  const res = await stmt.all();
+  const res = await env.DB.prepare(
+    `SELECT id, project_id, intake_type, title, source_summary, status, created_at, updated_at
+       FROM workspace_agent_workflow_records
+      WHERE ${where.join(" AND ")}
+      ORDER BY created_at DESC
+      LIMIT ?`,
+  )
+    .bind(...binds)
+    .all();
   const rows = (res?.results ?? []) as Array<{
     id: string;
     project_id: string | null;
@@ -231,4 +235,32 @@ export async function getOwnedWorkflowRecordById(
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+/**
+ * Update a record's status (Stage 118 — archive/restore). The caller MUST have
+ * already verified ownership (`record.userKey === currentUserKey`); this updates
+ * by id only. Returns the new updatedAt.
+ */
+export async function updateWorkflowRecordStatus(
+  env: Env,
+  id: string,
+  status: WorkflowRecordStatus,
+  now?: string,
+): Promise<string> {
+  const updatedAt = now ?? new Date().toISOString();
+  await env.DB.prepare(
+    `UPDATE workspace_agent_workflow_records SET status = ?, updated_at = ? WHERE id = ?`,
+  )
+    .bind(status, updatedAt, id)
+    .run();
+  return updatedAt;
+}
+
+/**
+ * Hard-delete a record by id (Stage 118 — explicit removal). The caller MUST
+ * have already verified ownership before calling this.
+ */
+export async function deleteWorkflowRecordById(env: Env, id: string): Promise<void> {
+  await env.DB.prepare(`DELETE FROM workspace_agent_workflow_records WHERE id = ?`).bind(id).run();
 }

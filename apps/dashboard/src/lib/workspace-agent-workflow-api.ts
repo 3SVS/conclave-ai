@@ -63,6 +63,8 @@ export type WorkflowRecordListItem = {
 type SaveResponse = { ok: true; record: WorkflowRecord } | { ok: false; error: string };
 type ListResponse = { ok: true; records: WorkflowRecordListItem[] } | { ok: false; error: string };
 type DetailResponse = { ok: true; record: WorkflowRecord } | { ok: false; error: string };
+type PatchResponse = { ok: true; record: WorkflowRecord } | { ok: false; error: string };
+type DeleteResponse = { ok: true; deleted: true; id: string } | { ok: false; error: string };
 
 const base = `${CENTRAL_PLANE_URL}/workspace/agent-workflows`;
 
@@ -82,13 +84,47 @@ export async function saveWorkflowRecord(input: SaveWorkflowRecordInput): Promis
 
 export async function listWorkflowRecords(
   userKey: string,
-  projectId?: string,
+  opts: { projectId?: string; includeArchived?: boolean } = {},
 ): Promise<ListResponse> {
   try {
     const params = new URLSearchParams({ userKey });
-    if (projectId) params.set("projectId", projectId);
+    if (opts.projectId) params.set("projectId", opts.projectId);
+    if (opts.includeArchived) params.set("includeArchived", "true");
     const resp = await fetch(`${base}?${params}`, { signal: AbortSignal.timeout(8000) });
     return (await resp.json()) as ListResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+/** Stage 118 — archive / restore / relabel a saved record (tenant-scoped). */
+export async function patchWorkflowRecordStatus(
+  id: string,
+  userKey: string,
+  status: WorkflowRecordStatus,
+): Promise<PatchResponse> {
+  try {
+    const resp = await fetch(`${base}/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userKey, status }),
+      signal: AbortSignal.timeout(8000),
+    });
+    return (await resp.json()) as PatchResponse;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+/** Stage 118 — explicit removal of a saved record (tenant-scoped). */
+export async function deleteWorkflowRecord(id: string, userKey: string): Promise<DeleteResponse> {
+  try {
+    const params = new URLSearchParams({ userKey });
+    const resp = await fetch(`${base}/${encodeURIComponent(id)}?${params}`, {
+      method: "DELETE",
+      signal: AbortSignal.timeout(8000),
+    });
+    return (await resp.json()) as DeleteResponse;
   } catch (err) {
     return { ok: false, error: String(err) };
   }
