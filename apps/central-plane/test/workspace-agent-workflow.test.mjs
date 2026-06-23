@@ -34,6 +34,20 @@ function makeDb({ records = [] } = {}) {
               });
               return { meta: { changes: 1 } };
             }
+            if (sql.includes("UPDATE workspace_agent_workflow_records SET status")) {
+              const [status, updated_at, id] = args;
+              const rec = records.find((r) => r.id === id);
+              if (rec) {
+                rec.status = status;
+                rec.updated_at = updated_at;
+              }
+              return { meta: { changes: rec ? 1 : 0 } };
+            }
+            if (sql.includes("DELETE FROM workspace_agent_workflow_records")) {
+              const idx = records.findIndex((r) => r.id === args[0]);
+              if (idx >= 0) records.splice(idx, 1);
+              return { meta: { changes: idx >= 0 ? 1 : 0 } };
+            }
             return { meta: { changes: 0 } };
           },
           async first() {
@@ -43,12 +57,39 @@ function makeDb({ records = [] } = {}) {
             return null;
           },
           async all() {
-            if (sql.includes("FROM workspace_agent_workflow_records")) {
+            // Admin list (Stage 121): SELECT begins "id, user_key, project_id";
+            // optional WHERE user_key=? / status=? / status!='archived'; LIMIT cap.
+            if (sql.includes("id, user_key, project_id") && sql.includes("FROM workspace_agent_workflow_records")) {
+              let i = 0;
               let rows = records;
-              if (sql.includes("WHERE user_key = ? AND project_id = ?")) {
-                rows = records.filter((r) => r.user_key === args[0] && r.project_id === args[1]);
-              } else if (sql.includes("WHERE user_key = ?")) {
-                rows = records.filter((r) => r.user_key === args[0]);
+              if (sql.includes("user_key = ?")) {
+                const uk = args[i];
+                i += 1;
+                rows = rows.filter((r) => r.user_key === uk);
+              }
+              if (sql.includes("status = ?")) {
+                const st = args[i];
+                i += 1;
+                rows = rows.filter((r) => r.status === st);
+              } else if (sql.includes("status != 'archived'")) {
+                rows = rows.filter((r) => r.status !== "archived");
+              }
+              const sorted = [...rows].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+              return { results: sorted };
+            }
+            if (sql.includes("FROM workspace_agent_workflow_records")) {
+              // User list. Positional binds: user_key, [project_id], limit.
+              // Archived filter ("status != 'archived'") is a SQL literal.
+              let i = 0;
+              let rows = records.filter((r) => r.user_key === args[i]);
+              i += 1;
+              if (sql.includes("project_id = ?")) {
+                const pid = args[i];
+                i += 1;
+                rows = rows.filter((r) => r.project_id === pid);
+              }
+              if (sql.includes("status != 'archived'")) {
+                rows = rows.filter((r) => r.status !== "archived");
               }
               const sorted = [...rows].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
               return { results: sorted };
@@ -68,12 +109,14 @@ function makeDb({ records = [] } = {}) {
 }
 
 function makeEnv(opts = {}) {
-  return { ENVIRONMENT: "test", DB: makeDb(opts) };
+  const env = { ENVIRONMENT: "test", DB: makeDb(opts) };
+  if (opts.adminKey) env.ADMIN_USAGE_STATS_KEY = opts.adminKey;
+  return env;
 }
 
-async function req(env, method, path, body) {
+async function req(env, method, path, body, headers = {}) {
   const app = createApp();
-  const init = { method, headers: { "content-type": "application/json" } };
+  const init = { method, headers: { "content-type": "application/json", ...headers } };
   if (body !== undefined) init.body = JSON.stringify(body);
   const res = await app.fetch(new Request(`http://localhost${path}`, init), env);
   let json = null;
@@ -84,6 +127,9 @@ async function req(env, method, path, body) {
   }
   return { status: res.status, json };
 }
+
+const ADMIN_KEY = "admin_secret_test";
+const adminHdr = { "x-admin-key": ADMIN_KEY };
 
 const validBody = (over = {}) => ({
   userKey: USER,
@@ -310,4 +356,212 @@ test("isolation: a record created by one user is invisible to another by id", as
   assert.equal(detail.status, 404);
   const list = await req(env, "GET", `/workspace/agent-workflows?userKey=${OTHER}`);
   assert.equal(list.json.records.length, 0);
+});
+
+// ─── Stage 118 — archive / restore / delete + includeArchived ──────────────────
+
+async function createRecord(env, over) {
+  const r = await req(env, "POST", "/workspace/agent-workflows", validBody(over));
+  return r.json.record.id;
+}
+
+test("PATCH archive: own record → status archived, user_key not exposed", async () => {
+  const env = makeEnv();
+  const id = await createRecord(env);
+  const { status, json } = await req(env, "PATCH", `/workspace/agent-workflows/${id}`, {
+    userKey: USER,
+    status: "archived",
+  });
+  assert.equal(status, 200);
+  assert.equal(json.ok, true);
+  assert.equal(json.record.status, "archived");
+  assert.equal(json.record.userKey, undefined);
+});
+
+test("PATCH restore: archived → planned", async () => {
+  const env = makeEnv();
+  const id = await createRecord(env);
+  await req(env, "PATCH", `/workspace/agent-workflows/${id}`, { userKey: USER, status: "archived" });
+  const { json } = await req(env, "PATCH", `/workspace/agent-workflows/${id}`, {
+    userKey: USER,
+    status: "planned",
+  });
+  assert.equal(json.record.status, "planned");
+});
+
+test("PATCH: invalid status returns 400", async () => {
+  const env = makeEnv();
+  const id = await createRecord(env);
+  for (const bad of ["draft", "verified", "deleted", ""]) {
+    const { status, json } = await req(env, "PATCH", `/workspace/agent-workflows/${id}`, {
+      userKey: USER,
+      status: bad,
+    });
+    assert.equal(status, 400, `status ${bad}`);
+    assert.equal(json.error, "invalid_status");
+  }
+});
+
+test("PATCH: missing userKey returns 400", async () => {
+  const env = makeEnv();
+  const id = await createRecord(env);
+  const { status, json } = await req(env, "PATCH", `/workspace/agent-workflows/${id}`, {
+    status: "archived",
+  });
+  assert.equal(status, 400);
+  assert.equal(json.error, "userKey_required");
+});
+
+test("PATCH: cross-tenant record returns 404", async () => {
+  const env = makeEnv();
+  const id = await createRecord(env, { userKey: USER });
+  const { status, json } = await req(env, "PATCH", `/workspace/agent-workflows/${id}`, {
+    userKey: OTHER,
+    status: "archived",
+  });
+  assert.equal(status, 404);
+  assert.equal(json.error, "not_found");
+});
+
+test("DELETE: own record succeeds, repeated delete returns 404", async () => {
+  const env = makeEnv();
+  const id = await createRecord(env);
+  const first = await req(env, "DELETE", `/workspace/agent-workflows/${id}?userKey=${USER}`);
+  assert.equal(first.status, 200);
+  assert.equal(first.json.deleted, true);
+  const second = await req(env, "DELETE", `/workspace/agent-workflows/${id}?userKey=${USER}`);
+  assert.equal(second.status, 404);
+});
+
+test("DELETE: cross-tenant record returns 404 and does not delete", async () => {
+  const env = makeEnv();
+  const id = await createRecord(env, { userKey: USER });
+  const cross = await req(env, "DELETE", `/workspace/agent-workflows/${id}?userKey=${OTHER}`);
+  assert.equal(cross.status, 404);
+  // Owner can still read it.
+  const detail = await req(env, "GET", `/workspace/agent-workflows/${id}?userKey=${USER}`);
+  assert.equal(detail.status, 200);
+});
+
+test("DELETE: missing userKey returns 400", async () => {
+  const env = makeEnv();
+  const id = await createRecord(env);
+  const { status, json } = await req(env, "DELETE", `/workspace/agent-workflows/${id}`);
+  assert.equal(status, 400);
+  assert.equal(json.error, "userKey_required");
+});
+
+test("GET list: excludes archived by default, includeArchived=true includes them", async () => {
+  const env = makeEnv();
+  const keep = await createRecord(env, { title: "Active" });
+  const arch = await createRecord(env, { title: "ToArchive" });
+  await req(env, "PATCH", `/workspace/agent-workflows/${arch}`, { userKey: USER, status: "archived" });
+
+  const def = await req(env, "GET", `/workspace/agent-workflows?userKey=${USER}`);
+  assert.equal(def.json.records.length, 1);
+  assert.equal(def.json.records[0].id, keep);
+
+  const all = await req(env, "GET", `/workspace/agent-workflows?userKey=${USER}&includeArchived=true`);
+  assert.equal(all.json.records.length, 2);
+});
+
+test("GET detail: still returns an own archived record", async () => {
+  const env = makeEnv();
+  const id = await createRecord(env);
+  await req(env, "PATCH", `/workspace/agent-workflows/${id}`, { userKey: USER, status: "archived" });
+  const { status, json } = await req(env, "GET", `/workspace/agent-workflows/${id}?userKey=${USER}`);
+  assert.equal(status, 200);
+  assert.equal(json.record.status, "archived");
+});
+
+// ─── Stage 121 — admin beta console (x-admin-key gated, across userKeys) ────────
+
+async function seedTwoUsers(env) {
+  // USER: one planned + one archived; OTHER: one planned (different intake type)
+  const a = await createRecord(env, { userKey: USER, title: "A planned" });
+  const b = await createRecord(env, { userKey: USER, title: "B toArchive" });
+  await req(env, "PATCH", `/workspace/agent-workflows/${b}`, { userKey: USER, status: "archived" });
+  const c = await req(env, "POST", "/workspace/agent-workflows", validBody({ userKey: OTHER, intakeType: "prd", title: "C other" }));
+  return { a, b, cId: c.json.record.id };
+}
+
+test("admin list: requires admin key (503 when unset, 401 on mismatch)", async () => {
+  const noKey = makeEnv();
+  const disabled = await req(noKey, "GET", "/workspace/admin/agent-workflows");
+  assert.equal(disabled.status, 503);
+
+  const env = makeEnv({ adminKey: ADMIN_KEY });
+  const unauth = await req(env, "GET", "/workspace/admin/agent-workflows");
+  assert.equal(unauth.status, 401);
+  const wrong = await req(env, "GET", "/workspace/admin/agent-workflows", undefined, { "x-admin-key": "nope" });
+  assert.equal(wrong.status, 401);
+});
+
+test("admin list: returns summaries across userKeys + summary counts (no snapshots)", async () => {
+  const env = makeEnv({ adminKey: ADMIN_KEY });
+  await seedTwoUsers(env);
+  const { status, json } = await req(env, "GET", "/workspace/admin/agent-workflows?includeArchived=true", undefined, adminHdr);
+  assert.equal(status, 200);
+  assert.equal(json.records.length, 3);
+  // user_key is visible to admin; snapshot JSON is not.
+  assert.ok(json.records.every((r) => typeof r.userKey === "string"));
+  assert.ok(json.records.every((r) => r.acceptanceMap === undefined && r.stagePlan === undefined));
+  assert.equal(json.summary.total, 3);
+  assert.equal(json.summary.uniqueUserKeys, 2);
+  assert.equal(json.summary.byStatus.archived, 1);
+  assert.equal(json.summary.byStatus.planned, 2);
+  assert.ok(json.summary.byIntakeType.github_repo >= 1);
+  assert.ok(json.summary.byIntakeType.prd >= 1);
+});
+
+test("admin list: excludes archived by default; includeArchived=true includes", async () => {
+  const env = makeEnv({ adminKey: ADMIN_KEY });
+  await seedTwoUsers(env);
+  const def = await req(env, "GET", "/workspace/admin/agent-workflows", undefined, adminHdr);
+  assert.equal(def.json.records.length, 2); // archived excluded
+  const all = await req(env, "GET", "/workspace/admin/agent-workflows?includeArchived=true", undefined, adminHdr);
+  assert.equal(all.json.records.length, 3);
+});
+
+test("admin list: userKey + status filters", async () => {
+  const env = makeEnv({ adminKey: ADMIN_KEY });
+  await seedTwoUsers(env);
+  const byUser = await req(env, "GET", `/workspace/admin/agent-workflows?userKey=${OTHER}`, undefined, adminHdr);
+  assert.equal(byUser.json.records.length, 1);
+  assert.equal(byUser.json.records[0].userKey, OTHER);
+  const byStatus = await req(env, "GET", "/workspace/admin/agent-workflows?status=archived", undefined, adminHdr);
+  assert.equal(byStatus.json.records.length, 1);
+  assert.equal(byStatus.json.records[0].status, "archived");
+});
+
+test("admin PATCH: archives/restores any record regardless of userKey", async () => {
+  const env = makeEnv({ adminKey: ADMIN_KEY });
+  const id = await createRecord(env, { userKey: OTHER });
+  const arch = await req(env, "PATCH", `/workspace/admin/agent-workflows/${id}`, { status: "archived" }, adminHdr);
+  assert.equal(arch.status, 200);
+  assert.equal(arch.json.record.status, "archived");
+  assert.equal(arch.json.record.userKey, OTHER);
+});
+
+test("admin PATCH: invalid status 400; missing record 404; non-admin 401", async () => {
+  const env = makeEnv({ adminKey: ADMIN_KEY });
+  const id = await createRecord(env, { userKey: USER });
+  const bad = await req(env, "PATCH", `/workspace/admin/agent-workflows/${id}`, { status: "verified" }, adminHdr);
+  assert.equal(bad.status, 400);
+  const missing = await req(env, "PATCH", "/workspace/admin/agent-workflows/wawr_nope", { status: "archived" }, adminHdr);
+  assert.equal(missing.status, 404);
+  const noauth = await req(env, "PATCH", `/workspace/admin/agent-workflows/${id}`, { status: "archived" });
+  assert.equal(noauth.status, 401);
+});
+
+test("admin DELETE: removes any record; missing 404; non-admin 401", async () => {
+  const env = makeEnv({ adminKey: ADMIN_KEY });
+  const id = await createRecord(env, { userKey: OTHER });
+  const noauth = await req(env, "DELETE", `/workspace/admin/agent-workflows/${id}`);
+  assert.equal(noauth.status, 401);
+  const del = await req(env, "DELETE", `/workspace/admin/agent-workflows/${id}`, undefined, adminHdr);
+  assert.equal(del.status, 200);
+  assert.equal(del.json.deleted, true);
+  const again = await req(env, "DELETE", `/workspace/admin/agent-workflows/${id}`, undefined, adminHdr);
+  assert.equal(again.status, 404);
 });

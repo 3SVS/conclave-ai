@@ -61,12 +61,30 @@ import {
   saveWorkflowRecord,
   listWorkflowRecords,
   getWorkflowRecord,
+  patchWorkflowRecordStatus,
+  deleteWorkflowRecord,
 } from "@/lib/workspace-agent-workflow-api";
 import type {
   WorkflowRecord,
   WorkflowRecordListItem,
 } from "@/lib/workspace-agent-workflow-api";
 import { getUserKey } from "@/lib/workflow-store";
+import { buildBetaFeedbackMailto } from "@/lib/beta-feedback.mjs";
+import {
+  ONBOARDING_HEADING,
+  ONBOARDING_INTRO,
+  ONBOARDING_STEPS,
+  ONBOARDING_SAFETY_LINE,
+  PREVIEW_LANGUAGE_ITEMS,
+  BETA_SAFETY_NOTES,
+  EMPTY_STATES,
+} from "@/lib/beta-onboarding.mjs";
+import {
+  BETA_USAGE_BOUNDARY_HEADING,
+  BETA_USAGE_BOUNDARY_ITEMS,
+  BETA_USAGE_NOT_ACTIVE_COPY,
+  SAVED_WORKFLOW_USAGE_NOTE,
+} from "@/lib/beta-usage-boundary.mjs";
 import { buildBenchmarkHandoffPreview } from "@/lib/intake-benchmark-handoff.mjs";
 import { buildDecisionOutcomeLinkPreview } from "@/lib/intake-decision-outcome-link.mjs";
 import { buildEvolutionActionPackPreview } from "@/lib/intake-evolution-action-preview.mjs";
@@ -92,6 +110,10 @@ export default function IntakePage() {
   const [listLoading, setListLoading] = useState(false);
   const [openRecord, setOpenRecord] = useState<WorkflowRecord | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  // Stage 118 — saved workflow management (archive / restore / delete).
+  const [showArchived, setShowArchived] = useState(false);
+  const [manageBusyId, setManageBusyId] = useState<string | null>(null);
+  const [manageMsg, setManageMsg] = useState<string | null>(null);
 
   const meta = type ? INTAKE_META[type] : null;
 
@@ -197,11 +219,17 @@ export default function IntakePage() {
     setSaving(false);
   }
 
-  async function refreshSavedList() {
+  async function refreshSavedList(includeArchived = showArchived) {
     setListLoading(true);
-    const res = await listWorkflowRecords(getUserKey());
+    const res = await listWorkflowRecords(getUserKey(), { includeArchived });
     setSavedList(res.ok ? res.records : []);
     setListLoading(false);
+  }
+
+  function toggleShowArchived() {
+    const next = !showArchived;
+    setShowArchived(next);
+    void refreshSavedList(next);
   }
 
   async function openSavedRecord(id: string) {
@@ -210,6 +238,39 @@ export default function IntakePage() {
     const res = await getWorkflowRecord(id, getUserKey());
     if (res.ok) setOpenRecord(res.record);
     setDetailLoading(false);
+  }
+
+  // Stage 118 — archive / restore a saved record, then refresh the list.
+  async function setRecordStatus(id: string, status: "planned" | "archived") {
+    setManageBusyId(id);
+    setManageMsg(null);
+    const res = await patchWorkflowRecordStatus(id, getUserKey(), status);
+    if (res.ok) {
+      setManageMsg(status === "archived" ? "Workflow archived." : "Workflow restored.");
+      if (openRecord?.id === id) setOpenRecord(res.record);
+      await refreshSavedList();
+    } else {
+      setManageMsg(`Could not update: ${res.error}`);
+    }
+    setManageBusyId(null);
+  }
+
+  // Stage 118 — explicit delete (with confirmation), then refresh the list.
+  async function removeRecord(id: string) {
+    if (typeof window !== "undefined" && !window.confirm("Delete this saved workflow plan? This cannot be undone.")) {
+      return;
+    }
+    setManageBusyId(id);
+    setManageMsg(null);
+    const res = await deleteWorkflowRecord(id, getUserKey());
+    if (res.ok) {
+      setManageMsg("Workflow deleted.");
+      if (openRecord?.id === id) setOpenRecord(null);
+      await refreshSavedList();
+    } else {
+      setManageMsg(`Could not delete: ${res.error}`);
+    }
+    setManageBusyId(null);
   }
 
   function selectType(next: WorkspaceIntakeType) {
@@ -245,12 +306,60 @@ export default function IntakePage() {
         <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
           What do you want Simsa to review?
         </h1>
-        <p className="mb-8 mt-2 text-sm text-gray-500">
+        <p className="mt-2 text-sm text-gray-500">
           Start from anything. Simsa turns it into a staged acceptance workflow.
         </p>
+        {/* Stage 119 — page-level beta feedback CTA */}
+        <p className="mt-2 text-xs text-gray-400">
+          <FeedbackLink label="Share beta feedback" context={{ section: "Intake workflow" }} />{" "}
+          — {BETA_SAFETY_NOTES.feedback}
+        </p>
+
+        {/* Stage 120 — preview-only onboarding panel */}
+        <div className="card mt-6 p-5">
+          <p className="text-sm font-semibold text-gray-900">{ONBOARDING_HEADING}</p>
+          <p className="mt-1 text-sm text-gray-500">{ONBOARDING_INTRO}</p>
+          <ol className="mt-3 space-y-1">
+            {ONBOARDING_STEPS.map((step, i) => (
+              <li key={step} className="flex gap-2 text-sm text-gray-700">
+                <span className="text-gray-400">{i + 1}.</span>
+                <span>{step}</span>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-3 rounded-md border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+            {ONBOARDING_SAFETY_LINE}
+          </p>
+
+          {/* Stage 120 — preview language legend */}
+          <p className="mt-4 text-xs font-medium text-gray-500">Preview language</p>
+          <dl className="mt-1 space-y-1">
+            {PREVIEW_LANGUAGE_ITEMS.map((item) => (
+              <div key={item.term} className="text-xs text-gray-600">
+                <dt className="inline font-medium text-gray-700">{item.term}</dt>
+                <dd className="inline"> — {item.meaning}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+
+        {/* Stage 122 — beta usage / cost boundary panel */}
+        <div className="card mt-6 p-5">
+          <p className="text-sm font-semibold text-gray-900">
+            {BETA_USAGE_BOUNDARY_HEADING}
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-600">
+            {BETA_USAGE_BOUNDARY_ITEMS.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+          <p className="mt-3 rounded-md border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+            {BETA_USAGE_NOT_ACTIVE_COPY}
+          </p>
+        </div>
 
         {/* Step 1 — pick a starting point */}
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="mt-8 grid grid-cols-1 gap-2 sm:grid-cols-2">
           {WORKSPACE_INTAKE_TYPES.map((t) => {
             const m = INTAKE_META[t];
             const selected = t === type;
@@ -276,13 +385,22 @@ export default function IntakePage() {
           })}
         </div>
 
+        {/* Stage 120 — empty state before a starting point is picked */}
+        {!meta && (
+          <p className="mt-4 text-sm text-gray-500">{EMPTY_STATES.beforeInput}</p>
+        )}
+
         {/* Step 2 — paste what you have */}
         {meta && (
           <div className="mt-8">
             <label className="mb-2 block text-sm font-medium text-gray-900">
               Paste what you have.
             </label>
-            <p className="mb-2 text-xs text-gray-400">{meta.inputHint}</p>
+            <p className="text-xs text-gray-400">{meta.inputHint}</p>
+            {/* Stage 120 — before-input beta safety note */}
+            <p className="mb-2 mt-1 text-xs text-amber-600">
+              {BETA_SAFETY_NOTES.beforeInput}
+            </p>
             <textarea
               value={rawInput}
               onChange={(e) => {
@@ -794,6 +912,13 @@ export default function IntakePage() {
             <p className="mt-4 text-xs text-gray-400">
               Preview only — evidence is expected, not collected or verified.
             </p>
+            {/* Stage 119 — preview-section feedback CTA */}
+            <p className="mt-2">
+              <FeedbackLink
+                label="Feedback on this preview"
+                context={{ intakeType: type ?? undefined, section: "Evidence Plan" }}
+              />
+            </p>
           </div>
         )}
 
@@ -856,15 +981,34 @@ export default function IntakePage() {
             <p className="text-xs uppercase tracking-wide text-gray-400">
               Saved workflow plans
             </p>
-            <button
-              type="button"
-              onClick={refreshSavedList}
-              disabled={listLoading}
-              className="btn btn-secondary btn-sm"
-            >
-              {listLoading ? "Loading…" : "Refresh"}
-            </button>
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-1.5 text-xs text-gray-500">
+                <input
+                  type="checkbox"
+                  checked={showArchived}
+                  onChange={toggleShowArchived}
+                />
+                Show archived
+              </label>
+              <button
+                type="button"
+                onClick={() => refreshSavedList()}
+                disabled={listLoading}
+                className="btn btn-secondary btn-sm"
+              >
+                {listLoading ? "Loading…" : "Refresh"}
+              </button>
+            </div>
           </div>
+
+          {/* Stage 120/122 — beta tenant-scope + retention + usage-boundary notes */}
+          <p className="mt-2 text-xs text-gray-400">{SAVED_WORKFLOW_USAGE_NOTE}</p>
+          <p className="mt-1 text-xs text-gray-400">{BETA_SAFETY_NOTES.savedScope}</p>
+          <p className="mt-1 text-xs text-gray-400">{BETA_SAFETY_NOTES.savedRetention}</p>
+
+          {manageMsg && (
+            <p className="mt-2 text-xs text-gray-500">{manageMsg}</p>
+          )}
 
           {savedList === null && (
             <p className="mt-3 text-sm text-gray-500">
@@ -872,9 +1016,10 @@ export default function IntakePage() {
             </p>
           )}
           {savedList !== null && savedList.length === 0 && (
-            <p className="mt-3 text-sm text-gray-500">
-              No saved workflow plans yet.
-            </p>
+            <p className="mt-3 text-sm text-gray-500">{EMPTY_STATES.noSavedRecords}</p>
+          )}
+          {savedList !== null && savedList.length > 0 && !openRecord && !detailLoading && (
+            <p className="mt-3 text-xs text-gray-400">{EMPTY_STATES.noOpenedRecord}</p>
           )}
           {savedList !== null && savedList.length > 0 && (
             <ul className="mt-3 space-y-2">
@@ -896,15 +1041,44 @@ export default function IntakePage() {
                   </div>
                   <p className="mt-1 text-xs text-gray-500">{r.sourceSummary}</p>
                   <p className="mt-1 text-xs text-gray-400">
-                    {r.id} · {r.createdAt}
+                    {r.id} · created {r.createdAt} · updated {r.updatedAt}
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => openSavedRecord(r.id)}
-                    className="btn btn-secondary btn-sm mt-2"
-                  >
-                    Open
-                  </button>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openSavedRecord(r.id)}
+                      className="btn btn-secondary btn-sm"
+                    >
+                      Open
+                    </button>
+                    {r.status === "archived" ? (
+                      <button
+                        type="button"
+                        onClick={() => setRecordStatus(r.id, "planned")}
+                        disabled={manageBusyId === r.id}
+                        className="btn btn-secondary btn-sm"
+                      >
+                        {manageBusyId === r.id ? "…" : "Restore"}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setRecordStatus(r.id, "archived")}
+                        disabled={manageBusyId === r.id}
+                        className="btn btn-secondary btn-sm"
+                      >
+                        {manageBusyId === r.id ? "…" : "Archive"}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeRecord(r.id)}
+                      disabled={manageBusyId === r.id}
+                      className="btn btn-secondary btn-sm text-red-600"
+                    >
+                      {manageBusyId === r.id ? "…" : "Delete"}
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -953,6 +1127,17 @@ export default function IntakePage() {
               <p className="mt-2 text-xs text-gray-400">
                 Read-only snapshot of a saved plan. No agent execution or evidence
                 collection happened.
+              </p>
+              {/* Stage 119 — saved-workflow feedback CTA */}
+              <p className="mt-2">
+                <FeedbackLink
+                  label="Send feedback on this saved workflow"
+                  context={{
+                    intakeType: openRecord.intakeType,
+                    workflowRecordId: openRecord.id,
+                    section: "Saved workflow detail",
+                  }}
+                />
               </p>
 
               {/* Stage 113 — benchmark handoff preview from the saved record */}
@@ -1230,6 +1415,32 @@ export default function IntakePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Stage 119 — beta feedback CTA. Opens a mailto with SAFE context only (no
+// pasted content, workflow snapshots, or userKey are ever included).
+function FeedbackLink({
+  label,
+  context,
+  className,
+}: {
+  label: string;
+  context?: {
+    route?: string;
+    intakeType?: string;
+    workflowRecordId?: string;
+    section?: string;
+  };
+  className?: string;
+}) {
+  return (
+    <a
+      href={buildBetaFeedbackMailto({ route: "/projects/new/intake", ...context })}
+      className={className ?? "text-xs font-medium text-brand-600 hover:underline"}
+    >
+      {label}
+    </a>
   );
 }
 
