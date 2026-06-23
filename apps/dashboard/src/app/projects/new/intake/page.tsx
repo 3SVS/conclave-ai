@@ -88,6 +88,10 @@ import {
 import { buildBenchmarkHandoffPreview } from "@/lib/intake-benchmark-handoff.mjs";
 import { buildDecisionOutcomeLinkPreview } from "@/lib/intake-decision-outcome-link.mjs";
 import { buildEvolutionActionPackPreview } from "@/lib/intake-evolution-action-preview.mjs";
+import { buildAcceptanceGraphDerivedView } from "@/lib/acceptance-graph-derived.mjs";
+import { buildRecurringBlockerDetectionView } from "@/lib/recurring-blocker-detection.mjs";
+import { buildAgentToolRecommendationMemoryView } from "@/lib/agent-tool-recommendation-memory.mjs";
+import { buildTemplateEffectivenessSignalsView } from "@/lib/template-effectiveness-signals.mjs";
 
 export default function IntakePage() {
   const [type, setType] = useState<WorkspaceIntakeType | null>(null);
@@ -173,6 +177,85 @@ export default function IntakePage() {
           })
         : null,
     [openRecord, handoff, outcomeLink],
+  );
+
+  // Stage 126 — derived Acceptance Graph view from the opened saved record +
+  // its decision/outcome + evolution-action previews. Derived only — no graph DB.
+  const graphView = useMemo(
+    () =>
+      openRecord
+        ? buildAcceptanceGraphDerivedView({
+            workflowRecordId: openRecord.id,
+            title: openRecord.title,
+            sourceSummary: openRecord.sourceSummary,
+            acceptanceMap: openRecord.acceptanceMap,
+            stagePlan: openRecord.stagePlan,
+            agentRunPlan: openRecord.agentRunPlan,
+            evidencePlan: openRecord.evidencePlan,
+            decisionOutcomePreview: outcomeLink ?? undefined,
+            evolutionActionPreview: actionPack ?? undefined,
+          })
+        : null,
+    [openRecord, outcomeLink, actionPack],
+  );
+
+  // Stage 127 — recurring blocker signals derived from the saved record + graph
+  // view + decision/action previews. Derived only — signals, not verified defects.
+  const blockerView = useMemo(
+    () =>
+      openRecord
+        ? buildRecurringBlockerDetectionView({
+            workflowRecordId: openRecord.id,
+            title: openRecord.title,
+            sourceSummary: openRecord.sourceSummary,
+            acceptanceGraphView: graphView ?? undefined,
+            acceptanceMap: openRecord.acceptanceMap,
+            stagePlan: openRecord.stagePlan,
+            agentRunPlan: openRecord.agentRunPlan,
+            evidencePlan: openRecord.evidencePlan,
+            decisionOutcomePreview: outcomeLink ?? undefined,
+            evolutionActionPreview: actionPack ?? undefined,
+          })
+        : null,
+    [openRecord, graphView, outcomeLink, actionPack],
+  );
+
+  // Stage 128 — per-workflow agent/tool recommendation memory. Derived only —
+  // tool fit is evidence alignment, not executed performance.
+  const toolMemory = useMemo(
+    () =>
+      openRecord
+        ? buildAgentToolRecommendationMemoryView({
+            workflowRecordId: openRecord.id,
+            title: openRecord.title,
+            sourceSummary: openRecord.sourceSummary,
+            agentRunPlan: openRecord.agentRunPlan,
+            evidencePlan: openRecord.evidencePlan,
+            recurringBlockerDetectionView: blockerView ?? undefined,
+          })
+        : null,
+    [openRecord, blockerView],
+  );
+
+  // Stage 129 — template effectiveness signals derived from the prior views.
+  // Derived only — not statistically validated, no cross-project analytics.
+  const templateSignals = useMemo(
+    () =>
+      openRecord
+        ? buildTemplateEffectivenessSignalsView({
+            workflowRecordId: openRecord.id,
+            title: openRecord.title,
+            sourceSummary: openRecord.sourceSummary,
+            acceptanceGraphView: graphView ?? undefined,
+            recurringBlockerDetectionView: blockerView ?? undefined,
+            agentToolMemoryView: toolMemory ?? undefined,
+            evidencePlan: openRecord.evidencePlan,
+            stagePlan: openRecord.stagePlan,
+            decisionOutcomePreview: outcomeLink ?? undefined,
+            evolutionActionPreview: actionPack ?? undefined,
+          })
+        : null,
+    [openRecord, graphView, blockerView, toolMemory, outcomeLink, actionPack],
   );
 
   function resetPreviews() {
@@ -1407,6 +1490,331 @@ export default function IntakePage() {
                   <p className="mt-4 text-xs text-gray-400">
                     Preview only — no action pack, fix, rerun, or evidence
                     collection is created.
+                  </p>
+                </div>
+              )}
+
+              {/* Stage 126 — derived Acceptance Graph view from the saved record */}
+              {graphView && (
+                <div className="mt-4 rounded-lg border border-gray-200 bg-white p-4">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">
+                    Acceptance Graph Derived View · confidence: {graphView.confidence}
+                  </p>
+                  <p className="mt-2 text-sm text-gray-500">{graphView.summary}</p>
+
+                  <p className="mt-3 text-sm font-medium text-gray-900">Signal summary</p>
+                  <dl className="mt-1 grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-4">
+                    {(
+                      [
+                        ["acceptanceItemCount", "Acceptance items"],
+                        ["stageCount", "Stages"],
+                        ["agentTaskCount", "Agent tasks"],
+                        ["evidenceExpectationCount", "Evidence expectations"],
+                        ["notVerifiedCount", "Not verified"],
+                        ["decisionCandidateCount", "Decision candidates"],
+                        ["actionPreviewCount", "Action previews"],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <div key={key}>
+                        <dt className="text-xs text-gray-400">{label}</dt>
+                        <dd className="text-sm text-gray-700">
+                          {graphView.signalSummary[key]}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+
+                  {graphView.signalSummary.topAcceptanceAreas.length > 0 && (
+                    <>
+                      <p className="mt-4 text-sm font-medium text-gray-900">
+                        Top acceptance areas
+                      </p>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {graphView.signalSummary.topAcceptanceAreas.map((a) => (
+                          <span
+                            key={a.area}
+                            className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-gray-600"
+                          >
+                            {a.area.replace(/_/g, " ")} · {a.count}
+                          </span>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  {graphView.signalSummary.topEvidenceTypes.length > 0 && (
+                    <>
+                      <p className="mt-4 text-sm font-medium text-gray-900">
+                        Top evidence types
+                      </p>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {graphView.signalSummary.topEvidenceTypes.map((e) => (
+                          <span
+                            key={e.evidenceType}
+                            className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-gray-600"
+                          >
+                            {e.evidenceType.replace(/_/g, " ")} · {e.count}
+                          </span>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  <p className="mt-4 text-xs text-gray-500">
+                    {graphView.nodes.length} nodes · {graphView.edges.length} edges
+                    (sample below)
+                  </p>
+                  <ul className="mt-1 space-y-0.5 text-xs text-gray-600">
+                    {graphView.nodes.slice(0, 6).map((n) => (
+                      <li key={n.id}>
+                        <span className="text-gray-400">{n.type.replace(/_/g, " ")}:</span>{" "}
+                        {n.label}
+                      </li>
+                    ))}
+                  </ul>
+                  <ul className="mt-1 space-y-0.5 text-xs text-gray-500">
+                    {graphView.edges.slice(0, 6).map((e) => (
+                      <li key={e.id}>
+                        {e.from} <span className="text-gray-400">{e.label} →</span> {e.to}
+                      </li>
+                    ))}
+                  </ul>
+
+                  <StageDetail label="Not included yet" items={graphView.notIncludedYet} />
+
+                  <p className="mt-4 text-xs text-gray-400">
+                    Derived preview only — no graph database or model training is
+                    created.
+                  </p>
+                </div>
+              )}
+
+              {/* Stage 127 — recurring blocker signals from the saved record */}
+              {blockerView && (
+                <div className="mt-4 rounded-lg border border-gray-200 bg-white p-4">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">
+                    Recurring Blocker Signals · confidence: {blockerView.confidence}
+                  </p>
+                  <p className="mt-2 text-sm text-gray-500">{blockerView.summary}</p>
+
+                  {blockerView.blockers.length === 0 ? (
+                    <p className="mt-3 text-sm text-gray-500">
+                      No recurring blocker signals detected yet. This does not mean
+                      the workflow is verified — only that this saved workflow does
+                      not contain repeated blocker patterns.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="mt-3 text-sm text-gray-700">
+                        Top blocker type:{" "}
+                        {blockerView.topBlockerType?.replace(/_/g, " ")}
+                      </p>
+                      <div className="mt-3 space-y-2">
+                        {blockerView.blockers.map((b) => (
+                          <div
+                            key={b.id}
+                            className="rounded-md border border-gray-100 bg-gray-50 p-3"
+                          >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-medium text-gray-800">
+                                {b.title}
+                              </span>
+                              <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                                {b.type.replace(/_/g, " ")}
+                              </span>
+                              <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                                {b.severity}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-sm text-gray-600">{b.summary}</p>
+                            <p className="mt-1 text-xs text-gray-500">
+                              {b.sourceSignals.length > 0 &&
+                                `Signals: ${b.sourceSignals.join("; ")}`}
+                              {b.relatedAcceptanceAreas.length > 0 &&
+                                ` · Areas: ${b.relatedAcceptanceAreas
+                                  .map((a) => a.replace(/_/g, " "))
+                                  .join(", ")}`}
+                              {b.relatedEvidenceTypes.length > 0 &&
+                                ` · Evidence: ${b.relatedEvidenceTypes
+                                  .map((e) => e.replace(/_/g, " "))
+                                  .join(", ")}`}
+                              {b.relatedStageNumbers.length > 0 &&
+                                ` · Stages: ${b.relatedStageNumbers.join(", ")}`}
+                            </p>
+                            <p className="mt-1.5 text-sm text-gray-700">
+                              {b.suggestedNextAction}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  <StageDetail label="Not included yet" items={blockerView.notIncludedYet} />
+
+                  <p className="mt-4 text-xs text-gray-400">
+                    Derived preview only — blocker signals are not verified defects.
+                  </p>
+                </div>
+              )}
+
+              {/* Stage 128 — agent/tool recommendation memory from the saved record */}
+              {toolMemory && (
+                <div className="mt-4 rounded-lg border border-gray-200 bg-white p-4">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">
+                    Agent / Tool Recommendation Memory · confidence: {toolMemory.confidence}
+                  </p>
+                  <p className="mt-2 text-sm text-gray-500">{toolMemory.summary}</p>
+
+                  {toolMemory.items.length === 0 ? (
+                    <p className="mt-3 text-sm text-gray-500">
+                      No agent/tool recommendation memory detected yet. This saved
+                      workflow does not contain enough role/tool task structure to
+                      derive a memory signal.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="mt-3 text-sm text-gray-700">
+                        Top pairing:{" "}
+                        {toolMemory.topRole}/{toolMemory.topTool?.replace(/_/g, " ")} ·
+                        Evidence fit — strong {toolMemory.evidenceFitSummary.strong} ·
+                        partial {toolMemory.evidenceFitSummary.partial} · weak{" "}
+                        {toolMemory.evidenceFitSummary.weak} · unknown{" "}
+                        {toolMemory.evidenceFitSummary.unknown}
+                      </p>
+                      <div className="mt-3 space-y-2">
+                        {toolMemory.items.map((it) => (
+                          <div
+                            key={it.id}
+                            className="rounded-md border border-gray-100 bg-gray-50 p-3"
+                          >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-medium text-gray-800">
+                                {it.role} / {it.recommendedTool.replace(/_/g, " ")}
+                              </span>
+                              <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                                fit: {it.toolFit}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs text-gray-500">
+                              {it.stageNumbers.length > 0 &&
+                                `Stages: ${it.stageNumbers.join(", ")}`}
+                              {it.taskIds.length > 0 && ` · Tasks: ${it.taskIds.join(", ")}`}
+                              {it.blockerTypes.length > 0 &&
+                                ` · Blockers: ${it.blockerTypes
+                                  .map((b) => b.replace(/_/g, " "))
+                                  .join(", ")}`}
+                            </p>
+                            {it.expectedEvidenceTypes.length > 0 && (
+                              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                {it.expectedEvidenceTypes.map((e) => (
+                                  <span
+                                    key={e}
+                                    className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs text-gray-600"
+                                  >
+                                    {e.replace(/_/g, " ")}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            <p className="mt-1.5 text-sm text-gray-600">{it.memoryNote}</p>
+                            <p className="mt-1 text-xs text-gray-500">
+                              {it.suggestedFutureUse}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  <StageDetail label="Not included yet" items={toolMemory.notIncludedYet} />
+
+                  <p className="mt-4 text-xs text-gray-400">
+                    Derived preview only — tool fit is not based on executed
+                    performance.
+                  </p>
+                </div>
+              )}
+
+              {/* Stage 129 — template effectiveness signals from the saved record */}
+              {templateSignals && (
+                <div className="mt-4 rounded-lg border border-gray-200 bg-white p-4">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">
+                    Template Effectiveness Signals · confidence: {templateSignals.confidence}
+                  </p>
+                  <p className="mt-2 text-sm text-gray-500">{templateSignals.summary}</p>
+
+                  {templateSignals.signals.length === 0 ? (
+                    <p className="mt-3 text-sm text-gray-500">
+                      No template effectiveness signals detected yet. This saved
+                      workflow does not contain enough repeated structure to derive
+                      template signals.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="mt-3 text-sm text-gray-700">
+                        Quality — strong {templateSignals.qualityCounts.strong_alignment} ·
+                        partial {templateSignals.qualityCounts.partial_alignment} ·
+                        needs refinement {templateSignals.qualityCounts.needs_refinement} ·
+                        under-specified {templateSignals.qualityCounts.under_specified} ·
+                        unknown {templateSignals.qualityCounts.unknown}
+                      </p>
+                      {templateSignals.topNeedsRefinement.length > 0 && (
+                        <p className="mt-1 text-xs text-gray-500">
+                          Top needs refinement:{" "}
+                          {templateSignals.topNeedsRefinement.join("; ")}
+                        </p>
+                      )}
+                      <div className="mt-3 space-y-2">
+                        {templateSignals.signals.map((s) => (
+                          <div
+                            key={s.id}
+                            className="rounded-md border border-gray-100 bg-gray-50 p-3"
+                          >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-medium text-gray-800">
+                                {s.title}
+                              </span>
+                              <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                                {s.type.replace(/_/g, " ")}
+                              </span>
+                              <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                                {s.quality.replace(/_/g, " ")}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-sm text-gray-600">{s.summary}</p>
+                            <p className="mt-1 text-xs text-gray-500">
+                              {s.supportingSignals.length > 0 &&
+                                `Signals: ${s.supportingSignals.join("; ")}`}
+                              {s.blockerTypes.length > 0 &&
+                                ` · Blockers: ${s.blockerTypes
+                                  .map((b) => b.replace(/_/g, " "))
+                                  .join(", ")}`}
+                              {s.relatedAcceptanceAreas.length > 0 &&
+                                ` · Areas: ${s.relatedAcceptanceAreas
+                                  .map((a) => a.replace(/_/g, " "))
+                                  .join(", ")}`}
+                              {s.relatedEvidenceTypes.length > 0 &&
+                                ` · Evidence: ${s.relatedEvidenceTypes
+                                  .map((e) => e.replace(/_/g, " "))
+                                  .join(", ")}`}
+                              {s.relatedStageNumbers.length > 0 &&
+                                ` · Stages: ${s.relatedStageNumbers.join(", ")}`}
+                            </p>
+                            <p className="mt-1.5 text-sm text-gray-700">
+                              {s.suggestedTemplateImprovement}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  <StageDetail label="Not included yet" items={templateSignals.notIncludedYet} />
+
+                  <p className="mt-4 text-xs text-gray-400">
+                    Derived preview only — template effectiveness is not
+                    statistically validated.
                   </p>
                 </div>
               )}
