@@ -70,6 +70,15 @@ import type {
 } from "@/lib/workspace-agent-workflow-api";
 import { getUserKey } from "@/lib/workflow-store";
 import { buildBetaFeedbackMailto } from "@/lib/beta-feedback.mjs";
+import {
+  ONBOARDING_HEADING,
+  ONBOARDING_INTRO,
+  ONBOARDING_STEPS,
+  ONBOARDING_SAFETY_LINE,
+  PREVIEW_LANGUAGE_ITEMS,
+  BETA_SAFETY_NOTES,
+  EMPTY_STATES,
+} from "@/lib/beta-onboarding.mjs";
 import { buildBenchmarkHandoffPreview } from "@/lib/intake-benchmark-handoff.mjs";
 import { buildDecisionOutcomeLinkPreview } from "@/lib/intake-decision-outcome-link.mjs";
 import { buildEvolutionActionPackPreview } from "@/lib/intake-evolution-action-preview.mjs";
@@ -295,14 +304,41 @@ export default function IntakePage() {
           Start from anything. Simsa turns it into a staged acceptance workflow.
         </p>
         {/* Stage 119 — page-level beta feedback CTA */}
-        <p className="mb-8 mt-2 text-xs text-gray-400">
+        <p className="mt-2 text-xs text-gray-400">
           <FeedbackLink label="Share beta feedback" context={{ section: "Intake workflow" }} />{" "}
-          — opens an email with safe context only (no pasted content or workflow
-          snapshots are included).
+          — {BETA_SAFETY_NOTES.feedback}
         </p>
 
+        {/* Stage 120 — preview-only onboarding panel */}
+        <div className="card mt-6 p-5">
+          <p className="text-sm font-semibold text-gray-900">{ONBOARDING_HEADING}</p>
+          <p className="mt-1 text-sm text-gray-500">{ONBOARDING_INTRO}</p>
+          <ol className="mt-3 space-y-1">
+            {ONBOARDING_STEPS.map((step, i) => (
+              <li key={step} className="flex gap-2 text-sm text-gray-700">
+                <span className="text-gray-400">{i + 1}.</span>
+                <span>{step}</span>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-3 rounded-md border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+            {ONBOARDING_SAFETY_LINE}
+          </p>
+
+          {/* Stage 120 — preview language legend */}
+          <p className="mt-4 text-xs font-medium text-gray-500">Preview language</p>
+          <dl className="mt-1 space-y-1">
+            {PREVIEW_LANGUAGE_ITEMS.map((item) => (
+              <div key={item.term} className="text-xs text-gray-600">
+                <dt className="inline font-medium text-gray-700">{item.term}</dt>
+                <dd className="inline"> — {item.meaning}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+
         {/* Step 1 — pick a starting point */}
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="mt-8 grid grid-cols-1 gap-2 sm:grid-cols-2">
           {WORKSPACE_INTAKE_TYPES.map((t) => {
             const m = INTAKE_META[t];
             const selected = t === type;
@@ -328,13 +364,22 @@ export default function IntakePage() {
           })}
         </div>
 
+        {/* Stage 120 — empty state before a starting point is picked */}
+        {!meta && (
+          <p className="mt-4 text-sm text-gray-500">{EMPTY_STATES.beforeInput}</p>
+        )}
+
         {/* Step 2 — paste what you have */}
         {meta && (
           <div className="mt-8">
             <label className="mb-2 block text-sm font-medium text-gray-900">
               Paste what you have.
             </label>
-            <p className="mb-2 text-xs text-gray-400">{meta.inputHint}</p>
+            <p className="text-xs text-gray-400">{meta.inputHint}</p>
+            {/* Stage 120 — before-input beta safety note */}
+            <p className="mb-2 mt-1 text-xs text-amber-600">
+              {BETA_SAFETY_NOTES.beforeInput}
+            </p>
             <textarea
               value={rawInput}
               onChange={(e) => {
@@ -935,6 +980,10 @@ export default function IntakePage() {
             </div>
           </div>
 
+          {/* Stage 120 — beta tenant-scope + retention notes */}
+          <p className="mt-2 text-xs text-gray-400">{BETA_SAFETY_NOTES.savedScope}</p>
+          <p className="mt-1 text-xs text-gray-400">{BETA_SAFETY_NOTES.savedRetention}</p>
+
           {manageMsg && (
             <p className="mt-2 text-xs text-gray-500">{manageMsg}</p>
           )}
@@ -945,9 +994,10 @@ export default function IntakePage() {
             </p>
           )}
           {savedList !== null && savedList.length === 0 && (
-            <p className="mt-3 text-sm text-gray-500">
-              No saved workflow plans yet.
-            </p>
+            <p className="mt-3 text-sm text-gray-500">{EMPTY_STATES.noSavedRecords}</p>
+          )}
+          {savedList !== null && savedList.length > 0 && !openRecord && !detailLoading && (
+            <p className="mt-3 text-xs text-gray-400">{EMPTY_STATES.noOpenedRecord}</p>
           )}
           {savedList !== null && savedList.length > 0 && (
             <ul className="mt-3 space-y-2">
