@@ -43,6 +43,14 @@ import {
   STAGE_KIND_LABELS,
 } from "@/lib/intake-stage-plan.mjs";
 import type { IntakeStagePlan } from "@/lib/intake-stage-plan.mjs";
+import {
+  buildAgentRunPlan,
+  AGENT_ROLE_LABELS,
+  AGENT_TOOL_LABELS,
+  AGENT_STATUS_LABELS,
+  AGENT_DECISION_LABELS,
+} from "@/lib/intake-agent-run-plan.mjs";
+import type { AgentRunPlan } from "@/lib/intake-agent-run-plan.mjs";
 
 export default function IntakePage() {
   const [type, setType] = useState<WorkspaceIntakeType | null>(null);
@@ -54,6 +62,7 @@ export default function IntakePage() {
   const [appPreview, setAppPreview] = useState<AiBuiltAppRecoveryPreview | null>(null);
   const [acceptanceMap, setAcceptanceMap] = useState<IntakeAcceptanceMap | null>(null);
   const [stagePlan, setStagePlan] = useState<IntakeStagePlan | null>(null);
+  const [agentRunPlan, setAgentRunPlan] = useState<AgentRunPlan | null>(null);
 
   const meta = type ? INTAKE_META[type] : null;
 
@@ -65,6 +74,7 @@ export default function IntakePage() {
     setAppPreview(null);
     setAcceptanceMap(null);
     setStagePlan(null);
+    setAgentRunPlan(null);
   }
 
   function selectType(next: WorkspaceIntakeType) {
@@ -87,9 +97,10 @@ export default function IntakePage() {
     setAppPreview(
       type === "ai_built_app" ? buildAiBuiltAppRecoveryPreview(rawInput) : null,
     );
-    // Stage 106/107: shared acceptance map + ordered stage plan for every type.
+    // Stage 106/107/110: shared acceptance map + stage plan + agent run plan.
     setAcceptanceMap(buildIntakeAcceptanceMap({ type, rawInput }));
     setStagePlan(buildIntakeStagePlan({ type, rawInput }));
+    setAgentRunPlan(buildAgentRunPlan({ type, rawInput }));
   }
 
   return (
@@ -535,6 +546,61 @@ export default function IntakePage() {
 
             <p className="mt-4 text-xs text-gray-400">
               Preview only — stage plan is deterministic and not yet saved.
+            </p>
+          </div>
+        )}
+
+        {/* Stage 110 — Agent Run Plan (all intake types) */}
+        {agentRunPlan && (
+          <div className="card mt-6 p-5">
+            <p className="text-xs uppercase tracking-wide text-gray-400">
+              Agent Run Plan · confidence: {agentRunPlan.confidence}
+            </p>
+            <p className="mt-2 text-sm text-gray-500">
+              Simsa turns the stage plan into role-based work for builders,
+              reviewers, fixers, and verifiers.
+            </p>
+            <p className="mt-3 text-sm text-gray-700">
+              Primary role: {AGENT_ROLE_LABELS[agentRunPlan.primaryRole]} ·
+              Recommended first: {agentRunPlan.recommendedFirstTaskId}
+            </p>
+
+            <div className="mt-3 space-y-2">
+              {agentRunPlan.tasks.map((t) => (
+                <div
+                  key={t.id}
+                  className={`rounded-lg border p-3 ${
+                    t.id === agentRunPlan.recommendedFirstTaskId
+                      ? "border-brand-300 bg-brand-50"
+                      : "border-gray-200 bg-white"
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-gray-900">
+                      Stage {t.stageNumber}: {t.stageTitle}
+                    </span>
+                    <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                      {AGENT_ROLE_LABELS[t.role]}
+                    </span>
+                    <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                      {AGENT_STATUS_LABELS[t.status]}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm text-gray-600">{t.task}</p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Recommended tool: {AGENT_TOOL_LABELS[t.recommendedTool]} ·
+                    Next decision: {AGENT_DECISION_LABELS[t.nextDecision]}
+                  </p>
+                  <StageDetail label="Inputs" items={t.inputs} />
+                  <StageDetail label="Acceptance items" items={t.acceptanceItems} />
+                  <StageDetail label="Expected evidence" items={t.expectedEvidence} />
+                </div>
+              ))}
+            </div>
+
+            <p className="mt-4 text-xs text-gray-400">
+              Preview only — Agent Run Plan is deterministic and not yet executed
+              or saved.
             </p>
           </div>
         )}
