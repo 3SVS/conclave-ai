@@ -91,6 +91,7 @@ import { buildEvolutionActionPackPreview } from "@/lib/intake-evolution-action-p
 import { buildAcceptanceGraphDerivedView } from "@/lib/acceptance-graph-derived.mjs";
 import { buildRecurringBlockerDetectionView } from "@/lib/recurring-blocker-detection.mjs";
 import { buildAgentToolRecommendationMemoryView } from "@/lib/agent-tool-recommendation-memory.mjs";
+import { buildTemplateEffectivenessSignalsView } from "@/lib/template-effectiveness-signals.mjs";
 
 export default function IntakePage() {
   const [type, setType] = useState<WorkspaceIntakeType | null>(null);
@@ -234,6 +235,27 @@ export default function IntakePage() {
           })
         : null,
     [openRecord, blockerView],
+  );
+
+  // Stage 129 — template effectiveness signals derived from the prior views.
+  // Derived only — not statistically validated, no cross-project analytics.
+  const templateSignals = useMemo(
+    () =>
+      openRecord
+        ? buildTemplateEffectivenessSignalsView({
+            workflowRecordId: openRecord.id,
+            title: openRecord.title,
+            sourceSummary: openRecord.sourceSummary,
+            acceptanceGraphView: graphView ?? undefined,
+            recurringBlockerDetectionView: blockerView ?? undefined,
+            agentToolMemoryView: toolMemory ?? undefined,
+            evidencePlan: openRecord.evidencePlan,
+            stagePlan: openRecord.stagePlan,
+            decisionOutcomePreview: outcomeLink ?? undefined,
+            evolutionActionPreview: actionPack ?? undefined,
+          })
+        : null,
+    [openRecord, graphView, blockerView, toolMemory, outcomeLink, actionPack],
   );
 
   function resetPreviews() {
@@ -1710,6 +1732,89 @@ export default function IntakePage() {
                   <p className="mt-4 text-xs text-gray-400">
                     Derived preview only — tool fit is not based on executed
                     performance.
+                  </p>
+                </div>
+              )}
+
+              {/* Stage 129 — template effectiveness signals from the saved record */}
+              {templateSignals && (
+                <div className="mt-4 rounded-lg border border-gray-200 bg-white p-4">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">
+                    Template Effectiveness Signals · confidence: {templateSignals.confidence}
+                  </p>
+                  <p className="mt-2 text-sm text-gray-500">{templateSignals.summary}</p>
+
+                  {templateSignals.signals.length === 0 ? (
+                    <p className="mt-3 text-sm text-gray-500">
+                      No template effectiveness signals detected yet. This saved
+                      workflow does not contain enough repeated structure to derive
+                      template signals.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="mt-3 text-sm text-gray-700">
+                        Quality — strong {templateSignals.qualityCounts.strong_alignment} ·
+                        partial {templateSignals.qualityCounts.partial_alignment} ·
+                        needs refinement {templateSignals.qualityCounts.needs_refinement} ·
+                        under-specified {templateSignals.qualityCounts.under_specified} ·
+                        unknown {templateSignals.qualityCounts.unknown}
+                      </p>
+                      {templateSignals.topNeedsRefinement.length > 0 && (
+                        <p className="mt-1 text-xs text-gray-500">
+                          Top needs refinement:{" "}
+                          {templateSignals.topNeedsRefinement.join("; ")}
+                        </p>
+                      )}
+                      <div className="mt-3 space-y-2">
+                        {templateSignals.signals.map((s) => (
+                          <div
+                            key={s.id}
+                            className="rounded-md border border-gray-100 bg-gray-50 p-3"
+                          >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-medium text-gray-800">
+                                {s.title}
+                              </span>
+                              <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                                {s.type.replace(/_/g, " ")}
+                              </span>
+                              <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                                {s.quality.replace(/_/g, " ")}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-sm text-gray-600">{s.summary}</p>
+                            <p className="mt-1 text-xs text-gray-500">
+                              {s.supportingSignals.length > 0 &&
+                                `Signals: ${s.supportingSignals.join("; ")}`}
+                              {s.blockerTypes.length > 0 &&
+                                ` · Blockers: ${s.blockerTypes
+                                  .map((b) => b.replace(/_/g, " "))
+                                  .join(", ")}`}
+                              {s.relatedAcceptanceAreas.length > 0 &&
+                                ` · Areas: ${s.relatedAcceptanceAreas
+                                  .map((a) => a.replace(/_/g, " "))
+                                  .join(", ")}`}
+                              {s.relatedEvidenceTypes.length > 0 &&
+                                ` · Evidence: ${s.relatedEvidenceTypes
+                                  .map((e) => e.replace(/_/g, " "))
+                                  .join(", ")}`}
+                              {s.relatedStageNumbers.length > 0 &&
+                                ` · Stages: ${s.relatedStageNumbers.join(", ")}`}
+                            </p>
+                            <p className="mt-1.5 text-sm text-gray-700">
+                              {s.suggestedTemplateImprovement}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  <StageDetail label="Not included yet" items={templateSignals.notIncludedYet} />
+
+                  <p className="mt-4 text-xs text-gray-400">
+                    Derived preview only — template effectiveness is not
+                    statistically validated.
                   </p>
                 </div>
               )}
