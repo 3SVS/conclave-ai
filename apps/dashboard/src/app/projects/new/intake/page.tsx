@@ -89,6 +89,7 @@ import { buildBenchmarkHandoffPreview } from "@/lib/intake-benchmark-handoff.mjs
 import { buildDecisionOutcomeLinkPreview } from "@/lib/intake-decision-outcome-link.mjs";
 import { buildEvolutionActionPackPreview } from "@/lib/intake-evolution-action-preview.mjs";
 import { buildAcceptanceGraphDerivedView } from "@/lib/acceptance-graph-derived.mjs";
+import { buildRecurringBlockerDetectionView } from "@/lib/recurring-blocker-detection.mjs";
 
 export default function IntakePage() {
   const [type, setType] = useState<WorkspaceIntakeType | null>(null);
@@ -194,6 +195,27 @@ export default function IntakePage() {
           })
         : null,
     [openRecord, outcomeLink, actionPack],
+  );
+
+  // Stage 127 — recurring blocker signals derived from the saved record + graph
+  // view + decision/action previews. Derived only — signals, not verified defects.
+  const blockerView = useMemo(
+    () =>
+      openRecord
+        ? buildRecurringBlockerDetectionView({
+            workflowRecordId: openRecord.id,
+            title: openRecord.title,
+            sourceSummary: openRecord.sourceSummary,
+            acceptanceGraphView: graphView ?? undefined,
+            acceptanceMap: openRecord.acceptanceMap,
+            stagePlan: openRecord.stagePlan,
+            agentRunPlan: openRecord.agentRunPlan,
+            evidencePlan: openRecord.evidencePlan,
+            decisionOutcomePreview: outcomeLink ?? undefined,
+            evolutionActionPreview: actionPack ?? undefined,
+          })
+        : null,
+    [openRecord, graphView, outcomeLink, actionPack],
   );
 
   function resetPreviews() {
@@ -1523,6 +1545,75 @@ export default function IntakePage() {
                   <p className="mt-4 text-xs text-gray-400">
                     Derived preview only — no graph database or model training is
                     created.
+                  </p>
+                </div>
+              )}
+
+              {/* Stage 127 — recurring blocker signals from the saved record */}
+              {blockerView && (
+                <div className="mt-4 rounded-lg border border-gray-200 bg-white p-4">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">
+                    Recurring Blocker Signals · confidence: {blockerView.confidence}
+                  </p>
+                  <p className="mt-2 text-sm text-gray-500">{blockerView.summary}</p>
+
+                  {blockerView.blockers.length === 0 ? (
+                    <p className="mt-3 text-sm text-gray-500">
+                      No recurring blocker signals detected yet. This does not mean
+                      the workflow is verified — only that this saved workflow does
+                      not contain repeated blocker patterns.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="mt-3 text-sm text-gray-700">
+                        Top blocker type:{" "}
+                        {blockerView.topBlockerType?.replace(/_/g, " ")}
+                      </p>
+                      <div className="mt-3 space-y-2">
+                        {blockerView.blockers.map((b) => (
+                          <div
+                            key={b.id}
+                            className="rounded-md border border-gray-100 bg-gray-50 p-3"
+                          >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-medium text-gray-800">
+                                {b.title}
+                              </span>
+                              <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                                {b.type.replace(/_/g, " ")}
+                              </span>
+                              <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                                {b.severity}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-sm text-gray-600">{b.summary}</p>
+                            <p className="mt-1 text-xs text-gray-500">
+                              {b.sourceSignals.length > 0 &&
+                                `Signals: ${b.sourceSignals.join("; ")}`}
+                              {b.relatedAcceptanceAreas.length > 0 &&
+                                ` · Areas: ${b.relatedAcceptanceAreas
+                                  .map((a) => a.replace(/_/g, " "))
+                                  .join(", ")}`}
+                              {b.relatedEvidenceTypes.length > 0 &&
+                                ` · Evidence: ${b.relatedEvidenceTypes
+                                  .map((e) => e.replace(/_/g, " "))
+                                  .join(", ")}`}
+                              {b.relatedStageNumbers.length > 0 &&
+                                ` · Stages: ${b.relatedStageNumbers.join(", ")}`}
+                            </p>
+                            <p className="mt-1.5 text-sm text-gray-700">
+                              {b.suggestedNextAction}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  <StageDetail label="Not included yet" items={blockerView.notIncludedYet} />
+
+                  <p className="mt-4 text-xs text-gray-400">
+                    Derived preview only — blocker signals are not verified defects.
                   </p>
                 </div>
               )}
