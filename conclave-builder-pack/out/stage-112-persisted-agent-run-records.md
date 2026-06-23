@@ -55,13 +55,12 @@ CREATE INDEX idx_workspace_agent_workflow_records_created ON ...(created_at DESC
 JSON snapshots stored as TEXT for D1 compatibility. **Migration not applied to
 production in this stage.**
 
-### Production hardening note
-This table has **no `user_key` column** (per the approved spec — intake may begin
-before login/project). The other workspace tables are user_key-scoped. Before this
-migration is applied to production, add tenant scoping/authorization (e.g.
-`user_key` + ownership checks on GET detail/list) so saved records are not
-world-readable by id. Tracked as a pre-production requirement, not a Stage 112
-deliverable.
+### Production hardening note — RESOLVED in Stage 112B
+Stage 112 shipped this table without a `user_key` column. **Stage 112B added
+tenant scoping** (`user_key NOT NULL`, user-scoped indexes, scoped reads, and
+detail ownership checks) by editing migration 0046 in place before any
+production apply. See "Stage 112B hardening" below and
+`stage-112b-agent-workflow-tenant-scoping.md`.
 
 ## Central-plane — `routes/workspace-agent-workflow.ts` + `workspace/agent-workflow-record-db.ts`
 Browser-facing, CORS-enabled (`corsMiddleware`). IDs prefixed `wawr_`.
@@ -115,6 +114,26 @@ no Vercel deploy, no DNS/billing change. PR #144 not merged.
 No actual agent execution, evidence upload, screenshot/test run, benchmark,
 decision, or evolution action pack was created or invoked.
 
+## Stage 112B hardening
+- **User/tenant scoping added.** `user_key TEXT NOT NULL` column; every record is
+  owned by the workspace key that created it (same model as
+  `workspace_agent_experiments` / `workspace_agent_benchmarks`).
+- **Migration 0046 updated before production application** — edited in place (no
+  0047) to add `user_key` + user-scoped indexes (`(user_key, created_at DESC)`,
+  `(user_key, project_id, created_at DESC)`).
+- **POST scopes server-side.** This repo's workspace model has no session/header
+  auth; the client presents its `userKey` (body for POST, query for GET), exactly
+  like the rest of the workspace API. The record is created under that key and is
+  only ever read back under the same key.
+- **List/detail are scoped.** List returns only the caller's records (projectId
+  filter applies within the caller's scope). Detail returns the record only when
+  `record.user_key === userKey`, otherwise **404** (not 403 — does not reveal
+  another tenant's record exists). `user_key` is never exposed in responses.
+- **Cross-tenant isolation tests added** — list excludes other users, detail of
+  another user's record returns 404, projectId filter does not leak across users,
+  end-to-end "invisible by id" check. central-plane workflow tests: 14 → 20.
+- **Production migration still not applied** — no deploy, no remote D1 apply.
+
 ## Next stage
 Stage 113 — Intake Run to Benchmark Handoff. **Do not start Stage 113 until the
-Stage 112 report is reviewed.**
+Stage 112B hardening report is reviewed.**

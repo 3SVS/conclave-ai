@@ -66,6 +66,7 @@ import type {
   WorkflowRecord,
   WorkflowRecordListItem,
 } from "@/lib/workspace-agent-workflow-api";
+import { getUserKey } from "@/lib/workflow-store";
 
 export default function IntakePage() {
   const [type, setType] = useState<WorkspaceIntakeType | null>(null);
@@ -115,6 +116,7 @@ export default function IntakePage() {
     setSaveError(null);
     setSavedRecord(null);
     const res = await saveWorkflowRecord({
+      userKey: getUserKey(),
       intakeType: type,
       title: draft.title,
       sourceSummary: draft.sourceSummary,
@@ -136,7 +138,7 @@ export default function IntakePage() {
 
   async function refreshSavedList() {
     setListLoading(true);
-    const res = await listWorkflowRecords();
+    const res = await listWorkflowRecords(getUserKey());
     setSavedList(res.ok ? res.records : []);
     setListLoading(false);
   }
@@ -144,7 +146,7 @@ export default function IntakePage() {
   async function openSavedRecord(id: string) {
     setDetailLoading(true);
     setOpenRecord(null);
-    const res = await getWorkflowRecord(id);
+    const res = await getWorkflowRecord(id, getUserKey());
     if (res.ok) setOpenRecord(res.record);
     setDetailLoading(false);
   }

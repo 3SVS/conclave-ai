@@ -1,13 +1,17 @@
 "use client";
 
 /**
- * Dashboard client for persisted Agent Workflow Records (Stage 112).
+ * Dashboard client for persisted Agent Workflow Records (Stage 112 + 112B).
  *
  * Saves the deterministic intake workflow snapshot (acceptance map + stage plan
  * + agent run plan + evidence plan) to central-plane so it can be listed and
  * reopened later. This is NOT agent execution — no real evidence, decisions,
  * outcomes, benchmark ids, or evolution action packs are persisted. Saving is
  * optional; the preview works without it.
+ *
+ * Stage 112B: every record is scoped to the caller's workspace `userKey`
+ * (from getUserKey()), passed the same way as the rest of the workspace API —
+ * in the POST body and as a GET query param.
  */
 const CENTRAL_PLANE_URL =
   process.env.NEXT_PUBLIC_CENTRAL_PLANE_URL ??
@@ -16,6 +20,7 @@ const CENTRAL_PLANE_URL =
 export type WorkflowRecordStatus = "draft" | "planned" | "needs_evidence" | "archived";
 
 export type SaveWorkflowRecordInput = {
+  userKey: string;
   projectId?: string;
   intakeType: string;
   title: string;
@@ -75,21 +80,24 @@ export async function saveWorkflowRecord(input: SaveWorkflowRecordInput): Promis
   }
 }
 
-export async function listWorkflowRecords(projectId?: string): Promise<ListResponse> {
+export async function listWorkflowRecords(
+  userKey: string,
+  projectId?: string,
+): Promise<ListResponse> {
   try {
-    const url = projectId
-      ? `${base}?${new URLSearchParams({ projectId })}`
-      : base;
-    const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    const params = new URLSearchParams({ userKey });
+    if (projectId) params.set("projectId", projectId);
+    const resp = await fetch(`${base}?${params}`, { signal: AbortSignal.timeout(8000) });
     return (await resp.json()) as ListResponse;
   } catch (err) {
     return { ok: false, error: String(err) };
   }
 }
 
-export async function getWorkflowRecord(id: string): Promise<DetailResponse> {
+export async function getWorkflowRecord(id: string, userKey: string): Promise<DetailResponse> {
   try {
-    const resp = await fetch(`${base}/${encodeURIComponent(id)}`, {
+    const params = new URLSearchParams({ userKey });
+    const resp = await fetch(`${base}/${encodeURIComponent(id)}?${params}`, {
       signal: AbortSignal.timeout(8000),
     });
     return (await resp.json()) as DetailResponse;

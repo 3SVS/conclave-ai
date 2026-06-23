@@ -1,11 +1,19 @@
 /**
- * workspace-agent-workflow.ts — Stage 112
+ * workspace-agent-workflow.ts — Stage 112 (+ Stage 112B tenant scoping)
  *
  * Persisted Agent Workflow Records. Saves the deterministic intake workflow
  * snapshot (acceptance map + stage plan + agent run plan + evidence plan) so it
  * can be listed and reopened later. This is NOT agent execution — no real
  * evidence, decisions, outcomes, benchmark ids, or evolution action packs are
  * stored. Saving is optional; the dashboard preview works without it.
+ *
+ * Stage 112B: every endpoint is scoped to the caller's `userKey` (the workspace
+ * key, supplied the same way as the rest of the workspace API — body for POST,
+ * query for GET). This repo's workspace model has no server-side session/header
+ * auth (see workspace-agent-experiments / workspace-agent-benchmarks): the
+ * userKey IS the tenant identifier the client presents. Records are created
+ * under that key and only ever read back under the same key, so a record made by
+ * one userKey is invisible to another (list excludes it; detail returns 404).
  *
  * POST /workspace/agent-workflows
  * GET  /workspace/agent-workflows
@@ -17,7 +25,7 @@ import type { Env } from "../env.js";
 import {
   insertWorkflowRecord,
   listWorkflowRecords,
-  getWorkflowRecordById,
+  getOwnedWorkflowRecordById,
   WORKFLOW_RECORD_STATUSES,
   type WorkflowRecordStatus,
 } from "../workspace/agent-workflow-record-db.js";
@@ -59,6 +67,7 @@ export function createWorkspaceAgentWorkflowRoutes(): Hono<{ Bindings: Env }> {
   // ── POST create ─────────────────────────────────────────────────────────────
   app.post("/workspace/agent-workflows", async (c) => {
     let body: {
+      userKey?: unknown;
       projectId?: unknown;
       intakeType?: unknown;
       title?: unknown;
@@ -75,6 +84,12 @@ export function createWorkspaceAgentWorkflowRoutes(): Hono<{ Bindings: Env }> {
     } catch {
       return c.json({ ok: false, error: "invalid_json" }, 400);
     }
+
+    // Tenant scope: the record is created under this userKey and is only ever
+    // readable with the same userKey. There is no separate "trusted" identity to
+    // override it with — this matches the rest of the workspace API.
+    const userKey = typeof body.userKey === "string" ? body.userKey : "";
+    if (!userKey) return c.json({ ok: false, error: "userKey_required" }, 400);
 
     const intakeType = typeof body.intakeType === "string" ? body.intakeType : "";
     if (!INTAKE_TYPES.includes(intakeType)) {
@@ -114,6 +129,7 @@ export function createWorkspaceAgentWorkflowRoutes(): Hono<{ Bindings: Env }> {
 
     try {
       const record = await insertWorkflowRecord(c.env, {
+        userKey,
         projectId,
         intakeType,
         title: trimTo(title, TITLE_MAX),
@@ -132,11 +148,13 @@ export function createWorkspaceAgentWorkflowRoutes(): Hono<{ Bindings: Env }> {
     }
   });
 
-  // ── GET list ────────────────────────────────────────────────────────────────
+  // ── GET list (scoped to userKey) ─────────────────────────────────────────────
   app.get("/workspace/agent-workflows", async (c) => {
+    const userKey = c.req.query("userKey") ?? "";
+    if (!userKey) return c.json({ ok: false, error: "userKey_required" }, 400);
     const projectId = c.req.query("projectId") || undefined;
     try {
-      const records = await listWorkflowRecords(c.env, { projectId, limit: 50 });
+      const records = await listWorkflowRecords(c.env, { userKey, projectId, limit: 50 });
       return c.json({ ok: true, records });
     } catch (err) {
       console.error("[workspace/agent-workflows GET] failed:", err);
@@ -144,12 +162,34 @@ export function createWorkspaceAgentWorkflowRoutes(): Hono<{ Bindings: Env }> {
     }
   });
 
-  // ── GET detail ──────────────────────────────────────────────────────────────
+  // ── GET detail (own record only) ─────────────────────────────────────────────
   app.get("/workspace/agent-workflows/:id", async (c) => {
     const id = c.req.param("id");
+    const userKey = c.req.query("userKey") ?? "";
+    if (!userKey) return c.json({ ok: false, error: "userKey_required" }, 400);
     try {
-      const record = await getWorkflowRecordById(c.env, id);
-      if (!record) return c.json({ ok: false, error: "not_found" }, 404);
+      const owned = await getOwnedWorkflowRecordById(c.env, id);
+      // 404 (not 403) when the record is missing OR owned by another userKey —
+      // do not reveal that another tenant's record exists.
+      if (!owned || owned.userKey !== userKey) {
+        return c.json({ ok: false, error: "not_found" }, 404);
+      }
+      // Do not expose user_key in the response (matches the rest of the API).
+      const record = {
+        id: owned.id,
+        projectId: owned.projectId,
+        intakeType: owned.intakeType,
+        title: owned.title,
+        sourceSummary: owned.sourceSummary,
+        rawInputExcerpt: owned.rawInputExcerpt,
+        acceptanceMap: owned.acceptanceMap,
+        stagePlan: owned.stagePlan,
+        agentRunPlan: owned.agentRunPlan,
+        evidencePlan: owned.evidencePlan,
+        status: owned.status,
+        createdAt: owned.createdAt,
+        updatedAt: owned.updatedAt,
+      };
       return c.json({ ok: true, record });
     } catch (err) {
       console.error("[workspace/agent-workflows detail GET] failed:", err);
