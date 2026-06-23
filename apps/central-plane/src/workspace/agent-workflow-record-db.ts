@@ -264,3 +264,95 @@ export async function updateWorkflowRecordStatus(
 export async function deleteWorkflowRecordById(env: Env, id: string): Promise<void> {
   await env.DB.prepare(`DELETE FROM workspace_agent_workflow_records WHERE id = ?`).bind(id).run();
 }
+
+/** Admin list item — includes the owning user_key (operator-only view). */
+export type AdminWorkflowRecordListItem = WorkflowRecordListItem & { userKey: string };
+
+export type AdminWorkflowRecordSummary = {
+  total: number;
+  byStatus: Record<string, number>;
+  byIntakeType: Record<string, number>;
+  uniqueUserKeys: number;
+};
+
+/**
+ * Stage 121 — admin/beta-operations list ACROSS userKey scopes. Returns summary
+ * fields only (NO snapshot JSON) to limit sensitive exposure. Authorization is
+ * the caller's responsibility (admin-key gated at the route). A FETCH_CAP bounds
+ * the scan; `summary` is computed over the fetched set and `records` is the first
+ * `limit` of it.
+ */
+export async function adminListWorkflowRecords(
+  env: Env,
+  opts: { userKey?: string; status?: string; includeArchived?: boolean; limit?: number } = {},
+): Promise<{ records: AdminWorkflowRecordListItem[]; summary: AdminWorkflowRecordSummary }> {
+  const FETCH_CAP = 1000;
+  const limit = opts.limit && opts.limit > 0 ? Math.min(opts.limit, 200) : 50;
+
+  const where: string[] = [];
+  const binds: Array<string | number> = [];
+  if (opts.userKey) {
+    where.push("user_key = ?");
+    binds.push(opts.userKey);
+  }
+  if (opts.status) {
+    where.push("status = ?");
+    binds.push(opts.status);
+  } else if (!opts.includeArchived) {
+    where.push("status != 'archived'");
+  }
+  binds.push(FETCH_CAP);
+
+  const res = await env.DB.prepare(
+    `SELECT id, user_key, project_id, intake_type, title, source_summary, status, created_at, updated_at
+       FROM workspace_agent_workflow_records
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+      ORDER BY created_at DESC
+      LIMIT ?`,
+  )
+    .bind(...binds)
+    .all();
+
+  const rows = (res?.results ?? []) as Array<{
+    id: string;
+    user_key: string;
+    project_id: string | null;
+    intake_type: string;
+    title: string;
+    source_summary: string;
+    status: string;
+    created_at: string;
+    updated_at: string;
+  }>;
+
+  const byStatus: Record<string, number> = {};
+  const byIntakeType: Record<string, number> = {};
+  const userKeys = new Set<string>();
+  for (const r of rows) {
+    byStatus[r.status] = (byStatus[r.status] ?? 0) + 1;
+    byIntakeType[r.intake_type] = (byIntakeType[r.intake_type] ?? 0) + 1;
+    userKeys.add(r.user_key);
+  }
+
+  const records = rows.slice(0, limit).map((r) => ({
+    id: r.id,
+    userKey: r.user_key,
+    projectId: r.project_id ?? null,
+    intakeType: r.intake_type,
+    title: r.title,
+    sourceSummary: r.source_summary,
+    status: r.status,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }));
+
+  return {
+    records,
+    summary: {
+      total: rows.length,
+      byStatus,
+      byIntakeType,
+      uniqueUserKeys: userKeys.size,
+    },
+  };
+}

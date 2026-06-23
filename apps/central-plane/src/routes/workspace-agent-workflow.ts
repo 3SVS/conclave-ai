@@ -30,6 +30,7 @@ import {
   getOwnedWorkflowRecordById,
   updateWorkflowRecordStatus,
   deleteWorkflowRecordById,
+  adminListWorkflowRecords,
   WORKFLOW_RECORD_STATUSES,
   type WorkflowRecordStatus,
 } from "../workspace/agent-workflow-record-db.js";
@@ -278,6 +279,105 @@ export function createWorkspaceAgentWorkflowRoutes(): Hono<{ Bindings: Env }> {
       return c.json({ ok: true, deleted: true, id });
     } catch (err) {
       console.error("[workspace/agent-workflows DELETE] failed:", err);
+      return c.json({ ok: false, error: "delete_failed" }, 500);
+    }
+  });
+
+  // ── Stage 121 — admin beta console (x-admin-key gated, across userKeys) ───────
+  // Beta operations only. Records are scoped by client-supplied userKey, NOT full
+  // account auth. Admin list returns summaries (no snapshot JSON) to limit
+  // sensitive exposure. Reuses the existing ADMIN_USAGE_STATS_KEY convention.
+  function adminGuard(c: { env: Env; req: { header: (k: string) => string | undefined } }):
+    | { ok: true }
+    | { ok: false; status: 503 | 401; body: { ok: false; error: string } } {
+    if (!c.env.ADMIN_USAGE_STATS_KEY) {
+      return { ok: false, status: 503, body: { ok: false, error: "disabled" } };
+    }
+    if ((c.req.header("x-admin-key") ?? "") !== c.env.ADMIN_USAGE_STATS_KEY) {
+      return { ok: false, status: 401, body: { ok: false, error: "unauthorized" } };
+    }
+    return { ok: true };
+  }
+
+  app.get("/workspace/admin/agent-workflows", async (c) => {
+    const guard = adminGuard(c);
+    if (!guard.ok) return c.json(guard.body, guard.status);
+
+    const userKey = c.req.query("userKey") || undefined;
+    const rawStatus = c.req.query("status") || undefined;
+    const status = rawStatus && WORKFLOW_RECORD_STATUSES.includes(rawStatus as WorkflowRecordStatus)
+      ? rawStatus
+      : undefined;
+    const includeArchived = c.req.query("includeArchived") === "true";
+    const rawLimit = Number(c.req.query("limit"));
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : undefined;
+
+    try {
+      const { records, summary } = await adminListWorkflowRecords(c.env, {
+        userKey,
+        status,
+        includeArchived,
+        limit,
+      });
+      return c.json({ ok: true, records, summary });
+    } catch (err) {
+      console.error("[workspace/admin/agent-workflows GET] failed:", err);
+      return c.json({ ok: false, error: "query_failed" }, 500);
+    }
+  });
+
+  app.patch("/workspace/admin/agent-workflows/:id", async (c) => {
+    const guard = adminGuard(c);
+    if (!guard.ok) return c.json(guard.body, guard.status);
+    const id = c.req.param("id");
+
+    let body: { status?: unknown };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ ok: false, error: "invalid_json" }, 400);
+    }
+    const status = typeof body.status === "string" ? body.status : "";
+    if (!PATCHABLE_STATUSES.includes(status)) {
+      return c.json({ ok: false, error: "invalid_status" }, 400);
+    }
+
+    try {
+      const owned = await getOwnedWorkflowRecordById(c.env, id);
+      if (!owned) return c.json({ ok: false, error: "not_found" }, 404);
+      const updatedAt = await updateWorkflowRecordStatus(c.env, id, status as WorkflowRecordStatus);
+      return c.json({
+        ok: true,
+        record: {
+          id: owned.id,
+          userKey: owned.userKey,
+          projectId: owned.projectId,
+          intakeType: owned.intakeType,
+          title: owned.title,
+          sourceSummary: owned.sourceSummary,
+          status,
+          createdAt: owned.createdAt,
+          updatedAt,
+        },
+      });
+    } catch (err) {
+      console.error("[workspace/admin/agent-workflows PATCH] failed:", err);
+      return c.json({ ok: false, error: "update_failed" }, 500);
+    }
+  });
+
+  app.delete("/workspace/admin/agent-workflows/:id", async (c) => {
+    const guard = adminGuard(c);
+    if (!guard.ok) return c.json(guard.body, guard.status);
+    const id = c.req.param("id");
+
+    try {
+      const owned = await getOwnedWorkflowRecordById(c.env, id);
+      if (!owned) return c.json({ ok: false, error: "not_found" }, 404);
+      await deleteWorkflowRecordById(c.env, id);
+      return c.json({ ok: true, deleted: true, id });
+    } catch (err) {
+      console.error("[workspace/admin/agent-workflows DELETE] failed:", err);
       return c.json({ ok: false, error: "delete_failed" }, 500);
     }
   });
