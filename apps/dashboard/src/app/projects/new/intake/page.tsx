@@ -4,7 +4,7 @@
 // One front door with multiple starting points. Deterministic local preview
 // only — no backend, no model call, no external fetch. Future stages wire real
 // per-type analysis behind the same model.
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   WORKSPACE_INTAKE_TYPES,
   INTAKE_META,
@@ -43,6 +43,33 @@ import {
   STAGE_KIND_LABELS,
 } from "@/lib/intake-stage-plan.mjs";
 import type { IntakeStagePlan } from "@/lib/intake-stage-plan.mjs";
+import {
+  buildAgentRunPlan,
+  AGENT_ROLE_LABELS,
+  AGENT_TOOL_LABELS,
+  AGENT_STATUS_LABELS,
+  AGENT_DECISION_LABELS,
+} from "@/lib/intake-agent-run-plan.mjs";
+import type { AgentRunPlan } from "@/lib/intake-agent-run-plan.mjs";
+import {
+  buildIntakeEvidencePlan,
+  EVIDENCE_STATUS_LABELS,
+  EVIDENCE_TYPE_LABELS,
+} from "@/lib/intake-evidence-plan.mjs";
+import type { IntakeEvidencePlan } from "@/lib/intake-evidence-plan.mjs";
+import {
+  saveWorkflowRecord,
+  listWorkflowRecords,
+  getWorkflowRecord,
+} from "@/lib/workspace-agent-workflow-api";
+import type {
+  WorkflowRecord,
+  WorkflowRecordListItem,
+} from "@/lib/workspace-agent-workflow-api";
+import { getUserKey } from "@/lib/workflow-store";
+import { buildBenchmarkHandoffPreview } from "@/lib/intake-benchmark-handoff.mjs";
+import { buildDecisionOutcomeLinkPreview } from "@/lib/intake-decision-outcome-link.mjs";
+import { buildEvolutionActionPackPreview } from "@/lib/intake-evolution-action-preview.mjs";
 
 export default function IntakePage() {
   const [type, setType] = useState<WorkspaceIntakeType | null>(null);
@@ -54,8 +81,77 @@ export default function IntakePage() {
   const [appPreview, setAppPreview] = useState<AiBuiltAppRecoveryPreview | null>(null);
   const [acceptanceMap, setAcceptanceMap] = useState<IntakeAcceptanceMap | null>(null);
   const [stagePlan, setStagePlan] = useState<IntakeStagePlan | null>(null);
+  const [agentRunPlan, setAgentRunPlan] = useState<AgentRunPlan | null>(null);
+  const [evidencePlan, setEvidencePlan] = useState<IntakeEvidencePlan | null>(null);
+
+  // Stage 112 — persisted workflow records (save / list / reopen).
+  const [saving, setSaving] = useState(false);
+  const [savedRecord, setSavedRecord] = useState<WorkflowRecord | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [savedList, setSavedList] = useState<WorkflowRecordListItem[] | null>(null);
+  const [listLoading, setListLoading] = useState(false);
+  const [openRecord, setOpenRecord] = useState<WorkflowRecord | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const meta = type ? INTAKE_META[type] : null;
+
+  // Stage 113 — deterministic benchmark handoff preview from the opened saved
+  // record. Preview/linkage only — not executed or persisted.
+  const handoff = useMemo(
+    () =>
+      openRecord
+        ? buildBenchmarkHandoffPreview({
+            workflowRecordId: openRecord.id,
+            title: openRecord.title,
+            sourceSummary: openRecord.sourceSummary,
+            agentRunPlan: openRecord.agentRunPlan,
+            evidencePlan: openRecord.evidencePlan,
+            acceptanceMap: openRecord.acceptanceMap,
+            stagePlan: openRecord.stagePlan,
+          })
+        : null,
+    [openRecord],
+  );
+
+  // Stage 114 — deterministic decision / outcome link preview from the opened
+  // saved record + its handoff. Preview only — no decision/scorecard/action pack.
+  const outcomeLink = useMemo(
+    () =>
+      openRecord
+        ? buildDecisionOutcomeLinkPreview({
+            workflowRecordId: openRecord.id,
+            title: openRecord.title,
+            sourceSummary: openRecord.sourceSummary,
+            acceptanceMap: openRecord.acceptanceMap,
+            stagePlan: openRecord.stagePlan,
+            agentRunPlan: openRecord.agentRunPlan,
+            evidencePlan: openRecord.evidencePlan,
+            benchmarkHandoffPreview: handoff ?? undefined,
+          })
+        : null,
+    [openRecord, handoff],
+  );
+
+  // Stage 115 — deterministic evolution action pack preview from the opened
+  // saved record + handoff + decision/outcome preview. Preview only — no action
+  // pack persisted, no fix executed, no rerun, no evidence collected.
+  const actionPack = useMemo(
+    () =>
+      openRecord
+        ? buildEvolutionActionPackPreview({
+            workflowRecordId: openRecord.id,
+            title: openRecord.title,
+            sourceSummary: openRecord.sourceSummary,
+            acceptanceMap: openRecord.acceptanceMap,
+            stagePlan: openRecord.stagePlan,
+            agentRunPlan: openRecord.agentRunPlan,
+            evidencePlan: openRecord.evidencePlan,
+            benchmarkHandoffPreview: handoff ?? undefined,
+            decisionOutcomePreview: outcomeLink ?? undefined,
+          })
+        : null,
+    [openRecord, handoff, outcomeLink],
+  );
 
   function resetPreviews() {
     setDraft(null);
@@ -65,6 +161,55 @@ export default function IntakePage() {
     setAppPreview(null);
     setAcceptanceMap(null);
     setStagePlan(null);
+    setAgentRunPlan(null);
+    setEvidencePlan(null);
+    setSavedRecord(null);
+    setSaveError(null);
+  }
+
+  // Stage 112 — save the generated workflow snapshot. Optional: the preview
+  // works without saving. Not agent execution — nothing here is executed.
+  async function saveWorkflow() {
+    if (!type || !draft || !acceptanceMap || !stagePlan || !agentRunPlan || !evidencePlan) {
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
+    setSavedRecord(null);
+    const res = await saveWorkflowRecord({
+      userKey: getUserKey(),
+      intakeType: type,
+      title: draft.title,
+      sourceSummary: draft.sourceSummary,
+      rawInputExcerpt: rawInput.slice(0, 2000),
+      acceptanceMap,
+      stagePlan,
+      agentRunPlan,
+      evidencePlan,
+      status: "planned",
+    });
+    if (res.ok) {
+      setSavedRecord(res.record);
+      void refreshSavedList();
+    } else {
+      setSaveError(res.error);
+    }
+    setSaving(false);
+  }
+
+  async function refreshSavedList() {
+    setListLoading(true);
+    const res = await listWorkflowRecords(getUserKey());
+    setSavedList(res.ok ? res.records : []);
+    setListLoading(false);
+  }
+
+  async function openSavedRecord(id: string) {
+    setDetailLoading(true);
+    setOpenRecord(null);
+    const res = await getWorkflowRecord(id, getUserKey());
+    if (res.ok) setOpenRecord(res.record);
+    setDetailLoading(false);
   }
 
   function selectType(next: WorkspaceIntakeType) {
@@ -87,9 +232,11 @@ export default function IntakePage() {
     setAppPreview(
       type === "ai_built_app" ? buildAiBuiltAppRecoveryPreview(rawInput) : null,
     );
-    // Stage 106/107: shared acceptance map + ordered stage plan for every type.
+    // Stage 106/107/110: shared acceptance map + stage plan + agent run plan.
     setAcceptanceMap(buildIntakeAcceptanceMap({ type, rawInput }));
     setStagePlan(buildIntakeStagePlan({ type, rawInput }));
+    setAgentRunPlan(buildAgentRunPlan({ type, rawInput }));
+    setEvidencePlan(buildIntakeEvidencePlan({ type, rawInput }));
   }
 
   return (
@@ -538,6 +685,549 @@ export default function IntakePage() {
             </p>
           </div>
         )}
+
+        {/* Stage 110 — Agent Run Plan (all intake types) */}
+        {agentRunPlan && (
+          <div className="card mt-6 p-5">
+            <p className="text-xs uppercase tracking-wide text-gray-400">
+              Agent Run Plan · confidence: {agentRunPlan.confidence}
+            </p>
+            <p className="mt-2 text-sm text-gray-500">
+              Simsa turns the stage plan into role-based work for builders,
+              reviewers, fixers, and verifiers.
+            </p>
+            <p className="mt-3 text-sm text-gray-700">
+              Primary role: {AGENT_ROLE_LABELS[agentRunPlan.primaryRole]} ·
+              Recommended first: {agentRunPlan.recommendedFirstTaskId}
+            </p>
+
+            <div className="mt-3 space-y-2">
+              {agentRunPlan.tasks.map((t) => (
+                <div
+                  key={t.id}
+                  className={`rounded-lg border p-3 ${
+                    t.id === agentRunPlan.recommendedFirstTaskId
+                      ? "border-brand-300 bg-brand-50"
+                      : "border-gray-200 bg-white"
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-gray-900">
+                      Stage {t.stageNumber}: {t.stageTitle}
+                    </span>
+                    <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                      {AGENT_ROLE_LABELS[t.role]}
+                    </span>
+                    <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                      {AGENT_STATUS_LABELS[t.status]}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm text-gray-600">{t.task}</p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Recommended tool: {AGENT_TOOL_LABELS[t.recommendedTool]} ·
+                    Next decision: {AGENT_DECISION_LABELS[t.nextDecision]}
+                  </p>
+                  <StageDetail label="Inputs" items={t.inputs} />
+                  <StageDetail label="Acceptance items" items={t.acceptanceItems} />
+                  <StageDetail label="Expected evidence" items={t.expectedEvidence} />
+                </div>
+              ))}
+            </div>
+
+            <p className="mt-4 text-xs text-gray-400">
+              Preview only — Agent Run Plan is deterministic and not yet executed
+              or saved.
+            </p>
+          </div>
+        )}
+
+        {/* Stage 111 — Evidence Plan (all intake types) */}
+        {evidencePlan && (
+          <div className="card mt-6 p-5">
+            <p className="text-xs uppercase tracking-wide text-gray-400">
+              Evidence Plan · overall: {EVIDENCE_STATUS_LABELS[evidencePlan.overallEvidenceStatus]} ·
+              confidence: {evidencePlan.confidence}
+            </p>
+            <p className="mt-2 text-sm text-gray-500">
+              Simsa shows what evidence would be needed before deciding whether to
+              accept, fix, rerun, or defer the work.
+            </p>
+
+            <div className="mt-3 space-y-2">
+              {evidencePlan.expectations.map((e) => (
+                <div key={e.id} className="rounded-lg border border-gray-200 bg-white p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-gray-900">
+                      {e.acceptanceItemTitle}
+                    </span>
+                    <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                      {EVIDENCE_STATUS_LABELS[e.status]}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Area: {e.relatedArea.replace(/_/g, " ")}
+                    {e.relatedStageNumbers.length > 0 &&
+                      ` · Stages: ${e.relatedStageNumbers.join(", ")}`}
+                    {e.relatedTaskIds.length > 0 && ` · Tasks: ${e.relatedTaskIds.join(", ")}`}
+                    {` · Decision impact: ${AGENT_DECISION_LABELS[e.decisionImpact]}`}
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {e.evidenceTypes.map((t) => (
+                      <span
+                        key={t}
+                        className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-gray-600"
+                      >
+                        {EVIDENCE_TYPE_LABELS[t]}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="mt-1.5 text-sm text-gray-600">{e.whyNeeded}</p>
+                </div>
+              ))}
+            </div>
+
+            <StageDetail
+              label="Missing evidence questions"
+              items={evidencePlan.missingEvidenceQuestions}
+            />
+
+            <p className="mt-4 text-xs text-gray-400">
+              Preview only — evidence is expected, not collected or verified.
+            </p>
+          </div>
+        )}
+
+        {/* Stage 112 — save the generated workflow snapshot (optional) */}
+        {evidencePlan && (
+          <div className="card mt-6 p-5">
+            <p className="text-xs uppercase tracking-wide text-gray-400">
+              Save workflow plan
+            </p>
+            <p className="mt-2 text-sm text-gray-500">
+              Save this workflow snapshot (acceptance map, stage plan, agent run
+              plan, evidence plan) so you can list and reopen it later. This is a
+              saved plan — not an agent run, executed task, or verified result.
+            </p>
+
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={saveWorkflow}
+                disabled={saving}
+                className="btn btn-primary btn-md"
+              >
+                {saving ? "Saving…" : "Save workflow plan"}
+              </button>
+            </div>
+
+            {saveError && (
+              <p className="mt-3 text-sm text-red-600">Could not save: {saveError}</p>
+            )}
+
+            {savedRecord && (
+              <div className="mt-3 rounded-lg border border-brand-200 bg-brand-50 p-3">
+                <p className="text-sm font-medium text-gray-900">
+                  Saved workflow plan
+                </p>
+                <p className="mt-1 text-xs text-gray-600">
+                  ID: {savedRecord.id} · Status: {savedRecord.status} · Created:{" "}
+                  {savedRecord.createdAt}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => openSavedRecord(savedRecord.id)}
+                  className="btn btn-secondary btn-sm mt-2"
+                >
+                  Reopen saved workflow
+                </button>
+              </div>
+            )}
+
+            <p className="mt-4 text-xs text-gray-400">
+              Saving is optional — the preview works without it. No agent
+              execution, evidence upload, decision, or benchmark is created.
+            </p>
+          </div>
+        )}
+
+        {/* Stage 112 — saved workflow plans (list + reopen) */}
+        <div className="card mt-6 p-5">
+          <div className="flex items-center justify-between">
+            <p className="text-xs uppercase tracking-wide text-gray-400">
+              Saved workflow plans
+            </p>
+            <button
+              type="button"
+              onClick={refreshSavedList}
+              disabled={listLoading}
+              className="btn btn-secondary btn-sm"
+            >
+              {listLoading ? "Loading…" : "Refresh"}
+            </button>
+          </div>
+
+          {savedList === null && (
+            <p className="mt-3 text-sm text-gray-500">
+              Refresh to load previously saved workflow plans.
+            </p>
+          )}
+          {savedList !== null && savedList.length === 0 && (
+            <p className="mt-3 text-sm text-gray-500">
+              No saved workflow plans yet.
+            </p>
+          )}
+          {savedList !== null && savedList.length > 0 && (
+            <ul className="mt-3 space-y-2">
+              {savedList.map((r) => (
+                <li
+                  key={r.id}
+                  className="rounded-lg border border-gray-200 bg-white p-3"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-gray-900">
+                      {r.title}
+                    </span>
+                    <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                      {r.intakeType.replace(/_/g, " ")}
+                    </span>
+                    <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                      {r.status}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">{r.sourceSummary}</p>
+                  <p className="mt-1 text-xs text-gray-400">
+                    {r.id} · {r.createdAt}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => openSavedRecord(r.id)}
+                    className="btn btn-secondary btn-sm mt-2"
+                  >
+                    Open
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {detailLoading && (
+            <p className="mt-3 text-sm text-gray-500">Loading workflow…</p>
+          )}
+
+          {openRecord && (
+            <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-gray-900">
+                  {openRecord.title}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setOpenRecord(null)}
+                  className="btn btn-secondary btn-sm"
+                >
+                  Close
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                {openRecord.intakeType.replace(/_/g, " ")} · {openRecord.status} ·{" "}
+                {openRecord.id}
+              </p>
+              <p className="mt-2 text-sm text-gray-600">
+                {openRecord.sourceSummary}
+              </p>
+              <p className="mt-3 text-xs font-medium text-gray-500">
+                Saved snapshot (read-only JSON)
+              </p>
+              <pre className="mt-1 max-h-80 overflow-auto rounded-md border border-gray-200 bg-white p-3 text-xs text-gray-700">
+                {JSON.stringify(
+                  {
+                    acceptanceMap: openRecord.acceptanceMap,
+                    stagePlan: openRecord.stagePlan,
+                    agentRunPlan: openRecord.agentRunPlan,
+                    evidencePlan: openRecord.evidencePlan,
+                  },
+                  null,
+                  2,
+                )}
+              </pre>
+              <p className="mt-2 text-xs text-gray-400">
+                Read-only snapshot of a saved plan. No agent execution or evidence
+                collection happened.
+              </p>
+
+              {/* Stage 113 — benchmark handoff preview from the saved record */}
+              {handoff && (
+                <div className="mt-4 rounded-lg border border-gray-200 bg-white p-4">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">
+                    Benchmark Handoff Preview · confidence: {handoff.confidence}
+                  </p>
+                  <p className="mt-2 text-sm text-gray-500">{handoff.summary}</p>
+
+                  <p className="mt-3 text-sm font-medium text-gray-900">
+                    Benchmark goal
+                  </p>
+                  <p className="mt-1 text-sm text-gray-700">{handoff.benchmarkGoal}</p>
+
+                  <p className="mt-4 text-sm font-medium text-gray-900">
+                    Candidate agents
+                  </p>
+                  <div className="mt-1 space-y-2">
+                    {handoff.agentCandidates.map((c) => (
+                      <div
+                        key={c.label}
+                        className="rounded-md border border-gray-100 bg-gray-50 p-3"
+                      >
+                        <p className="text-sm font-medium text-gray-800">{c.label}</p>
+                        <p className="mt-0.5 text-xs text-gray-500">
+                          {c.stageNumbers.length > 0 &&
+                            `Stages: ${c.stageNumbers.join(", ")}`}
+                          {c.taskIds.length > 0 && ` · Tasks: ${c.taskIds.join(", ")}`}
+                        </p>
+                        {c.expectedEvidence.length > 0 && (
+                          <div className="mt-1.5 flex flex-wrap gap-1.5">
+                            {c.expectedEvidence.map((e) => (
+                              <span
+                                key={e}
+                                className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs text-gray-600"
+                              >
+                                {e}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <p className="mt-4 text-sm font-medium text-gray-900">
+                    Acceptance targets
+                  </p>
+                  <div className="mt-1 space-y-2">
+                    {handoff.acceptanceTargets.map((t) => (
+                      <div
+                        key={t.acceptanceItemTitle}
+                        className="rounded-md border border-gray-100 bg-gray-50 p-3"
+                      >
+                        <p className="text-sm font-medium text-gray-800">
+                          {t.acceptanceItemTitle}
+                        </p>
+                        <p className="mt-0.5 text-xs text-gray-500">
+                          Area: {t.area.replace(/_/g, " ")}
+                          {t.stageNumbers.length > 0 &&
+                            ` · Stages: ${t.stageNumbers.join(", ")}`}
+                        </p>
+                        {t.evidenceTypes.length > 0 && (
+                          <div className="mt-1.5 flex flex-wrap gap-1.5">
+                            {t.evidenceTypes.map((e) => (
+                              <span
+                                key={e}
+                                className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs text-gray-600"
+                              >
+                                {e}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-xs text-gray-600">
+                          {t.decisionCriteria.map((d) => (
+                            <li key={d}>{d}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+
+                  <StageDetail
+                    label="Comparison questions"
+                    items={handoff.comparisonQuestions}
+                  />
+                  <StageDetail label="Not included yet" items={handoff.notIncludedYet} />
+
+                  <p className="mt-4 text-xs text-gray-400">
+                    Preview only — benchmark handoff is not executed or persisted.
+                  </p>
+                </div>
+              )}
+
+              {/* Stage 114 — decision / outcome link preview from the saved record */}
+              {outcomeLink && (
+                <div className="mt-4 rounded-lg border border-gray-200 bg-white p-4">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">
+                    Decision / Outcome Link Preview · confidence: {outcomeLink.confidence}
+                  </p>
+                  <p className="mt-2 text-sm text-gray-500">{outcomeLink.summary}</p>
+
+                  <p className="mt-3 text-sm font-medium text-gray-900">
+                    Recommended decision candidate
+                  </p>
+                  <p className="mt-1 text-sm text-gray-700">
+                    {
+                      outcomeLink.decisionCandidates.find(
+                        (c) => c.type === outcomeLink.recommendedDecisionCandidate,
+                      )?.label
+                    }
+                  </p>
+
+                  <p className="mt-4 text-sm font-medium text-gray-900">
+                    Decision candidates
+                  </p>
+                  <div className="mt-1 space-y-2">
+                    {outcomeLink.decisionCandidates.map((c) => (
+                      <div
+                        key={c.type}
+                        className={`rounded-md border p-3 ${
+                          c.type === outcomeLink.recommendedDecisionCandidate
+                            ? "border-brand-300 bg-brand-50"
+                            : "border-gray-100 bg-gray-50"
+                        }`}
+                      >
+                        <p className="text-sm font-medium text-gray-800">{c.label}</p>
+                        <p className="mt-0.5 text-sm text-gray-600">{c.rationale}</p>
+                        <p className="mt-1 text-xs text-gray-500">
+                          {c.relatedAcceptanceItems.length > 0 &&
+                            `Items: ${c.relatedAcceptanceItems.join("; ")}`}
+                          {c.relatedStageNumbers.length > 0 &&
+                            ` · Stages: ${c.relatedStageNumbers.join(", ")}`}
+                        </p>
+                        {c.requiredEvidence.length > 0 && (
+                          <div className="mt-1.5 flex flex-wrap gap-1.5">
+                            {c.requiredEvidence.map((e) => (
+                              <span
+                                key={e}
+                                className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs text-gray-600"
+                              >
+                                {e}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {c.blockingQuestions.length > 0 && (
+                          <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-xs text-gray-600">
+                            {c.blockingQuestions.map((q) => (
+                              <li key={q}>{q}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <p className="mt-4 text-sm font-medium text-gray-900">
+                    Outcome scorecard signals
+                  </p>
+                  <dl className="mt-1 grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-4">
+                    {(
+                      [
+                        ["evidenceCompleteness", "Evidence completeness"],
+                        ["acceptanceCoverage", "Acceptance coverage"],
+                        ["unresolvedRisk", "Unresolved risk"],
+                        ["releaseReadiness", "Release readiness"],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <div key={key}>
+                        <dt className="text-xs text-gray-400">{label}</dt>
+                        <dd className="text-sm text-gray-700">
+                          {outcomeLink.outcomeScorecardSignals[key]}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+
+                  <StageDetail
+                    label="Future outcome links"
+                    items={outcomeLink.futureOutcomeLinks}
+                  />
+                  <StageDetail label="Not included yet" items={outcomeLink.notIncludedYet} />
+
+                  <p className="mt-4 text-xs text-gray-400">
+                    Preview only — no decision, scorecard, or action pack is created.
+                  </p>
+                </div>
+              )}
+
+              {/* Stage 115 — evolution action pack preview from the saved record */}
+              {actionPack && (
+                <div className="mt-4 rounded-lg border border-gray-200 bg-white p-4">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">
+                    Evolution Action Pack Preview · confidence: {actionPack.confidence}
+                  </p>
+                  <p className="mt-2 text-sm text-gray-500">{actionPack.summary}</p>
+
+                  <p className="mt-3 text-sm font-medium text-gray-900">
+                    Recommended focus
+                  </p>
+                  <p className="mt-1 text-sm text-gray-700">
+                    {actionPack.recommendedFocus.replace(/_/g, " ")}
+                  </p>
+
+                  <p className="mt-4 text-sm font-medium text-gray-900">
+                    Suggested actions
+                  </p>
+                  <div className="mt-1 space-y-2">
+                    {actionPack.actions.map((a) => (
+                      <div
+                        key={a.id}
+                        className={`rounded-md border p-3 ${
+                          a.type === actionPack.recommendedFocus
+                            ? "border-brand-300 bg-brand-50"
+                            : "border-gray-100 bg-gray-50"
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-medium text-gray-800">
+                            {a.title}
+                          </span>
+                          <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                            {a.type.replace(/_/g, " ")}
+                          </span>
+                          <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                            {a.priority}
+                          </span>
+                          <span className="text-xs text-gray-400">{a.id}</span>
+                        </div>
+                        <p className="mt-1 text-sm text-gray-600">{a.rationale}</p>
+                        <p className="mt-1 text-xs text-gray-500">
+                          {a.sourceSignals.length > 0 &&
+                            `Signals: ${a.sourceSignals.join("; ")}`}
+                          {a.relatedAcceptanceItems.length > 0 &&
+                            ` · Items: ${a.relatedAcceptanceItems.join("; ")}`}
+                          {a.relatedStageNumbers.length > 0 &&
+                            ` · Stages: ${a.relatedStageNumbers.join(", ")}`}
+                        </p>
+                        <p className="mt-1.5 text-sm text-gray-700">
+                          {a.suggestedInstruction}
+                        </p>
+                        {a.expectedEvidence.length > 0 && (
+                          <div className="mt-1.5 flex flex-wrap gap-1.5">
+                            {a.expectedEvidence.map((e) => (
+                              <span
+                                key={e}
+                                className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs text-gray-600"
+                              >
+                                {e}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <StageDetail
+                    label="Follow-up questions"
+                    items={actionPack.followUpQuestions}
+                  />
+                  <StageDetail label="Not included yet" items={actionPack.notIncludedYet} />
+
+                  <p className="mt-4 text-xs text-gray-400">
+                    Preview only — no action pack, fix, rerun, or evidence
+                    collection is created.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
