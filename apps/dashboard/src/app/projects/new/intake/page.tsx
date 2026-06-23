@@ -69,6 +69,7 @@ import type {
 import { getUserKey } from "@/lib/workflow-store";
 import { buildBenchmarkHandoffPreview } from "@/lib/intake-benchmark-handoff.mjs";
 import { buildDecisionOutcomeLinkPreview } from "@/lib/intake-decision-outcome-link.mjs";
+import { buildEvolutionActionPackPreview } from "@/lib/intake-evolution-action-preview.mjs";
 
 export default function IntakePage() {
   const [type, setType] = useState<WorkspaceIntakeType | null>(null);
@@ -129,6 +130,27 @@ export default function IntakePage() {
           })
         : null,
     [openRecord, handoff],
+  );
+
+  // Stage 115 — deterministic evolution action pack preview from the opened
+  // saved record + handoff + decision/outcome preview. Preview only — no action
+  // pack persisted, no fix executed, no rerun, no evidence collected.
+  const actionPack = useMemo(
+    () =>
+      openRecord
+        ? buildEvolutionActionPackPreview({
+            workflowRecordId: openRecord.id,
+            title: openRecord.title,
+            sourceSummary: openRecord.sourceSummary,
+            acceptanceMap: openRecord.acceptanceMap,
+            stagePlan: openRecord.stagePlan,
+            agentRunPlan: openRecord.agentRunPlan,
+            evidencePlan: openRecord.evidencePlan,
+            benchmarkHandoffPreview: handoff ?? undefined,
+            decisionOutcomePreview: outcomeLink ?? undefined,
+          })
+        : null,
+    [openRecord, handoff, outcomeLink],
   );
 
   function resetPreviews() {
@@ -1119,6 +1141,87 @@ export default function IntakePage() {
 
                   <p className="mt-4 text-xs text-gray-400">
                     Preview only — no decision, scorecard, or action pack is created.
+                  </p>
+                </div>
+              )}
+
+              {/* Stage 115 — evolution action pack preview from the saved record */}
+              {actionPack && (
+                <div className="mt-4 rounded-lg border border-gray-200 bg-white p-4">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">
+                    Evolution Action Pack Preview · confidence: {actionPack.confidence}
+                  </p>
+                  <p className="mt-2 text-sm text-gray-500">{actionPack.summary}</p>
+
+                  <p className="mt-3 text-sm font-medium text-gray-900">
+                    Recommended focus
+                  </p>
+                  <p className="mt-1 text-sm text-gray-700">
+                    {actionPack.recommendedFocus.replace(/_/g, " ")}
+                  </p>
+
+                  <p className="mt-4 text-sm font-medium text-gray-900">
+                    Suggested actions
+                  </p>
+                  <div className="mt-1 space-y-2">
+                    {actionPack.actions.map((a) => (
+                      <div
+                        key={a.id}
+                        className={`rounded-md border p-3 ${
+                          a.type === actionPack.recommendedFocus
+                            ? "border-brand-300 bg-brand-50"
+                            : "border-gray-100 bg-gray-50"
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-medium text-gray-800">
+                            {a.title}
+                          </span>
+                          <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                            {a.type.replace(/_/g, " ")}
+                          </span>
+                          <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                            {a.priority}
+                          </span>
+                          <span className="text-xs text-gray-400">{a.id}</span>
+                        </div>
+                        <p className="mt-1 text-sm text-gray-600">{a.rationale}</p>
+                        <p className="mt-1 text-xs text-gray-500">
+                          {a.sourceSignals.length > 0 &&
+                            `Signals: ${a.sourceSignals.join("; ")}`}
+                          {a.relatedAcceptanceItems.length > 0 &&
+                            ` · Items: ${a.relatedAcceptanceItems.join("; ")}`}
+                          {a.relatedStageNumbers.length > 0 &&
+                            ` · Stages: ${a.relatedStageNumbers.join(", ")}`}
+                        </p>
+                        <p className="mt-1.5 text-sm text-gray-700">
+                          {a.suggestedInstruction}
+                        </p>
+                        {a.expectedEvidence.length > 0 && (
+                          <div className="mt-1.5 flex flex-wrap gap-1.5">
+                            {a.expectedEvidence.map((e) => (
+                              <span
+                                key={e}
+                                className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs text-gray-600"
+                              >
+                                {e}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <StageDetail
+                    label="Follow-up questions"
+                    items={actionPack.followUpQuestions}
+                  />
+                  <StageDetail label="Not included yet" items={actionPack.notIncludedYet} />
+
+                  <p className="mt-4 text-xs text-gray-400">
+                    Preview only — no action pack, fix, rerun, or evidence
+                    collection is created.
                   </p>
                 </div>
               )}
