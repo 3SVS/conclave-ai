@@ -51,6 +51,12 @@ import {
   AGENT_DECISION_LABELS,
 } from "@/lib/intake-agent-run-plan.mjs";
 import type { AgentRunPlan } from "@/lib/intake-agent-run-plan.mjs";
+import {
+  buildIntakeEvidencePlan,
+  EVIDENCE_STATUS_LABELS,
+  EVIDENCE_TYPE_LABELS,
+} from "@/lib/intake-evidence-plan.mjs";
+import type { IntakeEvidencePlan } from "@/lib/intake-evidence-plan.mjs";
 
 export default function IntakePage() {
   const [type, setType] = useState<WorkspaceIntakeType | null>(null);
@@ -63,6 +69,7 @@ export default function IntakePage() {
   const [acceptanceMap, setAcceptanceMap] = useState<IntakeAcceptanceMap | null>(null);
   const [stagePlan, setStagePlan] = useState<IntakeStagePlan | null>(null);
   const [agentRunPlan, setAgentRunPlan] = useState<AgentRunPlan | null>(null);
+  const [evidencePlan, setEvidencePlan] = useState<IntakeEvidencePlan | null>(null);
 
   const meta = type ? INTAKE_META[type] : null;
 
@@ -75,6 +82,7 @@ export default function IntakePage() {
     setAcceptanceMap(null);
     setStagePlan(null);
     setAgentRunPlan(null);
+    setEvidencePlan(null);
   }
 
   function selectType(next: WorkspaceIntakeType) {
@@ -101,6 +109,7 @@ export default function IntakePage() {
     setAcceptanceMap(buildIntakeAcceptanceMap({ type, rawInput }));
     setStagePlan(buildIntakeStagePlan({ type, rawInput }));
     setAgentRunPlan(buildAgentRunPlan({ type, rawInput }));
+    setEvidencePlan(buildIntakeEvidencePlan({ type, rawInput }));
   }
 
   return (
@@ -601,6 +610,62 @@ export default function IntakePage() {
             <p className="mt-4 text-xs text-gray-400">
               Preview only — Agent Run Plan is deterministic and not yet executed
               or saved.
+            </p>
+          </div>
+        )}
+
+        {/* Stage 111 — Evidence Plan (all intake types) */}
+        {evidencePlan && (
+          <div className="card mt-6 p-5">
+            <p className="text-xs uppercase tracking-wide text-gray-400">
+              Evidence Plan · overall: {EVIDENCE_STATUS_LABELS[evidencePlan.overallEvidenceStatus]} ·
+              confidence: {evidencePlan.confidence}
+            </p>
+            <p className="mt-2 text-sm text-gray-500">
+              Simsa shows what evidence would be needed before deciding whether to
+              accept, fix, rerun, or defer the work.
+            </p>
+
+            <div className="mt-3 space-y-2">
+              {evidencePlan.expectations.map((e) => (
+                <div key={e.id} className="rounded-lg border border-gray-200 bg-white p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-gray-900">
+                      {e.acceptanceItemTitle}
+                    </span>
+                    <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                      {EVIDENCE_STATUS_LABELS[e.status]}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Area: {e.relatedArea.replace(/_/g, " ")}
+                    {e.relatedStageNumbers.length > 0 &&
+                      ` · Stages: ${e.relatedStageNumbers.join(", ")}`}
+                    {e.relatedTaskIds.length > 0 && ` · Tasks: ${e.relatedTaskIds.join(", ")}`}
+                    {` · Decision impact: ${AGENT_DECISION_LABELS[e.decisionImpact]}`}
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {e.evidenceTypes.map((t) => (
+                      <span
+                        key={t}
+                        className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-gray-600"
+                      >
+                        {EVIDENCE_TYPE_LABELS[t]}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="mt-1.5 text-sm text-gray-600">{e.whyNeeded}</p>
+                </div>
+              ))}
+            </div>
+
+            <StageDetail
+              label="Missing evidence questions"
+              items={evidencePlan.missingEvidenceQuestions}
+            />
+
+            <p className="mt-4 text-xs text-gray-400">
+              Preview only — evidence is expected, not collected or verified.
             </p>
           </div>
         )}
