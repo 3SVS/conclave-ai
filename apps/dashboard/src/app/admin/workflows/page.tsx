@@ -14,6 +14,10 @@ import type {
   AdminWorkflowRecord,
   AdminWorkflowSummary,
 } from "@/lib/admin-agent-workflows-api";
+import {
+  ADMIN_USAGE_BOUNDARY_NOTE,
+  ADMIN_COUNTS_SIGNAL_NOTE,
+} from "@/lib/beta-usage-boundary.mjs";
 
 const STATUS_OPTIONS = ["", "planned", "needs_evidence", "archived"];
 
@@ -78,6 +82,10 @@ export default function AdminWorkflowsPage() {
       <p className="mt-2 text-sm text-gray-500">
         Beta admin console. Records are scoped by client-supplied userKey, not full
         account authentication. Avoid exposing or copying sensitive workflow content.
+      </p>
+      {/* Stage 122 — usage boundary note */}
+      <p className="mt-1 text-xs text-gray-400">
+        {ADMIN_USAGE_BOUNDARY_NOTE} {ADMIN_COUNTS_SIGNAL_NOTE}
       </p>
 
       {/* Controls */}

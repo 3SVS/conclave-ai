@@ -79,6 +79,12 @@ import {
   BETA_SAFETY_NOTES,
   EMPTY_STATES,
 } from "@/lib/beta-onboarding.mjs";
+import {
+  BETA_USAGE_BOUNDARY_HEADING,
+  BETA_USAGE_BOUNDARY_ITEMS,
+  BETA_USAGE_NOT_ACTIVE_COPY,
+  SAVED_WORKFLOW_USAGE_NOTE,
+} from "@/lib/beta-usage-boundary.mjs";
 import { buildBenchmarkHandoffPreview } from "@/lib/intake-benchmark-handoff.mjs";
 import { buildDecisionOutcomeLinkPreview } from "@/lib/intake-decision-outcome-link.mjs";
 import { buildEvolutionActionPackPreview } from "@/lib/intake-evolution-action-preview.mjs";
@@ -335,6 +341,21 @@ export default function IntakePage() {
               </div>
             ))}
           </dl>
+        </div>
+
+        {/* Stage 122 — beta usage / cost boundary panel */}
+        <div className="card mt-6 p-5">
+          <p className="text-sm font-semibold text-gray-900">
+            {BETA_USAGE_BOUNDARY_HEADING}
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-600">
+            {BETA_USAGE_BOUNDARY_ITEMS.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+          <p className="mt-3 rounded-md border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+            {BETA_USAGE_NOT_ACTIVE_COPY}
+          </p>
         </div>
 
         {/* Step 1 — pick a starting point */}
@@ -980,8 +1001,9 @@ export default function IntakePage() {
             </div>
           </div>
 
-          {/* Stage 120 — beta tenant-scope + retention notes */}
-          <p className="mt-2 text-xs text-gray-400">{BETA_SAFETY_NOTES.savedScope}</p>
+          {/* Stage 120/122 — beta tenant-scope + retention + usage-boundary notes */}
+          <p className="mt-2 text-xs text-gray-400">{SAVED_WORKFLOW_USAGE_NOTE}</p>
+          <p className="mt-1 text-xs text-gray-400">{BETA_SAFETY_NOTES.savedScope}</p>
           <p className="mt-1 text-xs text-gray-400">{BETA_SAFETY_NOTES.savedRetention}</p>
 
           {manageMsg && (
