@@ -57,6 +57,15 @@ import {
   EVIDENCE_TYPE_LABELS,
 } from "@/lib/intake-evidence-plan.mjs";
 import type { IntakeEvidencePlan } from "@/lib/intake-evidence-plan.mjs";
+import {
+  saveWorkflowRecord,
+  listWorkflowRecords,
+  getWorkflowRecord,
+} from "@/lib/workspace-agent-workflow-api";
+import type {
+  WorkflowRecord,
+  WorkflowRecordListItem,
+} from "@/lib/workspace-agent-workflow-api";
 
 export default function IntakePage() {
   const [type, setType] = useState<WorkspaceIntakeType | null>(null);
@@ -71,6 +80,15 @@ export default function IntakePage() {
   const [agentRunPlan, setAgentRunPlan] = useState<AgentRunPlan | null>(null);
   const [evidencePlan, setEvidencePlan] = useState<IntakeEvidencePlan | null>(null);
 
+  // Stage 112 — persisted workflow records (save / list / reopen).
+  const [saving, setSaving] = useState(false);
+  const [savedRecord, setSavedRecord] = useState<WorkflowRecord | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [savedList, setSavedList] = useState<WorkflowRecordListItem[] | null>(null);
+  const [listLoading, setListLoading] = useState(false);
+  const [openRecord, setOpenRecord] = useState<WorkflowRecord | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
   const meta = type ? INTAKE_META[type] : null;
 
   function resetPreviews() {
@@ -83,6 +101,52 @@ export default function IntakePage() {
     setStagePlan(null);
     setAgentRunPlan(null);
     setEvidencePlan(null);
+    setSavedRecord(null);
+    setSaveError(null);
+  }
+
+  // Stage 112 — save the generated workflow snapshot. Optional: the preview
+  // works without saving. Not agent execution — nothing here is executed.
+  async function saveWorkflow() {
+    if (!type || !draft || !acceptanceMap || !stagePlan || !agentRunPlan || !evidencePlan) {
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
+    setSavedRecord(null);
+    const res = await saveWorkflowRecord({
+      intakeType: type,
+      title: draft.title,
+      sourceSummary: draft.sourceSummary,
+      rawInputExcerpt: rawInput.slice(0, 2000),
+      acceptanceMap,
+      stagePlan,
+      agentRunPlan,
+      evidencePlan,
+      status: "planned",
+    });
+    if (res.ok) {
+      setSavedRecord(res.record);
+      void refreshSavedList();
+    } else {
+      setSaveError(res.error);
+    }
+    setSaving(false);
+  }
+
+  async function refreshSavedList() {
+    setListLoading(true);
+    const res = await listWorkflowRecords();
+    setSavedList(res.ok ? res.records : []);
+    setListLoading(false);
+  }
+
+  async function openSavedRecord(id: string) {
+    setDetailLoading(true);
+    setOpenRecord(null);
+    const res = await getWorkflowRecord(id);
+    if (res.ok) setOpenRecord(res.record);
+    setDetailLoading(false);
   }
 
   function selectType(next: WorkspaceIntakeType) {
@@ -669,6 +733,167 @@ export default function IntakePage() {
             </p>
           </div>
         )}
+
+        {/* Stage 112 — save the generated workflow snapshot (optional) */}
+        {evidencePlan && (
+          <div className="card mt-6 p-5">
+            <p className="text-xs uppercase tracking-wide text-gray-400">
+              Save workflow plan
+            </p>
+            <p className="mt-2 text-sm text-gray-500">
+              Save this workflow snapshot (acceptance map, stage plan, agent run
+              plan, evidence plan) so you can list and reopen it later. This is a
+              saved plan — not an agent run, executed task, or verified result.
+            </p>
+
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={saveWorkflow}
+                disabled={saving}
+                className="btn btn-primary btn-md"
+              >
+                {saving ? "Saving…" : "Save workflow plan"}
+              </button>
+            </div>
+
+            {saveError && (
+              <p className="mt-3 text-sm text-red-600">Could not save: {saveError}</p>
+            )}
+
+            {savedRecord && (
+              <div className="mt-3 rounded-lg border border-brand-200 bg-brand-50 p-3">
+                <p className="text-sm font-medium text-gray-900">
+                  Saved workflow plan
+                </p>
+                <p className="mt-1 text-xs text-gray-600">
+                  ID: {savedRecord.id} · Status: {savedRecord.status} · Created:{" "}
+                  {savedRecord.createdAt}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => openSavedRecord(savedRecord.id)}
+                  className="btn btn-secondary btn-sm mt-2"
+                >
+                  Reopen saved workflow
+                </button>
+              </div>
+            )}
+
+            <p className="mt-4 text-xs text-gray-400">
+              Saving is optional — the preview works without it. No agent
+              execution, evidence upload, decision, or benchmark is created.
+            </p>
+          </div>
+        )}
+
+        {/* Stage 112 — saved workflow plans (list + reopen) */}
+        <div className="card mt-6 p-5">
+          <div className="flex items-center justify-between">
+            <p className="text-xs uppercase tracking-wide text-gray-400">
+              Saved workflow plans
+            </p>
+            <button
+              type="button"
+              onClick={refreshSavedList}
+              disabled={listLoading}
+              className="btn btn-secondary btn-sm"
+            >
+              {listLoading ? "Loading…" : "Refresh"}
+            </button>
+          </div>
+
+          {savedList === null && (
+            <p className="mt-3 text-sm text-gray-500">
+              Refresh to load previously saved workflow plans.
+            </p>
+          )}
+          {savedList !== null && savedList.length === 0 && (
+            <p className="mt-3 text-sm text-gray-500">
+              No saved workflow plans yet.
+            </p>
+          )}
+          {savedList !== null && savedList.length > 0 && (
+            <ul className="mt-3 space-y-2">
+              {savedList.map((r) => (
+                <li
+                  key={r.id}
+                  className="rounded-lg border border-gray-200 bg-white p-3"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-gray-900">
+                      {r.title}
+                    </span>
+                    <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                      {r.intakeType.replace(/_/g, " ")}
+                    </span>
+                    <span className="rounded-full border border-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                      {r.status}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">{r.sourceSummary}</p>
+                  <p className="mt-1 text-xs text-gray-400">
+                    {r.id} · {r.createdAt}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => openSavedRecord(r.id)}
+                    className="btn btn-secondary btn-sm mt-2"
+                  >
+                    Open
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {detailLoading && (
+            <p className="mt-3 text-sm text-gray-500">Loading workflow…</p>
+          )}
+
+          {openRecord && (
+            <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-gray-900">
+                  {openRecord.title}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setOpenRecord(null)}
+                  className="btn btn-secondary btn-sm"
+                >
+                  Close
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                {openRecord.intakeType.replace(/_/g, " ")} · {openRecord.status} ·{" "}
+                {openRecord.id}
+              </p>
+              <p className="mt-2 text-sm text-gray-600">
+                {openRecord.sourceSummary}
+              </p>
+              <p className="mt-3 text-xs font-medium text-gray-500">
+                Saved snapshot (read-only JSON)
+              </p>
+              <pre className="mt-1 max-h-80 overflow-auto rounded-md border border-gray-200 bg-white p-3 text-xs text-gray-700">
+                {JSON.stringify(
+                  {
+                    acceptanceMap: openRecord.acceptanceMap,
+                    stagePlan: openRecord.stagePlan,
+                    agentRunPlan: openRecord.agentRunPlan,
+                    evidencePlan: openRecord.evidencePlan,
+                  },
+                  null,
+                  2,
+                )}
+              </pre>
+              <p className="mt-2 text-xs text-gray-400">
+                Read-only snapshot of a saved plan. No agent execution or evidence
+                collection happened.
+              </p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

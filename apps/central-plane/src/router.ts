@@ -37,6 +37,7 @@ import { createWorkspaceAdminCreditsRoutes } from "./routes/workspace-admin-cred
 import { createWorkspaceCreditsRoutes } from "./routes/workspace-credits.js";
 import { createWorkspaceBenchmarkRoutes } from "./routes/workspace-benchmark.js";
 import { createWorkspaceExperimentRoutes } from "./routes/workspace-experiment.js";
+import { createWorkspaceAgentWorkflowRoutes } from "./routes/workspace-agent-workflow.js";
 import type { FetchLike } from "./github.js";
 
 /**
@@ -147,6 +148,8 @@ export function createApp(opts: { fetch?: FetchLike } = {}): Hono<{ Bindings: En
   app.route("/", createWorkspaceBenchmarkRoutes());
   // Stage 72 — Persisted Manual Multi-Agent Experiments.
   app.route("/", createWorkspaceExperimentRoutes());
+  // Stage 112 — Persisted Agent Workflow Records (intake snapshot save/list/read).
+  app.route("/", createWorkspaceAgentWorkflowRoutes());
   app.onError((err, c) => {
     console.error("central-plane error:", err);
     return c.json({ error: err.message || "internal error" }, 500);
