@@ -88,6 +88,7 @@ import {
 import { buildBenchmarkHandoffPreview } from "@/lib/intake-benchmark-handoff.mjs";
 import { buildDecisionOutcomeLinkPreview } from "@/lib/intake-decision-outcome-link.mjs";
 import { buildEvolutionActionPackPreview } from "@/lib/intake-evolution-action-preview.mjs";
+import { buildAcceptanceGraphDerivedView } from "@/lib/acceptance-graph-derived.mjs";
 
 export default function IntakePage() {
   const [type, setType] = useState<WorkspaceIntakeType | null>(null);
@@ -173,6 +174,26 @@ export default function IntakePage() {
           })
         : null,
     [openRecord, handoff, outcomeLink],
+  );
+
+  // Stage 126 — derived Acceptance Graph view from the opened saved record +
+  // its decision/outcome + evolution-action previews. Derived only — no graph DB.
+  const graphView = useMemo(
+    () =>
+      openRecord
+        ? buildAcceptanceGraphDerivedView({
+            workflowRecordId: openRecord.id,
+            title: openRecord.title,
+            sourceSummary: openRecord.sourceSummary,
+            acceptanceMap: openRecord.acceptanceMap,
+            stagePlan: openRecord.stagePlan,
+            agentRunPlan: openRecord.agentRunPlan,
+            evidencePlan: openRecord.evidencePlan,
+            decisionOutcomePreview: outcomeLink ?? undefined,
+            evolutionActionPreview: actionPack ?? undefined,
+          })
+        : null,
+    [openRecord, outcomeLink, actionPack],
   );
 
   function resetPreviews() {
@@ -1407,6 +1428,101 @@ export default function IntakePage() {
                   <p className="mt-4 text-xs text-gray-400">
                     Preview only — no action pack, fix, rerun, or evidence
                     collection is created.
+                  </p>
+                </div>
+              )}
+
+              {/* Stage 126 — derived Acceptance Graph view from the saved record */}
+              {graphView && (
+                <div className="mt-4 rounded-lg border border-gray-200 bg-white p-4">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">
+                    Acceptance Graph Derived View · confidence: {graphView.confidence}
+                  </p>
+                  <p className="mt-2 text-sm text-gray-500">{graphView.summary}</p>
+
+                  <p className="mt-3 text-sm font-medium text-gray-900">Signal summary</p>
+                  <dl className="mt-1 grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-4">
+                    {(
+                      [
+                        ["acceptanceItemCount", "Acceptance items"],
+                        ["stageCount", "Stages"],
+                        ["agentTaskCount", "Agent tasks"],
+                        ["evidenceExpectationCount", "Evidence expectations"],
+                        ["notVerifiedCount", "Not verified"],
+                        ["decisionCandidateCount", "Decision candidates"],
+                        ["actionPreviewCount", "Action previews"],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <div key={key}>
+                        <dt className="text-xs text-gray-400">{label}</dt>
+                        <dd className="text-sm text-gray-700">
+                          {graphView.signalSummary[key]}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+
+                  {graphView.signalSummary.topAcceptanceAreas.length > 0 && (
+                    <>
+                      <p className="mt-4 text-sm font-medium text-gray-900">
+                        Top acceptance areas
+                      </p>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {graphView.signalSummary.topAcceptanceAreas.map((a) => (
+                          <span
+                            key={a.area}
+                            className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-gray-600"
+                          >
+                            {a.area.replace(/_/g, " ")} · {a.count}
+                          </span>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  {graphView.signalSummary.topEvidenceTypes.length > 0 && (
+                    <>
+                      <p className="mt-4 text-sm font-medium text-gray-900">
+                        Top evidence types
+                      </p>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {graphView.signalSummary.topEvidenceTypes.map((e) => (
+                          <span
+                            key={e.evidenceType}
+                            className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-gray-600"
+                          >
+                            {e.evidenceType.replace(/_/g, " ")} · {e.count}
+                          </span>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  <p className="mt-4 text-xs text-gray-500">
+                    {graphView.nodes.length} nodes · {graphView.edges.length} edges
+                    (sample below)
+                  </p>
+                  <ul className="mt-1 space-y-0.5 text-xs text-gray-600">
+                    {graphView.nodes.slice(0, 6).map((n) => (
+                      <li key={n.id}>
+                        <span className="text-gray-400">{n.type.replace(/_/g, " ")}:</span>{" "}
+                        {n.label}
+                      </li>
+                    ))}
+                  </ul>
+                  <ul className="mt-1 space-y-0.5 text-xs text-gray-500">
+                    {graphView.edges.slice(0, 6).map((e) => (
+                      <li key={e.id}>
+                        {e.from} <span className="text-gray-400">{e.label} →</span> {e.to}
+                      </li>
+                    ))}
+                  </ul>
+
+                  <StageDetail label="Not included yet" items={graphView.notIncludedYet} />
+
+                  <p className="mt-4 text-xs text-gray-400">
+                    Derived preview only — no graph database or model training is
+                    created.
                   </p>
                 </div>
               )}
