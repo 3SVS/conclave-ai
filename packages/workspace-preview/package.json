@@ -1,0 +1,28 @@
+{
+  "name": "@conclave-ai/workspace-preview",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pure deterministic preview helpers for Simsa workspace planning, shared by the dashboard and MCP Basic. No React/Next/browser/network/env/mutation/hosted-execution/payment/secrets.",
+  "license": "FSL-1.1-Apache-2.0",
+  "type": "module",
+  "main": "./src/index.mjs",
+  "types": "./src/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.mts",
+      "import": "./src/index.mjs"
+    },
+    "./safety": {
+      "types": "./src/safety.d.mts",
+      "import": "./src/safety.mjs"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test test/*.test.mjs",
+    "clean": "rm -rf .tsbuildinfo"
+  }
+}
