@@ -25,6 +25,7 @@
     "dev": "tsc -p tsconfig.json --watch",
     "start": "node dist/index.js",
     "smoke": "node scripts/smoke.mjs",
+    "smoke:basic": "node scripts/smoke-basic.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test test/*.test.mjs",
     "clean": "rm -rf dist .tsbuildinfo"
