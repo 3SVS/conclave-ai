@@ -1316,6 +1316,69 @@ export type Dictionary = {
     saving: string;
     refreshing: string;
   };
+  planMap: {
+    title: string;
+    subtitle: string;
+    readOnlyPreview: string;
+    generatedNote: string;
+    youAreHere: string;
+    currentStage: string;
+    currentTrain: string;
+    nextCheckpoint: string;
+    nextRecommended: string;
+    approvalRequired: string;
+    evidenceMissing: string;
+    notVerifiedYet: string;
+    notVerifiedLabel: string;
+    willNotDeploy: string;
+    prepPlanOnly: string;
+    whatIfApprove: string;
+    blockedByIdentity: string;
+    readyForCheckpoint: string;
+    evidenceLabel: string;
+    blockersLabel: string;
+    gatesLabel: string;
+    noBlockers: string;
+    goalFallback: string;
+    titleFallback: string;
+    collabNote: string;
+    changesLabel: string;
+    unchangedLabel: string;
+    whyLabel: string;
+    riskLabel: string;
+    sections: { done: string; current: string; next: string; later: string };
+    trains: { plan: string; acceptance: string; release: string };
+    stages: {
+      intake: string;
+      brief: string;
+      acceptance: string;
+      review: string;
+      checkpoint: string;
+      merge: string;
+      deploy: string;
+    };
+    status: {
+      planned: string;
+      ready: string;
+      in_progress: string;
+      blocked: string;
+      needs_approval: string;
+      verifying: string;
+      completed: string;
+      skipped: string;
+      not_verified: string;
+      deferred: string;
+      failed_check: string;
+      merged: string;
+      deployed: string;
+    };
+    risk: { low: string; medium: string; high: string };
+    blockers: { evidence: string; failed_check: string; identity: string };
+    gates: Record<
+      "merge" | "deploy" | "migration" | "mcpPublish" | "npmPublish" | "auth" | "payment" | "dns" | "productionWrite",
+      { label: string; why: string; changes: string; unchanged: string }
+    >;
+  };
 };
 
 export const LOCALES: Locale[];

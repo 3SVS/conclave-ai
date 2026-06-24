@@ -43,7 +43,19 @@ export default function ProjectOverviewPage() {
   return (
     <div className="max-w-3xl">
       <h1 className="text-2xl font-semibold tracking-tight text-gray-900">{project.name}</h1>
-      <p className="mb-8 mt-1 text-sm text-gray-500">{project.description}</p>
+      <p className="mb-6 mt-1 text-sm text-gray-500">{project.description}</p>
+
+      {/* Stage 183 — Plan Map ("Where are we?") read-only entry */}
+      <Link
+        href={`/projects/${id}/map`}
+        className="card mb-8 flex items-center justify-between gap-3 p-4 transition-colors hover:bg-gray-50"
+      >
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-900">{t.planMap.title}</p>
+          <p className="mt-0.5 text-xs text-gray-500">{t.planMap.subtitle}</p>
+        </div>
+        <span className="flex-shrink-0 text-xs text-brand-700">{t.planMap.youAreHere} →</span>
+      </Link>
 
       <section className="mb-8">
         <div className="mb-2 flex items-center justify-between">
