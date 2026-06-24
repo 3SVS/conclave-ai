@@ -15,9 +15,16 @@ requirements, identify missing gaps, and attach a remediation playbook — keepi
 publish held.
 
 ## 2. Current evidence status
-**Status B — Evidence intake prepared, manual app-side run pending.** No Bae app-side
-evidence has been supplied; terminal evidence is complete but **does not** replace
-actual Claude Desktop app-side evidence.
+> **Superseded by Stage 157 (2026-06-24):** Bae then supplied actual app-side evidence;
+> the core flow is now **Status A (with caveats)** — see
+> `stage-157-claude-desktop-evidence-update-mcp-branding-gap.md`. The matrix below was
+> written while evidence was still pending; the review method, gap categories (G1–G8),
+> and remediation playbook remain valid for any future re-runs.
+
+**Status B — Evidence intake prepared, manual app-side run pending.** *(original state
+of this stage; see supersede note above.)* No Bae app-side evidence had been supplied;
+terminal evidence is complete but **does not** replace actual Claude Desktop app-side
+evidence.
 
 ## 3. Review method
 When Bae fills the Stage 155 §9 template, score each row of the §4 matrix:

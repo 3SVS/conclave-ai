@@ -34,7 +34,9 @@ export function buildClaudeDesktopBasicConfig({ requireBuilt = true } = {}) {
   }
   return {
     mcpServers: {
-      "simsa-basic": {
+      // User-facing display/config entry name (Claude Desktop shows this). Only the
+      // local server entry name is branded; internal package names are unchanged.
+      "Simsa-Basic": {
         command: "node",
         args: [entry],
         env: {},

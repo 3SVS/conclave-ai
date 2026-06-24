@@ -72,7 +72,14 @@ Do not share secrets of any kind.
 
 ## 9. Current recorded evidence
 
-**Status: Pending**
+> **Superseded by Stage 157 (2026-06-24):** Bae subsequently supplied actual Claude
+> Desktop app-side evidence (acceptance map / stage plan / evidence plan / handoff link
+> succeeded; no credential prompt; no `run_pr_review` / `post_pr_comment` exposure). The
+> app-side status is now **Status A (with caveats)** — see
+> `stage-157-claude-desktop-evidence-update-mcp-branding-gap.md`. The Pending slot below
+> reflects the original state of this stage.
+
+**Status: Pending** *(original; see supersede note above)*
 
 No Bae app-side evidence has been supplied in this stage yet.
 

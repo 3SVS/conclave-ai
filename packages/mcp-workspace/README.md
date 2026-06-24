@@ -122,7 +122,7 @@ entry point. Build first, then point your MCP host at `dist/index.js`:
 ```json
 {
   "mcpServers": {
-    "simsa-basic": {
+    "Simsa-Basic": {
       "command": "node",
       "args": [
         "/ABSOLUTE/PATH/TO/conclave-ai/packages/mcp-workspace/dist/index.js"
@@ -132,6 +132,10 @@ entry point. Build first, then point your MCP host at `dist/index.js`:
   }
 }
 ```
+
+The local MCP server display/config entry uses **`Simsa-Basic`** for user-facing
+private dogfood. (Internal package names — `@conclave-ai/mcp-workspace`,
+`@conclave-ai/workspace-preview` — are unchanged.)
 
 Notes:
 
@@ -156,7 +160,7 @@ pnpm --filter @conclave-ai/mcp-workspace qa:basic-tools
 pnpm --filter @conclave-ai/mcp-workspace print:claude-desktop-basic-config
 ```
 
-Then add the generated `simsa-basic` config (empty `env`) to Claude Desktop, restart,
+Then add the generated `Simsa-Basic` config (empty `env`) to Claude Desktop, restart,
 open a new chat, and confirm the 9 Basic tools are callable with **no credential
 prompt** and **no connected/risky tools**. The full operator checklist, safe prompts,
 and an evidence template live in
@@ -331,7 +335,7 @@ also confirm your Node version and the local absolute path. **Do not** attempt h
 config (or GUI dogfood) until the smokes pass. **Safety:** don't add credentials to
 "make it work" — Basic-only needs none.
 
-### Host (e.g. Claude Desktop) cannot see `simsa-basic`
+### Host (e.g. Claude Desktop) cannot see `Simsa-Basic`
 **Likely cause:** wrong absolute path · build not run · app not restarted · config
 saved in the wrong/inactive file · invalid JSON. **Fix:** regenerate with
 `print:claude-desktop-basic-config`, rebuild, **restart** the host, open a **new**
