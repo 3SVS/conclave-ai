@@ -26,6 +26,7 @@
     "start": "node dist/index.js",
     "smoke": "node scripts/smoke.mjs",
     "smoke:basic": "node scripts/smoke-basic.mjs",
+    "print:claude-desktop-basic-config": "node scripts/print-claude-desktop-basic-config.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test test/*.test.mjs",
     "clean": "rm -rf dist .tsbuildinfo"
