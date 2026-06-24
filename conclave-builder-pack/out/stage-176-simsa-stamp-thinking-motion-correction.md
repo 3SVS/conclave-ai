@@ -1,7 +1,11 @@
-# Stage 174 — Simsa Stamp Thinking Motion Correction
+# Stage 176 — Simsa Stamp Thinking Motion Correction
 
 **Date:** 2026-06-24
-**Branch:** `fix/stage-174-simsa-stamp-thinking-motion` · **Base:** `main` @ `9c4e593`
+**Branch:** `fix/stage-176-simsa-stamp-thinking-motion` · **Base:** `main` @ `9c4e593`
+**Renumber note:** originally authored as Stage 174 on the local (unpushed) branch
+`fix/stage-174-…`; renumbered to **Stage 176** before pushing because PR #155 already uses
+Stage 174 for "GitHub / Vercel Integration UX + Safety Model". The commit was amended (the
+branch had not been pushed). Implementation/decisions are unchanged — numbering only.
 **Type:** dashboard UI / motion / design correction. **No deploy, no merge, no MCP/npm publish, no migration, no auth/OAuth/payment/billing/hosted execution, no central-plane change, no token/secret output.**
 
 ## 1. Why the wax-seal metaphor was changed
@@ -152,7 +156,7 @@ legal/compliance certification — in visuals (controlled ink-red, neutral surfa
   `account/page.tsx`) was cleared by removing `apps/dashboard/.next` and rebuilding — not a
   code issue.
 
-## 14. Stage 174 decision — **Option A: stamp metaphor correction ready**
+## 14. Stage 176 decision — **Option A: stamp metaphor correction ready**
 The wax-seal metaphor is fully replaced by the review-stamp ("심사 도장") metaphor — motion,
 ink-red color treatment (existing oxblood tokens), copy, component naming, and a documented
 future opt-in sound direction — with accessibility/reduced-motion preserved and a test guard
@@ -162,8 +166,20 @@ against approval/certification language. **Not deployed, not merged.**
 No deploy · no payment/Stripe/billing · no hosted execution · no central-plane change · no
 migration · no MCP publish · no npm publish · no auth/OAuth/session · no token/secret work.
 
-## 16. Recommended next stage
-**Stage 175 — Dashboard deploy of the stamp motion** (only on explicit Bae approval), OR
-fold this correction into the next dashboard deploy train alongside the already-on-`main`
-intake i18n. A future **opt-in sound micro-interaction** stage remains available but is
-deliberately deferred (off-by-default, user-controlled).
+## 16. Coordination with PR #155 (separate, unmerged)
+This Stage 176 stamp PR and **PR #155** (`docs/stage-168-workspace-collaboration-integrations`,
+Stage 168~174 + 175 checkpoint) are **independent** and both branch off `main` @ `9c4e593`.
+Both touch `apps/dashboard/src/i18n/dictionary.mjs` + `dictionary.d.mts` (PR #155 adds the
+`account.*` namespace; this PR rewrites the `loading.*` namespace) and `intake/page.tsx` is
+**not** touched by PR #155. The edits are in **different namespaces/regions**, so a textual
+conflict is unlikely but **possible** (adjacent dictionary regions). **Merge-order
+implication:** whichever merges second may need a trivial dictionary re-base; recommend
+merging one, then rebasing the other and re-running `pnpm --filter @conclave-ai/dashboard
+test` (the i18n parity test will catch any key drift). Not resolved here.
+
+## 17. Recommended next stage
+**Stage 177 — Dual PR Merge Order Checkpoint** (PR #155 + this Stage 176 stamp PR): decide
+merge order, rebase the second, re-verify. Then **dashboard deploy of the stamp motion**
+(only on explicit Bae approval), optionally folded into the next deploy train alongside the
+already-on-`main` intake i18n. A future **opt-in sound micro-interaction** stage remains
+available but is deliberately deferred (off-by-default, user-controlled).
