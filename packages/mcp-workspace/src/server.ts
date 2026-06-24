@@ -10,6 +10,7 @@ import {
   previewRecurringBlockers,
   previewAgentToolMemory,
   previewTemplateSignals,
+  createWebAppHandoffLink,
 } from "./mcp-basic-preview-tools.mjs";
 
 const VERSION = "0.8.2";
@@ -129,6 +130,12 @@ export const BASIC_TOOL_META: Record<string, { title: string; description: strin
       "Derive deterministic template/pattern effectiveness signals from a snapshot you provide. Preview only — nothing is saved." +
       BASIC_SAFETY,
   },
+  create_web_app_handoff_link: {
+    title: "Create Web App handoff link",
+    description:
+      "Create a safe Simsa Web App handoff link from MCP Basic. The link uses safe query context only and does not save data, create an account, start a login session, trigger payment, execute tools, call Simsa servers, or assume any payment provider. Sensitive-looking fields are omitted from the URL and reported in warnings." +
+      BASIC_SAFETY,
+  },
 };
 
 /** Names of the free local preview tools, in registration order. */
@@ -141,6 +148,7 @@ export const BASIC_PREVIEW_TOOL_NAMES = [
   "preview_recurring_blockers",
   "preview_agent_tool_memory",
   "preview_template_signals",
+  "create_web_app_handoff_link",
 ] as const;
 
 /** Connected tools — registered only when a WorkspaceClient (userKey) is present. */
@@ -197,6 +205,16 @@ const TEMPLATE_SIGNALS_SCHEMA = {
   decisionOutcomePreview: u(),
   evolutionActionPreview: u(),
 };
+// Handoff: safe-context query inputs only; the wrapper omits anything sensitive.
+const HANDOFF_SCHEMA = {
+  intent: z.string().optional().describe("Handoff intent, e.g. new_intake | save_workflow"),
+  intakeType: z.string().optional().describe("Intake type to pre-select in the Web App"),
+  title: z.string().optional().describe("Short, non-sensitive title (sensitive values are omitted)"),
+  safeSummary: z.string().optional().describe("Short, non-sensitive summary (sensitive values are omitted)"),
+  previewKind: z.string().optional().describe("Which preview this handoff came from"),
+  previewId: z.string().optional().describe("Opaque preview id (sensitive values are omitted)"),
+  baseUrl: z.string().optional().describe("Override base URL; ignored unless a valid http(s) URL"),
+};
 
 /**
  * Single dispatch path shared by the registered MCP handlers and the tests, so
@@ -222,6 +240,8 @@ export function runBasicPreviewTool(name: string, args: unknown) {
       return text(previewAgentToolMemory(a));
     case "preview_template_signals":
       return text(previewTemplateSignals(a));
+    case "create_web_app_handoff_link":
+      return text(createWebAppHandoffLink(a));
     default:
       return text({ ok: false, error: `unknown_basic_tool: ${name}` });
   }
@@ -242,6 +262,7 @@ function registerBasicPreviewTools(server: McpServer): void {
   reg("preview_recurring_blockers", RECURRING_BLOCKERS_SCHEMA);
   reg("preview_agent_tool_memory", AGENT_TOOL_MEMORY_SCHEMA);
   reg("preview_template_signals", TEMPLATE_SIGNALS_SCHEMA);
+  reg("create_web_app_handoff_link", HANDOFF_SCHEMA);
 }
 
 /**

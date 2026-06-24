@@ -11,7 +11,7 @@ const {
   getMcpToolRegistrationPlan,
 } = await import("../dist/server.js");
 
-const BASIC_NAMES = [
+const PREVIEW_NAMES = [
   "preview_acceptance_map",
   "preview_stage_plan",
   "preview_agent_run_plan",
@@ -21,6 +21,7 @@ const BASIC_NAMES = [
   "preview_agent_tool_memory",
   "preview_template_signals",
 ];
+const BASIC_NAMES = [...PREVIEW_NAMES, "create_web_app_handoff_link"];
 
 /** Parse the JSON payload out of a text() envelope. */
 function payload(envelope) {
@@ -29,13 +30,15 @@ function payload(envelope) {
 }
 
 describe("getMcpToolRegistrationPlan", () => {
-  it("Basic-only mode (no userKey) registers exactly the 8 local preview tools", () => {
+  it("Basic-only mode (no userKey) registers exactly the 9 local Basic tools", () => {
     const plan = getMcpToolRegistrationPlan({ hasUserKey: false });
     assert.equal(plan.mode, "basic_only");
     assert.deepEqual(plan.basic.sort(), [...BASIC_NAMES].sort());
+    assert.equal(plan.basic.length, 9);
+    assert.ok(plan.basic.includes("create_web_app_handoff_link"));
     assert.deepEqual(plan.connected, []);
     assert.deepEqual(plan.gated, []);
-    assert.equal(plan.all.length, 8);
+    assert.equal(plan.all.length, 9);
     // No connected/network/gated tool leaks into Basic-only mode.
     assert.ok(!plan.all.includes("run_pr_review"));
     assert.ok(!plan.all.includes("post_pr_comment"));
@@ -45,11 +48,14 @@ describe("getMcpToolRegistrationPlan", () => {
   it("env-backed mode registers Basic + connected tools, no write tool by default", () => {
     const plan = getMcpToolRegistrationPlan({ hasUserKey: true });
     assert.equal(plan.mode, "env_backed");
-    assert.equal(plan.basic.length, 8);
+    assert.equal(plan.basic.length, 9);
+    assert.ok(plan.basic.includes("create_web_app_handoff_link"));
     assert.ok(plan.connected.includes("list_projects"));
     assert.ok(plan.connected.includes("run_pr_review"));
     assert.deepEqual(plan.gated, []);
     assert.ok(!plan.all.includes("post_pr_comment"));
+    // Exactly one more tool than Stage 142 (the handoff tool) for the same inputs.
+    assert.equal(plan.all.length, 9 + 9);
   });
 
   it("post_pr_comment is gated behind userKey AND enablePostComment", () => {
@@ -65,18 +71,18 @@ describe("getMcpToolRegistrationPlan", () => {
 });
 
 describe("BASIC_TOOL_META", () => {
-  it("has metadata for every Basic preview tool name", () => {
+  it("has metadata for every Basic tool name", () => {
     for (const name of BASIC_PREVIEW_TOOL_NAMES) {
       assert.ok(BASIC_TOOL_META[name], `missing meta for ${name}`);
       assert.ok(BASIC_TOOL_META[name].title.length > 0);
     }
-    assert.equal(Object.keys(BASIC_TOOL_META).length, 8);
+    assert.equal(Object.keys(BASIC_TOOL_META).length, 9);
+    assert.ok(BASIC_TOOL_META.create_web_app_handoff_link, "missing handoff meta");
   });
 
-  it("descriptions state the free/local boundary and untrusted-input warning", () => {
+  it("every Basic description states the free/local boundary + untrusted-input warning", () => {
     for (const [name, meta] of Object.entries(BASIC_TOOL_META)) {
       const d = meta.description;
-      assert.match(d, /preview only/i, `${name} should say preview only`);
       assert.match(d, /no payment/i, `${name} should say no payment`);
       assert.match(d, /no network|locally/i, `${name} should say local/no-network`);
       assert.match(d, /no credits/i, `${name} should say no credits`);
@@ -85,6 +91,23 @@ describe("BASIC_TOOL_META", () => {
       // Basic tools are local — must NOT claim they read/write through the API.
       assert.ok(!/through Conclave's API/i.test(d), `${name} must not claim API access`);
     }
+  });
+
+  it("the 8 preview tools say preview-only", () => {
+    for (const name of PREVIEW_NAMES) {
+      assert.match(BASIC_TOOL_META[name].description, /preview only/i, `${name} should say preview only`);
+    }
+  });
+
+  it("handoff description states it is safe + non-mutating + omits sensitive fields", () => {
+    const d = BASIC_TOOL_META.create_web_app_handoff_link.description;
+    assert.match(d, /handoff link/i);
+    assert.match(d, /does not save data/i);
+    assert.match(d, /create an account/i);
+    assert.match(d, /login session/i);
+    assert.match(d, /assume any payment provider/i);
+    assert.match(d, /omitted from the URL and reported in warnings/i);
+    assert.ok(!/through Conclave's API/i.test(d));
   });
 });
 
@@ -157,6 +180,69 @@ describe("runBasicPreviewTool", () => {
     assert.ok(!blob.includes("userkey"));
     assert.ok(!blob.includes("uk_"));
     assert.ok(!blob.includes("stripe"));
+  });
+});
+
+describe("create_web_app_handoff_link", () => {
+  it("returns ok, kind, handoff, and the read-only boundary", () => {
+    const r = payload(
+      runBasicPreviewTool("create_web_app_handoff_link", { intent: "save_workflow", title: "My app" }),
+    );
+    assert.equal(r.ok, true);
+    assert.equal(r.kind, "web_app_handoff_link");
+    assert.equal(r.mutatesState, false);
+    assert.equal(r.usesHostedExecution, false);
+    assert.equal(r.requiresPayment, false);
+    assert.equal(r.derivedPreviewOnly, true);
+    assert.ok(r.handoff);
+    assert.ok(r.handoff.url.startsWith("https://app.trysimsa.com/projects/new/intake?"));
+    // Handoff boundary is preserved and conservative.
+    assert.equal(r.handoff.boundary.containsRawPrivateContent, false);
+    assert.equal(r.handoff.boundary.containsSecrets, false);
+    assert.equal(r.handoff.boundary.createsPersistence, false);
+    assert.equal(r.handoff.boundary.requiresPayment, false);
+    assert.equal(r.handoff.boundary.assumesPaymentProvider, false);
+  });
+
+  it("missing input returns a safe default app.trysimsa.com link", () => {
+    for (const args of [undefined, {}, null, 7, "x"]) {
+      const r = payload(runBasicPreviewTool("create_web_app_handoff_link", args));
+      assert.equal(r.ok, true);
+      assert.ok(r.handoff.url.startsWith("https://app.trysimsa.com/projects/new/intake?"));
+      assert.equal(r.handoff.query.source, "mcp_basic");
+      assert.equal(r.handoff.query.intent, "new_intake");
+    }
+  });
+
+  it("omits sensitive title/summary/previewId and reports warnings", () => {
+    const cases = [
+      ["title", { title: "sk-ABCDEFGHIJKLMNOP" }],
+      ["safeSummary", { safeSummary: "token=abcdef123456 here" }],
+      ["previewId", { previewId: "authorization: Bearer abcdefghijklmnop" }],
+    ];
+    for (const [label, args] of cases) {
+      const r = payload(runBasicPreviewTool("create_web_app_handoff_link", args));
+      assert.ok(r.handoff.omittedFields.includes(label), label);
+      assert.ok(r.handoff.warnings.length >= 1, label);
+      assert.ok(
+        !Object.values(r.handoff.query).some((v) => /sk-|token=|authorization:/i.test(v)),
+        `${label} leaked into query`,
+      );
+    }
+  });
+
+  it("never throws on malformed args; no Stripe/payment-provider string in URL or handoff", () => {
+    for (const args of [null, undefined, 7, "x", [], { intent: 1, title: 2 }]) {
+      assert.doesNotThrow(() => runBasicPreviewTool("create_web_app_handoff_link", args));
+    }
+    const r = payload(runBasicPreviewTool("create_web_app_handoff_link", { title: "normal app" }));
+    const blob = (r.handoff.url + JSON.stringify(r.handoff.query)).toLowerCase();
+    assert.ok(!blob.includes("stripe"));
+    assert.ok(!blob.includes("payment"));
+    // No userKey/token leak anywhere in the response.
+    const full = JSON.stringify(r).toLowerCase();
+    assert.ok(!full.includes("userkey"));
+    assert.ok(!full.includes("uk_"));
   });
 });
 
