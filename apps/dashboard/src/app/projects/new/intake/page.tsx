@@ -6,8 +6,8 @@
 // per-type analysis behind the same model.
 import { useMemo, useState } from "react";
 import { useI18n } from "@/i18n/I18nProvider";
-import { SimsaSealThinking } from "@/components/SimsaSealThinking";
-import { getDefaultSealThinkingSteps } from "@/lib/seal-thinking.mjs";
+import { SimsaStampThinking } from "@/components/SimsaStampThinking";
+import { getDefaultStampThinkingSteps } from "@/lib/stamp-thinking.mjs";
 import {
   WORKSPACE_INTAKE_TYPES,
   INTAKE_META,
@@ -100,7 +100,7 @@ export default function IntakePage() {
   // Stage 159 — dictionary-first i18n for the MCP handoff/intake destination.
   const { t: tr } = useI18n();
   // Stage 163 — localized thinking-step labels for genuinely-async waits.
-  const loadingSteps = getDefaultSealThinkingSteps(tr.loading);
+  const loadingSteps = getDefaultStampThinkingSteps(tr.loading);
   const [type, setType] = useState<WorkspaceIntakeType | null>(null);
   const [rawInput, setRawInput] = useState("");
   const [draft, setDraft] = useState<WorkspaceIntakeDraft | null>(null);
@@ -1033,7 +1033,7 @@ export default function IntakePage() {
               >
                 {saving ? (
                   <>
-                    <SimsaSealThinking variant="compact" label={tr.loading.saving} />
+                    <SimsaStampThinking variant="compact" label={tr.loading.saving} />
                     <span>{tr.loading.saving}</span>
                   </>
                 ) : (
@@ -1095,7 +1095,7 @@ export default function IntakePage() {
               >
                 {listLoading ? (
                   <>
-                    <SimsaSealThinking variant="compact" label={tr.loading.refreshing} />
+                    <SimsaStampThinking variant="compact" label={tr.loading.refreshing} />
                     <span>{tr.loading.refreshing}</span>
                   </>
                 ) : (
@@ -1190,10 +1190,10 @@ export default function IntakePage() {
 
           {/* Stage 163 — real async wait (fetching a saved record): truthful thinking panel. */}
           {detailLoading && (
-            <SimsaSealThinking
+            <SimsaStampThinking
               variant="panel"
               stepLabels={loadingSteps}
-              label={tr.loading.preparingPreview}
+              label={tr.loading.reviewingEvidence}
               className="mt-3"
             />
           )}

@@ -1307,11 +1307,11 @@ export type Dictionary = {
     };
   };
   loading: {
-    mappingAcceptance: string;
-    buildingStagePlan: string;
-    planningEvidence: string;
-    checkingHandoffSafety: string;
-    preparingPreview: string;
+    reviewingEvidence: string;
+    preparingAcceptance: string;
+    checkingSignals: string;
+    markingCheckpoints: string;
+    stampingTrace: string;
     finalizingReview: string;
     saving: string;
     refreshing: string;
