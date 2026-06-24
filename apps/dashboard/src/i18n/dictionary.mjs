@@ -1375,13 +1375,14 @@ const EN = {
       containsSecretsFalse: "No secrets",
     },
   },
-  // Stage 162 — thinking/loading status copy for the SimsaSealThinking motion.
+  // Stage 174 — review-stamp thinking/loading status copy for SimsaStampThinking. Wording
+  // describes reviewing evidence + leaving a review trace; never "approved"/"certified".
   loading: {
-    mappingAcceptance: "Mapping acceptance criteria…",
-    buildingStagePlan: "Building stage plan…",
-    planningEvidence: "Planning evidence…",
-    checkingHandoffSafety: "Checking handoff safety…",
-    preparingPreview: "Preparing preview…",
+    reviewingEvidence: "Reviewing evidence…",
+    preparingAcceptance: "Preparing acceptance context…",
+    checkingSignals: "Checking acceptance signals…",
+    markingCheckpoints: "Marking evidence checkpoints…",
+    stampingTrace: "Stamping review trace…",
     finalizingReview: "Finalizing review…",
     saving: "Saving…",
     refreshing: "Refreshing…",
@@ -2739,13 +2740,14 @@ const KO = {
       containsSecretsFalse: "비밀정보 없음",
     },
   },
-  // Stage 162 — thinking/loading status copy for the SimsaSealThinking motion.
+  // Stage 174 — review-stamp thinking/loading status copy for SimsaStampThinking. Wording
+  // describes reviewing evidence + leaving a review trace; never "approved"/"certified".
   loading: {
-    mappingAcceptance: "수용 기준을 매핑하는 중…",
-    buildingStagePlan: "단계 계획을 구성하는 중…",
-    planningEvidence: "검증 증거를 준비하는 중…",
-    checkingHandoffSafety: "핸드오프 안전성을 확인하는 중…",
-    preparingPreview: "미리보기를 준비하는 중…",
+    reviewingEvidence: "증거를 검토하는 중…",
+    preparingAcceptance: "심사 맥락을 정리하는 중…",
+    checkingSignals: "수락 기준 신호를 확인하는 중…",
+    markingCheckpoints: "증거 체크포인트를 표시하는 중…",
+    stampingTrace: "검토 흔적을 남기는 중…",
     finalizingReview: "리뷰를 마무리하는 중…",
     saving: "저장하는 중…",
     refreshing: "새로고침하는 중…",
