@@ -122,7 +122,7 @@ entry point. Build first, then point your MCP host at `dist/index.js`:
 ```json
 {
   "mcpServers": {
-    "simsa-basic": {
+    "Simsa-Basic": {
       "command": "node",
       "args": [
         "/ABSOLUTE/PATH/TO/conclave-ai/packages/mcp-workspace/dist/index.js"
@@ -133,6 +133,10 @@ entry point. Build first, then point your MCP host at `dist/index.js`:
 }
 ```
 
+The local MCP server display/config entry uses **`Simsa-Basic`** for user-facing
+private dogfood. (Internal package names — `@conclave-ai/mcp-workspace`,
+`@conclave-ai/workspace-preview` — are unchanged.)
+
 Notes:
 
 - Run the build first (`pnpm --filter @conclave-ai/mcp-workspace build`).
@@ -142,6 +146,31 @@ Notes:
 - The exact configuration file location differs by MCP host. For Claude Desktop or
   another MCP host, add a server entry equivalent to the example above in that host's
   MCP configuration file.
+
+## Private Claude Desktop dogfood
+
+Before any publish, MCP Basic is dogfooded privately in real hosts. To run the
+Claude Desktop app-side check yourself:
+
+```bash
+pnpm --filter @conclave-ai/mcp-workspace build
+pnpm --filter @conclave-ai/mcp-workspace smoke:basic
+pnpm --filter @conclave-ai/mcp-workspace smoke:basic:stdio
+pnpm --filter @conclave-ai/mcp-workspace qa:basic-tools
+pnpm --filter @conclave-ai/mcp-workspace print:claude-desktop-basic-config
+```
+
+Then add the generated `Simsa-Basic` config (empty `env`) to Claude Desktop, restart,
+open a new chat, and confirm the 9 Basic tools are callable with **no credential
+prompt** and **no connected/risky tools**. The full operator checklist, safe prompts,
+and an evidence template live in
+`conclave-builder-pack/out/stage-154-claude-desktop-dogfood-evidence-intake.md`. Keep
+`env` empty, don't paste real tokens or private code, and don't publish the package.
+
+Claude Desktop app-side evidence is tracked separately in
+`conclave-builder-pack/out/stage-155-claude-desktop-app-evidence-record.md`. Until that
+record shows app-side tool discovery and calls, treat Claude Desktop status as
+**prepared/pending, not passed**.
 
 ---
 
@@ -306,7 +335,7 @@ also confirm your Node version and the local absolute path. **Do not** attempt h
 config (or GUI dogfood) until the smokes pass. **Safety:** don't add credentials to
 "make it work" — Basic-only needs none.
 
-### Host (e.g. Claude Desktop) cannot see `simsa-basic`
+### Host (e.g. Claude Desktop) cannot see `Simsa-Basic`
 **Likely cause:** wrong absolute path · build not run · app not restarted · config
 saved in the wrong/inactive file · invalid JSON. **Fix:** regenerate with
 `print:claude-desktop-basic-config`, rebuild, **restart** the host, open a **new**

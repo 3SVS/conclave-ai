@@ -14,15 +14,17 @@ describe("Claude Desktop Basic config helper", () => {
     assert.ok(entry.replace(/\\/g, "/").endsWith("packages/mcp-workspace/dist/index.js"));
   });
 
-  it("builds a Basic-only config: simsa-basic, node, absolute path, empty env", () => {
+  it("builds a Basic-only config: Simsa-Basic, node, absolute path, empty env", () => {
     // requireBuilt:false so the test does not depend on a prior build.
     const cfg = buildClaudeDesktopBasicConfig({ requireBuilt: false });
-    const s = cfg.mcpServers["simsa-basic"];
-    assert.ok(s, "simsa-basic entry present");
+    const s = cfg.mcpServers["Simsa-Basic"];
+    assert.ok(s, "Simsa-Basic entry present");
     assert.equal(s.command, "node");
     assert.equal(s.args.length, 1);
     assert.ok(isAbsolute(s.args[0]));
     assert.deepEqual(s.env, {});
+    // Display branding: the user-facing entry uses Simsa-Basic, not the old lowercase.
+    assert.equal(cfg.mcpServers["simsa-basic"], undefined, "old lowercase key must be gone");
   });
 
   it("includes no credentials / tokens anywhere in the config", () => {
@@ -41,7 +43,7 @@ describe("Claude Desktop Basic config helper", () => {
       // requireBuilt:true; if dist exists this won't throw — so we assert either it
       // returns a valid config OR throws the documented message.
       const cfg = buildClaudeDesktopBasicConfig({ requireBuilt: true });
-      assert.ok(cfg.mcpServers["simsa-basic"]); // build present → valid config
+      assert.ok(cfg.mcpServers["Simsa-Basic"]); // build present → valid config
     } catch (err) {
       assert.match(String(err.message), /dist\/index\.js not found/);
       assert.match(String(err.message), /pnpm --filter @conclave-ai\/mcp-workspace build/);

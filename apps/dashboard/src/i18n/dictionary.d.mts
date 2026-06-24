@@ -1226,6 +1226,44 @@ export type Dictionary = {
     timelineTruncated: string;
   };
   errors: { generic: string; loadFailed: string };
+  intake: {
+    handoff: {
+      eyebrow: string;
+      title: string;
+      subtitle: string;
+      pasteLabel: string;
+      previewLanguageLabel: string;
+      feedbackLabel: string;
+      previewOnly: string;
+      notSaved: string;
+      safetyNote: string;
+    };
+    startPoints: {
+      idea: { label: string; description: string };
+      prd: { label: string; description: string };
+      product_url: { label: string; description: string };
+      github_repo: { label: string; description: string };
+      pull_request: { label: string; description: string };
+      ai_built_app: { label: string; description: string };
+    };
+    previewKinds: {
+      acceptance_map: string;
+      stage_plan: string;
+      evidence_plan: string;
+      agent_run_plan: string;
+      acceptance_graph_summary: string;
+      recurring_blockers: string;
+      agent_tool_memory: string;
+      template_signals: string;
+    };
+    boundaries: {
+      requiresPaymentFalse: string;
+      mutatesStateFalse: string;
+      usesHostedExecutionFalse: string;
+      createsPersistenceFalse: string;
+      containsSecretsFalse: string;
+    };
+  };
 };
 
 export const LOCALES: Locale[];
