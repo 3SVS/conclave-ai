@@ -1271,6 +1271,8 @@ export type Dictionary = {
     checkingHandoffSafety: string;
     preparingPreview: string;
     finalizingReview: string;
+    saving: string;
+    refreshing: string;
   };
 };
 

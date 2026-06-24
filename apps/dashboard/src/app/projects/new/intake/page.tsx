@@ -1029,9 +1029,16 @@ export default function IntakePage() {
                 type="button"
                 onClick={saveWorkflow}
                 disabled={saving}
-                className="btn btn-primary btn-md"
+                className="btn btn-primary btn-md inline-flex items-center gap-2"
               >
-                {saving ? "Saving…" : "Save workflow plan"}
+                {saving ? (
+                  <>
+                    <SimsaSealThinking variant="compact" label={tr.loading.saving} />
+                    <span>{tr.loading.saving}</span>
+                  </>
+                ) : (
+                  <span>Save workflow plan</span>
+                )}
               </button>
             </div>
 
@@ -1084,9 +1091,16 @@ export default function IntakePage() {
                 type="button"
                 onClick={() => refreshSavedList()}
                 disabled={listLoading}
-                className="btn btn-secondary btn-sm"
+                className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
               >
-                {listLoading ? "Loading…" : "Refresh"}
+                {listLoading ? (
+                  <>
+                    <SimsaSealThinking variant="compact" label={tr.loading.refreshing} />
+                    <span>{tr.loading.refreshing}</span>
+                  </>
+                ) : (
+                  <span>Refresh</span>
+                )}
               </button>
             </div>
           </div>

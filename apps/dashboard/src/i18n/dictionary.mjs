@@ -1331,6 +1331,8 @@ const EN = {
     checkingHandoffSafety: "Checking handoff safety…",
     preparingPreview: "Preparing preview…",
     finalizingReview: "Finalizing review…",
+    saving: "Saving…",
+    refreshing: "Refreshing…",
   },
 };
 
@@ -2642,6 +2644,8 @@ const KO = {
     checkingHandoffSafety: "핸드오프 안전성을 확인하는 중…",
     preparingPreview: "미리보기를 준비하는 중…",
     finalizingReview: "리뷰를 마무리하는 중…",
+    saving: "저장하는 중…",
+    refreshing: "새로고침하는 중…",
   },
 };
 
