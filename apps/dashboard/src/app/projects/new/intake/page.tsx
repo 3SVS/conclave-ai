@@ -5,6 +5,7 @@
 // only — no backend, no model call, no external fetch. Future stages wire real
 // per-type analysis behind the same model.
 import { useMemo, useState } from "react";
+import { useI18n } from "@/i18n/I18nProvider";
 import {
   WORKSPACE_INTAKE_TYPES,
   INTAKE_META,
@@ -94,6 +95,8 @@ import { buildAgentToolRecommendationMemoryView } from "@/lib/agent-tool-recomme
 import { buildTemplateEffectivenessSignalsView } from "@/lib/template-effectiveness-signals.mjs";
 
 export default function IntakePage() {
+  // Stage 159 — dictionary-first i18n for the MCP handoff/intake destination.
+  const { t: tr } = useI18n();
   const [type, setType] = useState<WorkspaceIntakeType | null>(null);
   const [rawInput, setRawInput] = useState("");
   const [draft, setDraft] = useState<WorkspaceIntakeDraft | null>(null);
@@ -387,14 +390,14 @@ export default function IntakePage() {
     <div className="flex flex-1 justify-center px-4 py-12">
       <div className="w-full max-w-2xl">
         <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
-          What do you want Simsa to review?
+          {tr.intake.handoff.title}
         </h1>
         <p className="mt-2 text-sm text-gray-500">
-          Start from anything. Simsa turns it into a staged acceptance workflow.
+          {tr.intake.handoff.subtitle}
         </p>
         {/* Stage 119 — page-level beta feedback CTA */}
         <p className="mt-2 text-xs text-gray-400">
-          <FeedbackLink label="Share beta feedback" context={{ section: "Intake workflow" }} />{" "}
+          <FeedbackLink label={tr.intake.handoff.feedbackLabel} context={{ section: "Intake workflow" }} />{" "}
           — {BETA_SAFETY_NOTES.feedback}
         </p>
 
@@ -415,7 +418,7 @@ export default function IntakePage() {
           </p>
 
           {/* Stage 120 — preview language legend */}
-          <p className="mt-4 text-xs font-medium text-gray-500">Preview language</p>
+          <p className="mt-4 text-xs font-medium text-gray-500">{tr.intake.handoff.previewLanguageLabel}</p>
           <dl className="mt-1 space-y-1">
             {PREVIEW_LANGUAGE_ITEMS.map((item) => (
               <div key={item.term} className="text-xs text-gray-600">
@@ -458,10 +461,10 @@ export default function IntakePage() {
                 }`}
               >
                 <span className="block text-sm font-medium text-gray-900">
-                  {m.label}
+                  {tr.intake.startPoints[t]?.label ?? m.label}
                 </span>
                 <span className="mt-0.5 block text-xs text-gray-500">
-                  {m.description}
+                  {tr.intake.startPoints[t]?.description ?? m.description}
                 </span>
               </button>
             );
@@ -477,7 +480,7 @@ export default function IntakePage() {
         {meta && (
           <div className="mt-8">
             <label className="mb-2 block text-sm font-medium text-gray-900">
-              Paste what you have.
+              {tr.intake.handoff.pasteLabel}
             </label>
             <p className="text-xs text-gray-400">{meta.inputHint}</p>
             {/* Stage 120 — before-input beta safety note */}

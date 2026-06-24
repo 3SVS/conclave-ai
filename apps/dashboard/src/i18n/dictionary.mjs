@@ -1284,6 +1284,45 @@ const EN = {
     generic: "Something went wrong. Please try again.",
     loadFailed: "Could not load. Please try again.",
   },
+  // Stage 159 — MCP handoff/intake destination (the page the MCP handoff link opens).
+  intake: {
+    handoff: {
+      eyebrow: "MCP Basic",
+      title: "What do you want Simsa to review?",
+      subtitle: "Start from anything. Simsa turns it into a staged acceptance workflow.",
+      pasteLabel: "Paste what you have.",
+      previewLanguageLabel: "Preview language",
+      feedbackLabel: "Share beta feedback",
+      previewOnly: "Preview only",
+      notSaved: "Not saved",
+      safetyNote: "Deterministic local preview only — nothing is saved, no payment, no code is run.",
+    },
+    startPoints: {
+      idea: { label: "Idea", description: "Start from a raw product idea." },
+      prd: { label: "PRD / spec", description: "Turn an existing product document into acceptance items." },
+      product_url: { label: "Product URL", description: "Review an existing product surface." },
+      github_repo: { label: "GitHub repo", description: "Understand an existing codebase." },
+      pull_request: { label: "Pull request", description: "Review a proposed change." },
+      ai_built_app: { label: "AI-built app", description: "Recover and structure a vibe-coded draft." },
+    },
+    previewKinds: {
+      acceptance_map: "Acceptance map",
+      stage_plan: "Stage plan",
+      evidence_plan: "Evidence plan",
+      agent_run_plan: "Agent run plan",
+      acceptance_graph_summary: "Acceptance graph summary",
+      recurring_blockers: "Recurring blockers",
+      agent_tool_memory: "Agent/tool memory",
+      template_signals: "Template signals",
+    },
+    boundaries: {
+      requiresPaymentFalse: "No payment",
+      mutatesStateFalse: "Nothing is saved",
+      usesHostedExecutionFalse: "No hosted execution",
+      createsPersistenceFalse: "No data persisted",
+      containsSecretsFalse: "No secrets",
+    },
+  },
 };
 
 const KO = {
@@ -2546,6 +2585,45 @@ const KO = {
   errors: {
     generic: "문제가 발생했어요. 다시 시도해주세요.",
     loadFailed: "불러오지 못했어요. 다시 시도해주세요.",
+  },
+  // Stage 159 — MCP 핸드오프/인테이크 도착 화면. Product term은 영어 유지 + 한국어 보조.
+  intake: {
+    handoff: {
+      eyebrow: "MCP Basic",
+      title: "Simsa로 무엇을 검토하시겠어요?",
+      subtitle: "무엇이든 시작하세요. Simsa가 단계별 수용 기준 워크플로로 만들어 드립니다.",
+      pasteLabel: "가지고 있는 내용을 붙여넣으세요.",
+      previewLanguageLabel: "미리보기 용어",
+      feedbackLabel: "베타 피드백 보내기",
+      previewOnly: "미리보기 전용 (Preview only)",
+      notSaved: "저장되지 않음 (Not saved)",
+      safetyNote: "결정론적 로컬 미리보기 전용입니다 — 저장·결제·코드 실행이 없습니다.",
+    },
+    startPoints: {
+      idea: { label: "Idea (아이디어)", description: "원시 제품 아이디어에서 시작합니다." },
+      prd: { label: "PRD / spec (기획서)", description: "기존 제품 문서를 수용 기준 항목으로 변환합니다." },
+      product_url: { label: "Product URL (제품 URL)", description: "기존 제품 화면을 검토합니다." },
+      github_repo: { label: "GitHub repo (깃허브 저장소)", description: "기존 코드베이스를 파악합니다." },
+      pull_request: { label: "Pull request (PR)", description: "제안된 변경을 검토합니다." },
+      ai_built_app: { label: "AI-built app (AI로 만든 앱)", description: "바이브 코딩 초안을 복구·구조화합니다." },
+    },
+    previewKinds: {
+      acceptance_map: "Acceptance map (수용 기준 지도)",
+      stage_plan: "Stage plan (단계 계획)",
+      evidence_plan: "Evidence plan (검증 증거 계획)",
+      agent_run_plan: "Agent run plan (에이전트 실행 계획)",
+      acceptance_graph_summary: "Acceptance graph summary (수용 그래프 요약)",
+      recurring_blockers: "Recurring blockers (반복 블로커)",
+      agent_tool_memory: "Agent/tool memory (에이전트·도구 메모리)",
+      template_signals: "Template signals (템플릿 신호)",
+    },
+    boundaries: {
+      requiresPaymentFalse: "결제 없음",
+      mutatesStateFalse: "저장되지 않음",
+      usesHostedExecutionFalse: "호스티드 실행 없음",
+      createsPersistenceFalse: "데이터 영속 없음",
+      containsSecretsFalse: "비밀정보 없음",
+    },
   },
 };
 
