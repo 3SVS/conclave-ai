@@ -51,6 +51,26 @@
     "./intake-evidence-plan": {
       "types": "./src/intake-evidence-plan.d.mts",
       "import": "./src/intake-evidence-plan.mjs"
+    },
+    "./acceptance-graph-derived": {
+      "types": "./src/acceptance-graph-derived.d.mts",
+      "import": "./src/acceptance-graph-derived.mjs"
+    },
+    "./recurring-blocker-detection": {
+      "types": "./src/recurring-blocker-detection.d.mts",
+      "import": "./src/recurring-blocker-detection.mjs"
+    },
+    "./intake-benchmark-handoff": {
+      "types": "./src/intake-benchmark-handoff.d.mts",
+      "import": "./src/intake-benchmark-handoff.mjs"
+    },
+    "./intake-decision-outcome-link": {
+      "types": "./src/intake-decision-outcome-link.d.mts",
+      "import": "./src/intake-decision-outcome-link.mjs"
+    },
+    "./intake-evolution-action-preview": {
+      "types": "./src/intake-evolution-action-preview.d.mts",
+      "import": "./src/intake-evolution-action-preview.mjs"
     }
   },
   "files": [

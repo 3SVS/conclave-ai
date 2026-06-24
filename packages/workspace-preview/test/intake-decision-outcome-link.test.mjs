@@ -5,12 +5,12 @@ import assert from "node:assert/strict";
 import {
   buildDecisionOutcomeLinkPreview,
   DECISION_TYPES,
-} from "../src/lib/intake-decision-outcome-link.mjs";
-import { buildAgentRunPlan } from "../src/lib/intake-agent-run-plan.mjs";
-import { buildIntakeEvidencePlan } from "../src/lib/intake-evidence-plan.mjs";
-import { buildIntakeAcceptanceMap } from "../src/lib/intake-acceptance-map.mjs";
-import { buildIntakeStagePlan } from "../src/lib/intake-stage-plan.mjs";
-import { buildBenchmarkHandoffPreview } from "../src/lib/intake-benchmark-handoff.mjs";
+} from "../src/intake-decision-outcome-link.mjs";
+import { buildAgentRunPlan } from "../src/intake-agent-run-plan.mjs";
+import { buildIntakeEvidencePlan } from "../src/intake-evidence-plan.mjs";
+import { buildIntakeAcceptanceMap } from "../src/intake-acceptance-map.mjs";
+import { buildIntakeStagePlan } from "../src/intake-stage-plan.mjs";
+import { buildBenchmarkHandoffPreview } from "../src/intake-benchmark-handoff.mjs";
 
 const LEVELS = ["low", "medium", "high"];
 const FORBIDDEN = ["final decision", "winner", "passed", "production ready", "production_ready"];

@@ -19,3 +19,8 @@ export * from "./intake-acceptance-map.mjs";
 export * from "./intake-stage-plan.mjs";
 export * from "./intake-agent-run-plan.mjs";
 export * from "./intake-evidence-plan.mjs";
+export * from "./acceptance-graph-derived.mjs";
+export * from "./recurring-blocker-detection.mjs";
+export * from "./intake-benchmark-handoff.mjs";
+export * from "./intake-decision-outcome-link.mjs";
+export * from "./intake-evolution-action-preview.mjs";

@@ -2,11 +2,11 @@
 // no persistence, no winner/verified claims.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildBenchmarkHandoffPreview } from "../src/lib/intake-benchmark-handoff.mjs";
-import { buildAgentRunPlan } from "../src/lib/intake-agent-run-plan.mjs";
-import { buildIntakeEvidencePlan } from "../src/lib/intake-evidence-plan.mjs";
-import { buildIntakeAcceptanceMap } from "../src/lib/intake-acceptance-map.mjs";
-import { buildIntakeStagePlan } from "../src/lib/intake-stage-plan.mjs";
+import { buildBenchmarkHandoffPreview } from "../src/intake-benchmark-handoff.mjs";
+import { buildAgentRunPlan } from "../src/intake-agent-run-plan.mjs";
+import { buildIntakeEvidencePlan } from "../src/intake-evidence-plan.mjs";
+import { buildIntakeAcceptanceMap } from "../src/intake-acceptance-map.mjs";
+import { buildIntakeStagePlan } from "../src/intake-stage-plan.mjs";
 
 const FORBIDDEN = ["executed", "winner", "passed", "verified", "best agent", "production_ready"];
 const ROLES = ["builder", "reviewer", "fixer", "verifier", "operator"];

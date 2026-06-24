@@ -10,6 +10,8 @@ import {
   buildIntakeStagePlan,
   buildAgentRunPlan,
   buildIntakeEvidencePlan,
+  buildAcceptanceGraphDerivedView,
+  buildRecurringBlockerDetectionView,
 } from "@conclave-ai/workspace-preview";
 
 const BOUNDARY = {
@@ -74,6 +76,50 @@ export function previewAgentRunPlan(input) {
 /** @param {{type:string,rawInput:string}} input */
 export function previewEvidencePlan(input) {
   return run(buildIntakeEvidencePlan, "evidence_plan", input);
+}
+
+// ── Snapshot-based wrappers (Stage 137) ──────────────────────────────────────
+// These accept saved-workflow-like snapshots (the JSON a saved record holds).
+// The underlying helpers are fully defensive, so malformed/weak input yields a
+// conservative preview rather than a throw.
+
+function asObj(x) {
+  return x && typeof x === "object" && !Array.isArray(x) ? x : {};
+}
+
+/** Derived acceptance graph summary from saved-workflow-like snapshots. */
+export function previewAcceptanceGraphSummary(input) {
+  const i = asObj(input);
+  const preview = buildAcceptanceGraphDerivedView({
+    workflowRecordId: str(i.workflowRecordId) || undefined,
+    title: str(i.title) || "Untitled workflow",
+    sourceSummary: str(i.sourceSummary) || "MCP Basic preview",
+    acceptanceMap: i.acceptanceMap,
+    stagePlan: i.stagePlan,
+    agentRunPlan: i.agentRunPlan,
+    evidencePlan: i.evidencePlan,
+    decisionOutcomePreview: i.decisionOutcomePreview,
+    evolutionActionPreview: i.evolutionActionPreview,
+  });
+  return { ok: true, kind: "acceptance_graph_summary", preview, ...BOUNDARY };
+}
+
+/** Recurring blocker signals; derives the graph view internally if not given. */
+export function previewRecurringBlockers(input) {
+  const i = asObj(input);
+  const preview = buildRecurringBlockerDetectionView({
+    workflowRecordId: str(i.workflowRecordId) || undefined,
+    title: str(i.title) || "Untitled workflow",
+    sourceSummary: str(i.sourceSummary) || "MCP Basic preview",
+    acceptanceGraphView: i.acceptanceGraphView,
+    acceptanceMap: i.acceptanceMap,
+    stagePlan: i.stagePlan,
+    agentRunPlan: i.agentRunPlan,
+    evidencePlan: i.evidencePlan,
+    decisionOutcomePreview: i.decisionOutcomePreview,
+    evolutionActionPreview: i.evolutionActionPreview,
+  });
+  return { ok: true, kind: "recurring_blockers", preview, ...BOUNDARY };
 }
 
 export { BOUNDARY as MCP_BASIC_PREVIEW_BOUNDARY };

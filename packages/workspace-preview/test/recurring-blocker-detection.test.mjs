@@ -5,11 +5,11 @@ import assert from "node:assert/strict";
 import {
   buildRecurringBlockerDetectionView,
   BLOCKER_TYPES,
-} from "../src/lib/recurring-blocker-detection.mjs";
-import { buildAgentRunPlan } from "../src/lib/intake-agent-run-plan.mjs";
-import { buildIntakeEvidencePlan } from "../src/lib/intake-evidence-plan.mjs";
-import { buildIntakeAcceptanceMap } from "../src/lib/intake-acceptance-map.mjs";
-import { buildIntakeStagePlan } from "../src/lib/intake-stage-plan.mjs";
+} from "../src/recurring-blocker-detection.mjs";
+import { buildAgentRunPlan } from "../src/intake-agent-run-plan.mjs";
+import { buildIntakeEvidencePlan } from "../src/intake-evidence-plan.mjs";
+import { buildIntakeAcceptanceMap } from "../src/intake-acceptance-map.mjs";
+import { buildIntakeStagePlan } from "../src/intake-stage-plan.mjs";
 
 const SEV = ["low", "medium", "high"];
 const FORBIDDEN = ["proven root cause", "guaranteed blocker", "verified defect", "model-learned", "production risk confirmed"];
