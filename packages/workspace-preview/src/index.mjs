@@ -24,3 +24,5 @@ export * from "./recurring-blocker-detection.mjs";
 export * from "./intake-benchmark-handoff.mjs";
 export * from "./intake-decision-outcome-link.mjs";
 export * from "./intake-evolution-action-preview.mjs";
+export * from "./agent-tool-recommendation-memory.mjs";
+export * from "./template-effectiveness-signals.mjs";

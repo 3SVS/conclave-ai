@@ -12,6 +12,8 @@ import {
   buildIntakeEvidencePlan,
   buildAcceptanceGraphDerivedView,
   buildRecurringBlockerDetectionView,
+  buildAgentToolRecommendationMemoryView,
+  buildTemplateEffectivenessSignalsView,
 } from "@conclave-ai/workspace-preview";
 
 const BOUNDARY = {
@@ -120,6 +122,38 @@ export function previewRecurringBlockers(input) {
     evolutionActionPreview: i.evolutionActionPreview,
   });
   return { ok: true, kind: "recurring_blockers", preview, ...BOUNDARY };
+}
+
+/** Per-workflow agent/tool recommendation memory from saved-workflow snapshots. */
+export function previewAgentToolMemory(input) {
+  const i = asObj(input);
+  const preview = buildAgentToolRecommendationMemoryView({
+    workflowRecordId: str(i.workflowRecordId) || undefined,
+    title: str(i.title) || "Untitled workflow",
+    sourceSummary: str(i.sourceSummary) || "MCP Basic preview",
+    agentRunPlan: i.agentRunPlan,
+    evidencePlan: i.evidencePlan,
+    recurringBlockerDetectionView: i.recurringBlockerDetectionView,
+  });
+  return { ok: true, kind: "agent_tool_memory", preview, ...BOUNDARY };
+}
+
+/** Per-workflow template/pattern effectiveness signals from saved-workflow snapshots. */
+export function previewTemplateSignals(input) {
+  const i = asObj(input);
+  const preview = buildTemplateEffectivenessSignalsView({
+    workflowRecordId: str(i.workflowRecordId) || undefined,
+    title: str(i.title) || "Untitled workflow",
+    sourceSummary: str(i.sourceSummary) || "MCP Basic preview",
+    acceptanceGraphView: i.acceptanceGraphView,
+    recurringBlockerDetectionView: i.recurringBlockerDetectionView,
+    agentToolMemoryView: i.agentToolMemoryView,
+    evidencePlan: i.evidencePlan,
+    stagePlan: i.stagePlan,
+    decisionOutcomePreview: i.decisionOutcomePreview,
+    evolutionActionPreview: i.evolutionActionPreview,
+  });
+  return { ok: true, kind: "template_signals", preview, ...BOUNDARY };
 }
 
 export { BOUNDARY as MCP_BASIC_PREVIEW_BOUNDARY };

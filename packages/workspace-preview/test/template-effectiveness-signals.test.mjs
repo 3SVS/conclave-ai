@@ -6,16 +6,16 @@ import {
   buildTemplateEffectivenessSignalsView,
   SIGNAL_TYPES,
   QUALITIES,
-} from "../src/lib/template-effectiveness-signals.mjs";
-import { buildAcceptanceGraphDerivedView } from "../src/lib/acceptance-graph-derived.mjs";
-import { buildRecurringBlockerDetectionView } from "../src/lib/recurring-blocker-detection.mjs";
-import { buildAgentToolRecommendationMemoryView } from "../src/lib/agent-tool-recommendation-memory.mjs";
-import { buildAgentRunPlan } from "../src/lib/intake-agent-run-plan.mjs";
-import { buildIntakeEvidencePlan } from "../src/lib/intake-evidence-plan.mjs";
-import { buildIntakeAcceptanceMap } from "../src/lib/intake-acceptance-map.mjs";
-import { buildIntakeStagePlan } from "../src/lib/intake-stage-plan.mjs";
-import { buildDecisionOutcomeLinkPreview } from "../src/lib/intake-decision-outcome-link.mjs";
-import { buildEvolutionActionPackPreview } from "../src/lib/intake-evolution-action-preview.mjs";
+} from "../src/template-effectiveness-signals.mjs";
+import { buildAcceptanceGraphDerivedView } from "../src/acceptance-graph-derived.mjs";
+import { buildRecurringBlockerDetectionView } from "../src/recurring-blocker-detection.mjs";
+import { buildAgentToolRecommendationMemoryView } from "../src/agent-tool-recommendation-memory.mjs";
+import { buildAgentRunPlan } from "../src/intake-agent-run-plan.mjs";
+import { buildIntakeEvidencePlan } from "../src/intake-evidence-plan.mjs";
+import { buildIntakeAcceptanceMap } from "../src/intake-acceptance-map.mjs";
+import { buildIntakeStagePlan } from "../src/intake-stage-plan.mjs";
+import { buildDecisionOutcomeLinkPreview } from "../src/intake-decision-outcome-link.mjs";
+import { buildEvolutionActionPackPreview } from "../src/intake-evolution-action-preview.mjs";
 
 const FORBIDDEN = ["proven template", "best-performing template", "statistically validated", "trained effectiveness model", "guaranteed improvement"];
 

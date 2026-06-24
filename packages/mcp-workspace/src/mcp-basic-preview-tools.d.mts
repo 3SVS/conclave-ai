@@ -23,7 +23,9 @@ export type McpPreviewResult = McpPreviewBoundary & {
     | "agent_run_plan"
     | "evidence_plan"
     | "acceptance_graph_summary"
-    | "recurring_blockers";
+    | "recurring_blockers"
+    | "agent_tool_memory"
+    | "template_signals";
   preview: unknown;
 };
 
@@ -49,5 +51,30 @@ export type McpGraphPreviewInput = {
 
 export function previewAcceptanceGraphSummary(input: McpGraphPreviewInput): McpPreviewResult;
 export function previewRecurringBlockers(input: McpGraphPreviewInput): McpPreviewResult;
+
+export type McpAgentToolMemoryInput = {
+  workflowRecordId?: string;
+  title?: string;
+  sourceSummary?: string;
+  agentRunPlan?: unknown;
+  evidencePlan?: unknown;
+  recurringBlockerDetectionView?: unknown;
+};
+
+export type McpTemplateSignalsInput = {
+  workflowRecordId?: string;
+  title?: string;
+  sourceSummary?: string;
+  acceptanceGraphView?: unknown;
+  recurringBlockerDetectionView?: unknown;
+  agentToolMemoryView?: unknown;
+  evidencePlan?: unknown;
+  stagePlan?: unknown;
+  decisionOutcomePreview?: unknown;
+  evolutionActionPreview?: unknown;
+};
+
+export function previewAgentToolMemory(input: McpAgentToolMemoryInput): McpPreviewResult;
+export function previewTemplateSignals(input: McpTemplateSignalsInput): McpPreviewResult;
 
 export const MCP_BASIC_PREVIEW_BOUNDARY: McpPreviewBoundary;

@@ -8,6 +8,8 @@ import {
   previewEvidencePlan,
   previewAcceptanceGraphSummary,
   previewRecurringBlockers,
+  previewAgentToolMemory,
+  previewTemplateSignals,
 } from "../src/mcp-basic-preview-tools.mjs";
 import {
   buildIntakeAcceptanceMap,
@@ -159,5 +161,52 @@ test("graph/blocker wrappers are mutation/payment/hosted free, no Stripe", () =>
 test("graph/blocker wrappers are deterministic", () => {
   const a = previewAcceptanceGraphSummary(snapshot("github_repo", "acme/web-app"));
   const b = previewAcceptanceGraphSummary(snapshot("github_repo", "acme/web-app"));
+  assert.deepEqual(a, b);
+});
+
+// ── Stage 138 — agent-tool memory / template signal wrappers ─────────────────
+
+test("previewAgentToolMemory returns ok/kind/preview/boundary", () => {
+  const r = previewAgentToolMemory(snapshot("github_repo", "acme/web-app"));
+  assert.equal(r.ok, true);
+  assert.equal(r.kind, "agent_tool_memory");
+  assert.ok(Array.isArray(r.preview.items));
+  assert.ok(r.preview.evidenceFitSummary && typeof r.preview.evidenceFitSummary === "object");
+  assertBoundary(r);
+});
+
+test("previewTemplateSignals returns ok/kind/preview/boundary", () => {
+  const r = previewTemplateSignals(snapshot("github_repo", "acme/billing-api"));
+  assert.equal(r.ok, true);
+  assert.equal(r.kind, "template_signals");
+  assert.ok(Array.isArray(r.preview.signals));
+  assert.ok(r.preview.qualityCounts && typeof r.preview.qualityCounts === "object");
+  assert.ok(Array.isArray(r.preview.topNeedsRefinement));
+  assertBoundary(r);
+});
+
+test("memory/template wrappers default title and do not throw on malformed input", () => {
+  for (const m of [null, undefined, 7, "x", {}, { agentRunPlan: "no", evidencePlan: 5 }]) {
+    assert.doesNotThrow(() => previewAgentToolMemory(m));
+    assert.doesNotThrow(() => previewTemplateSignals(m));
+  }
+  const empty = previewAgentToolMemory({});
+  assert.equal(empty.ok, true);
+  assert.equal(empty.preview.title, "Untitled workflow");
+});
+
+test("memory/template wrappers are mutation/payment/hosted free, no Stripe in preview", () => {
+  const m = previewAgentToolMemory(snapshot("prd", "Overview: x. User can submit."));
+  const t = previewTemplateSignals(snapshot("prd", "Overview: x. User can submit."));
+  assertBoundary(m);
+  assertBoundary(t);
+  const blob = (JSON.stringify(m.preview) + JSON.stringify(t.preview)).toLowerCase();
+  assert.ok(!blob.includes("stripe"));
+  assert.ok(!blob.includes("payment"));
+});
+
+test("memory/template wrappers are deterministic", () => {
+  const a = previewTemplateSignals(snapshot("github_repo", "acme/web-app"));
+  const b = previewTemplateSignals(snapshot("github_repo", "acme/web-app"));
   assert.deepEqual(a, b);
 });

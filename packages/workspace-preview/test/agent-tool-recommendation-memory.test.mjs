@@ -2,9 +2,9 @@
 // workflow derived only (no cross-project learning / training / persistence).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildAgentToolRecommendationMemoryView } from "../src/lib/agent-tool-recommendation-memory.mjs";
-import { buildAgentRunPlan } from "../src/lib/intake-agent-run-plan.mjs";
-import { buildIntakeEvidencePlan } from "../src/lib/intake-evidence-plan.mjs";
+import { buildAgentToolRecommendationMemoryView } from "../src/agent-tool-recommendation-memory.mjs";
+import { buildAgentRunPlan } from "../src/intake-agent-run-plan.mjs";
+import { buildIntakeEvidencePlan } from "../src/intake-evidence-plan.mjs";
 
 const FITS = ["strong", "partial", "weak", "unknown"];
 const ROLES = ["builder", "reviewer", "fixer", "verifier", "operator"];

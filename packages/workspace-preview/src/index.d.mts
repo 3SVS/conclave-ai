@@ -19,3 +19,5 @@ export * from "./recurring-blocker-detection.d.mts";
 export * from "./intake-benchmark-handoff.d.mts";
 export * from "./intake-decision-outcome-link.d.mts";
 export * from "./intake-evolution-action-preview.d.mts";
+export * from "./agent-tool-recommendation-memory.d.mts";
+export * from "./template-effectiveness-signals.d.mts";

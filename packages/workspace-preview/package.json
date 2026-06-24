@@ -71,6 +71,14 @@
     "./intake-evolution-action-preview": {
       "types": "./src/intake-evolution-action-preview.d.mts",
       "import": "./src/intake-evolution-action-preview.mjs"
+    },
+    "./agent-tool-recommendation-memory": {
+      "types": "./src/agent-tool-recommendation-memory.d.mts",
+      "import": "./src/agent-tool-recommendation-memory.mjs"
+    },
+    "./template-effectiveness-signals": {
+      "types": "./src/template-effectiveness-signals.d.mts",
+      "import": "./src/template-effectiveness-signals.mjs"
     }
   },
   "files": [
