@@ -182,4 +182,17 @@ export interface Env {
   ENABLE_ACTUAL_CREDIT_DEBITS?: string;
   ENABLE_CREDIT_BLOCKING?: string;
   ACTUAL_DEBIT_ALLOWED_USER_KEYS?: string;
+  /**
+   * Stage 204 — Better Auth LOCAL-ONLY spike feature flags. All default OFF; production
+   * leaves them unset so the spike never activates. Set only in local dev.
+   *
+   * AUTH_ENABLED:        when "true", the local-only Better Auth spike runtime may construct.
+   * AUTH_PROVIDER:       provider id for the spike (currently "better-auth").
+   * BETTER_AUTH_SECRET:  server-side signing secret for the local spike (local dev only).
+   *   Never commit a real value; set via local env. The spike stays disabled when unset.
+   *   Real secret handling, D1 wiring, and any production rollout are separately gated.
+   */
+  AUTH_ENABLED?: string;
+  AUTH_PROVIDER?: string;
+  BETTER_AUTH_SECRET?: string;
 }
