@@ -32,6 +32,9 @@ importers:
       hono:
         specifier: ^4.6.14
         version: 4.12.14
+      kysely-d1:
+        specifier: 0.4.0
+        version: 0.4.0(kysely@0.29.2)
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20250101.0
@@ -2556,6 +2559,11 @@ packages:
   kleur@4.1.5:
     resolution: {integrity: sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ==}
     engines: {node: '>=6'}
+
+  kysely-d1@0.4.0:
+    resolution: {integrity: sha512-wUcVvQNtm30OTfuo7Ad5vYJ1qHqPXOCZc+zWchVKNyuvqY3u8OuGw4gmUx1Ypdx2wRVFLHVQC9I7v0pTmF7Nkw==}
+    peerDependencies:
+      kysely: '*'
 
   kysely@0.29.2:
     resolution: {integrity: sha512-s6WVJyEZrbm6jhBpiKHsGHyePMrVQKJ85wZCFCr9W4QHv6WTjWIrdvTmO9hDEA3bNK0xkrE2DqrHsXMLWuZpQg==}
@@ -5431,6 +5439,10 @@ snapshots:
       json-buffer: 3.0.1
 
   kleur@4.1.5: {}
+
+  kysely-d1@0.4.0(kysely@0.29.2):
+    dependencies:
+      kysely: 0.29.2
 
   kysely@0.29.2: {}
 
