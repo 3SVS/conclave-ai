@@ -38,6 +38,7 @@ import { createWorkspaceCreditsRoutes } from "./routes/workspace-credits.js";
 import { createWorkspaceBenchmarkRoutes } from "./routes/workspace-benchmark.js";
 import { createWorkspaceExperimentRoutes } from "./routes/workspace-experiment.js";
 import { createWorkspaceAgentWorkflowRoutes } from "./routes/workspace-agent-workflow.js";
+import { createAuthSpikeRoutes } from "./routes/auth-spike.js";
 import type { FetchLike } from "./github.js";
 
 /**
@@ -150,6 +151,10 @@ export function createApp(opts: { fetch?: FetchLike } = {}): Hono<{ Bindings: En
   app.route("/", createWorkspaceExperimentRoutes());
   // Stage 112 — Persisted Agent Workflow Records (intake snapshot save/list/read).
   app.route("/", createWorkspaceAgentWorkflowRoutes());
+  // Stage 209 — Better Auth LOCAL-ONLY spike route (/api/auth/*), gated by
+  // AUTH_ENABLED. Default off → 503 auth_disabled in production. No OAuth, no
+  // CORS, no dashboard UI; runtime D1 binding deferred (see auth-spike.ts).
+  app.route("/", createAuthSpikeRoutes());
   app.onError((err, c) => {
     console.error("central-plane error:", err);
     return c.json({ error: err.message || "internal error" }, 500);
