@@ -23,7 +23,8 @@
     "@cloudflare/containers": "^0.0.30",
     "@conclave-ai/core": "workspace:*",
     "better-auth": "1.6.20",
-    "hono": "^4.6.14"
+    "hono": "^4.6.14",
+    "kysely-d1": "0.4.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250101.0",
