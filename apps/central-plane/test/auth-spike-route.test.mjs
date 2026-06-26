@@ -92,6 +92,22 @@ test("flag on + local secret: gate passes (not auth_disabled) and secret never l
   }
 });
 
+test("Stage 227: topology env present but AUTH_ENABLED absent → still 503 auth_disabled", async () => {
+  const app = createApp();
+  const res = await fetchApp(
+    app,
+    "/api/auth/ok",
+    {},
+    makeEnv({
+      BETTER_AUTH_BASE_URL: "https://app.trysimsa.com",
+      BETTER_AUTH_TRUSTED_ORIGINS: "https://app.trysimsa.com",
+      BETTER_AUTH_SECRET: "x",
+    }),
+  );
+  assert.equal(res.status, 503);
+  assert.equal((await res.json()).error, "auth_disabled");
+});
+
 test("/api/auth/* does not collide with the existing /auth/github/callback surface", async () => {
   const app = createApp();
   // The saas-auth callback lives at /auth/github/callback (no /api prefix). A

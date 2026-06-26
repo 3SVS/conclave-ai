@@ -191,8 +191,17 @@ export interface Env {
    * BETTER_AUTH_SECRET:  server-side signing secret for the local spike (local dev only).
    *   Never commit a real value; set via local env. The spike stays disabled when unset.
    *   Real secret handling, D1 wiring, and any production rollout are separately gated.
+   *
+   * Stage 227 — optional Better Auth topology config (cookie/CORS readiness). Both are
+   * OPTIONAL and purely additive: when unset, the runtime behaves exactly as before (Better
+   * Auth derives the origin from the incoming request). Setting them does NOT activate auth
+   * (still gated by AUTH_ENABLED). They map directly to Better Auth options of the same name:
+   * BETTER_AUTH_BASE_URL:        production base URL, e.g. "https://app.trysimsa.com" → `baseURL`.
+   * BETTER_AUTH_TRUSTED_ORIGINS: comma-separated allowed origins → `trustedOrigins: string[]`.
    */
   AUTH_ENABLED?: string;
   AUTH_PROVIDER?: string;
   BETTER_AUTH_SECRET?: string;
+  BETTER_AUTH_BASE_URL?: string;
+  BETTER_AUTH_TRUSTED_ORIGINS?: string;
 }
