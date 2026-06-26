@@ -82,3 +82,29 @@ test("createBetterAuthRuntime builds a DB-backed handler ONLY when all gates are
   assert.ok(auth, "expected a Better Auth instance when flag + secret + DB are present");
   assert.equal(typeof auth.handler, "function");
 });
+
+test("Stage 227: topology env does NOT activate auth (still null without AUTH_ENABLED)", () => {
+  // Setting topology env must never construct a runtime on its own — AUTH_ENABLED still gates.
+  assert.equal(
+    createBetterAuthRuntime({
+      BETTER_AUTH_BASE_URL: "https://app.trysimsa.com",
+      BETTER_AUTH_TRUSTED_ORIGINS: "https://app.trysimsa.com",
+      BETTER_AUTH_SECRET: "x",
+      DB: {},
+    }),
+    null,
+    "topology env without AUTH_ENABLED must NOT build a runtime",
+  );
+});
+
+test("Stage 227: runtime builds with topology config when all gates present", () => {
+  const auth = createBetterAuthRuntime({
+    AUTH_ENABLED: "true",
+    BETTER_AUTH_SECRET: "x",
+    DB: {},
+    BETTER_AUTH_BASE_URL: "https://app.trysimsa.com",
+    BETTER_AUTH_TRUSTED_ORIGINS: "https://app.trysimsa.com, https://x.dev",
+  });
+  assert.ok(auth, "expected a Better Auth instance with topology config + all gates");
+  assert.equal(typeof auth.handler, "function");
+});

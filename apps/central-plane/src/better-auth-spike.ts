@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import type { Env } from "./env.js";
 import { getAuthSpikeConfig } from "./auth-spike-config.js";
 import { buildBetterAuthD1Database } from "./better-auth-d1.js";
+import { resolveAuthTopologyConfig } from "./auth-topology.js";
 
 /**
  * Stage 204 / 221 — Better Auth LOCAL-ONLY runtime (gated D1 wiring).
@@ -63,9 +64,14 @@ export function createBetterAuthRuntime(env: Partial<Env> | undefined) {
   // Narrowing guard (also defensive — resolveAuthRuntimeGate already required it).
   if (!db) return null;
   const secret = e.BETTER_AUTH_SECRET as string;
+  // Optional topology config (Stage 227): spread ONLY when set, so an unset env leaves the
+  // options identical to before (origin derived from the request). Never activates auth.
+  const topology = resolveAuthTopologyConfig(e);
   return betterAuth({
     secret,
     database: buildBetterAuthD1Database(db),
     emailAndPassword: { enabled: true },
+    ...(topology.baseURL ? { baseURL: topology.baseURL } : {}),
+    ...(topology.trustedOrigins ? { trustedOrigins: topology.trustedOrigins } : {}),
   });
 }
