@@ -1,0 +1,28 @@
+{
+  "urlLoaded": "http://localhost:3000/",
+  "loadStatus": 200,
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "primaryCtaFound": false,
+  "detectedInputs": [
+    {
+      "type": "text",
+      "placeholder": "골프장 검색 (이름, 지역)"
+    }
+  ],
+  "clicked": false,
+  "clickedText": null,
+  "clickedSelector": null,
+  "routeBeforeClick": "http://localhost:3000/",
+  "routeAfterClick": null,
+  "routeChanged": false,
+  "consoleErrors": [],
+  "networkFailures": [],
+  "skipped": [],
+  "screenshots": [
+    "screenshots/before.png"
+  ],
+  "timestamp": "2026-06-27T19:30:56.778Z"
+}
