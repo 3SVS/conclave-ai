@@ -306,3 +306,167 @@ Separate bridge runtime path (independent of autopilot):
 
 - **Stage 256** — Auth Workspace Bridge Deploy Readiness Gate.
 - **Stage 257** — Auth Workspace Bridge Production Deploy Gate.
+
+---
+
+# Part II — Product Boundary & Receipt Policy
+
+> **Status:** Policy amendment (Stage 256B-1). Defines *what Simsa is allowed to judge*, *how it
+> reports*, and *where its durable moat lives*. Like Part I, this is intent/governance only — no
+> runtime implementation, no scoring engine, no auto-merge. It constrains future implementation
+> stages so Simsa does not drift into being a fake judge, a numeric-scoring tool, an AI-slop
+> generator, or a closed-loop internal-policy machine.
+
+## 20. No Numeric Scoring Policy
+
+**Policy version:** 1.0 (introduced 2026-06-27).
+
+Simsa **must not** assign generic numeric scores such as: "Idea Quality 82/100", "PRD Score 76/100",
+"Founder Score", "Market Potential Score", or "Originality Score".
+
+**Reason:** numeric scores create false authority and imply Simsa is judging market success, founder
+quality, originality, or investment worthiness — none of which it is qualified to certify (see §22).
+
+Instead Simsa uses **readiness states**:
+
+- Ready
+- Conditionally Ready
+- Needs Clarification
+- Needs Evidence
+- Needs Expert Review
+- Not Applicable
+- Not Judged
+- Do Not Build Yet
+
+For every evaluated artifact Simsa explains: what is ready · what is unclear · what evidence is
+missing · what is safe to do next · what should not happen yet.
+
+## 21. Intent-Based Evaluation
+
+Simsa evaluates artifacts against the **user's declared intent**, not a universal idea-quality score.
+
+Simsa identifies: user intent · target first user · problem statement · desired behavior change ·
+MVP boundary · non-goals · acceptance criteria · known assumptions · evidence gaps · risk gates.
+
+When intent is too unclear to generate or evaluate a PRD, Simsa **asks clarifying questions** rather
+than guessing. Simsa does **not** judge whether an idea is good or bad in absolute terms.
+
+## 22. Qualification Boundary
+
+Simsa **can** assess: clarity · completeness · internal consistency · buildability · testability ·
+implementation alignment · release readiness · risk exposure · evidence gaps · next safe action.
+
+Simsa **must not** certify: market success · investment worthiness · founder quality · legal
+compliance · medical correctness · financial outcome · scientific truth · final originality ·
+domain-specific claims without evidence or expert review.
+
+When Simsa lacks qualification or evidence, it must say one of: **Unknown · Needs Evidence · Needs
+Expert Review · Not Judged · Out of Scope for Simsa.**
+
+## 23. Novel Product Gate
+
+For products that do not fit an existing category, Simsa **must not penalize** the absence of standard
+category conventions. Instead it evaluates the quality of the **product hypothesis**:
+
+declared intent · target first user · problem clarity · behavior to be changed · core workflow ·
+assumptions · evidence gaps · first testable milestone · MVP boundary · failure signal · learning
+plan · safety/risk constraints · expert review needs.
+
+Simsa asks: What must be true for this idea to work? · Who must care first? · What behavior would
+prove interest? · What is the smallest test? · What should not be built yet? · What evidence would
+change the plan? · What requires domain expert validation?
+
+## 24. Adaptive Receipt Rules
+
+Receipts **adapt to project type and current stage**. Each evaluated area is marked: **Required ·
+Recommended · Optional · Later · Not Applicable · Unknown.** Every *Not Applicable* item must carry a
+reason.
+
+Examples:
+
+- Billing is **Required** for paid SaaS or commerce; **Not Applicable** for internal tools, research
+  prototypes, one-off event tools, or OSS developer tools unless monetization is explicitly in scope.
+- Invite/share is **Required** for team products; **Later** for single-user MVPs.
+- Privacy/account deletion is **Required** before public launch; may be **Later** for internal
+  prototypes with no external users.
+
+## 25. Receipt Taxonomy
+
+1. **Idea Receipt** — clarity · target first user · problem urgency · differentiation · feasibility · assumptions · next questions.
+2. **PRD Receipt** — buildability · requirements completeness · user flows · acceptance criteria · edge cases · data/permission/privacy gaps · launch blockers.
+3. **Build Receipt** — implementation vs PRD · changed files · acceptance-criteria coverage · tests · unresolved gaps · agent self-review · cross-review.
+4. **Release Gate Receipt** — PR/merge/deploy/migration/env safety · risk tier · changed/not-changed · evidence · human-gate requirement · rollback/containment plan.
+5. **Progress Receipt** — what improved over time · what became clearer · what was implemented · what risks were reduced · what blockers remain · next safest action.
+6. **Technology Recommendation Receipt** — Discover/Assess/Trial/Adopt/Hold/Reject · why relevant now · expected benefit · adoption risk · compatibility · operational burden · rollback path · smallest useful experiment · adoption criteria · reasons not to adopt.
+
+Each receipt must distinguish: **missing-and-blocking · missing-but-later · missing-because-not-applicable
+· unknown-because-evidence-insufficient · outside-Simsa's-qualification · requires-expert-review.**
+
+## 26. Anti-Slop Rules
+
+Simsa must avoid: generic checklist scoring · unsupported confidence · pretending outdated knowledge
+is current · recommending trendy tools without fit analysis · treating every project as SaaS ·
+treating every missing category as a blocker · hiding uncertainty · over-optimizing for Simsa's own
+internal process instead of user value · producing summaries that cannot be tied back to evidence.
+
+Every major recommendation must include: evidence · assumptions · unknowns · project-specific
+reasoning · what changed · what improved · what is still weak · what is safe to do next · what must
+not happen yet.
+
+## 27. Standards Drift Guard
+
+Simsa's own judgment rules must be **versioned and reviewed**. Each policy carries: policy version ·
+date introduced · reason introduced · examples where it applies · examples where it should not apply ·
+known failure modes · review cadence.
+
+Simsa must be able to say: *"Our current standard may be outdated. A technology/risk/process review is
+recommended."*
+
+## 28. Technology Radar
+
+Simsa maintains a technology radar for product/engineering recommendations. Each technology or method
+is classified: **Discover · Assess · Trial · Adopt · Hold · Reject.**
+
+Each recommendation includes: why relevant now · expected benefit · adoption risk · compatibility with
+current stack · operational burden · rollback path · smallest useful experiment · adoption criteria ·
+reasons not to adopt. **Simsa must not recommend a technology just because it is new.**
+
+## 29. Aggregated Trend Signals
+
+Simsa may generate ecosystem-level insights **only from anonymized and aggregated metadata.**
+
+Allowed signals: project category · stage reached · common blockers · common missing PRD fields ·
+common tech stacks · common agent workflows · common risk gates · common launch blockers ·
+adopt/hold/reject patterns for technologies · build-to-release conversion rates.
+
+Never exposed: raw user ideas · proprietary PRDs · code · customer names · workspace-specific strategy
+· identifiable company/user data · secrets or credentials.
+
+Trend insights must be: anonymized · aggregated · permission-aware · thresholded to avoid exposing
+individual projects · opt-out capable · **separated from model-training consent.**
+
+## 30. Independent Technical Moat
+
+Simsa's independent moat is **not** foundation-model ownership or GPU infrastructure. The moat is:
+
+- Acceptance Graph
+- Receipt Schema
+- Policy Engine
+- Evidence Pack Generator
+- Risk Classifier
+- Agent Handoff Protocol
+- Connector Layer
+- Audit Log
+- Deployment Modes
+- Standards Radar
+- Privacy-Preserving Trend Layer
+
+**Acceptance Graph:**
+`Idea → Clarifying Answers → PRD → Acceptance Criteria → Build Tasks → PR → Tests → Evidence → Gate Decision → Receipt`
+
+**Enterprise / on-prem thesis:** Simsa sells the **governance layer, not the model.** Customers may
+bring their own model, cloud, Git, CI, and LLM runtime; Simsa brings receipt, gate, policy, evidence,
+approval, and audit.
+
+> Simsa's proprietary value is not that it generates AI output. It is that it makes AI-generated
+> product and engineering work **acceptable, reviewable, auditable, and governable.**
