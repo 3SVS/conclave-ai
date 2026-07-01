@@ -1,0 +1,130 @@
+{
+  "urlLoaded": "https://golf-nngxsj9ap-seunghunbae-3svs-projects.vercel.app/",
+  "loadStatus": 200,
+  "primaryActionFound": true,
+  "interacted": true,
+  "routeBeforeClick": "https://golf-nngxsj9ap-seunghunbae-3svs-projects.vercel.app/",
+  "routeAfterClick": null,
+  "routeChanged": false,
+  "consoleErrors": [
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED"
+  ],
+  "networkFailures": [
+    "GET https://njcheczfpeszcqrbhrlf.supabase.co/rest/v1/golf_courses?select=*&is_active=eq.true&order=name.asc (net::ERR_NAME_NOT_RESOLVED)",
+    "GET https://njcheczfpeszcqrbhrlf.supabase.co/rest/v1/golf_courses?select=*&is_active=eq.true&order=name.asc (net::ERR_NAME_NOT_RESOLVED)",
+    "GET https://njcheczfpeszcqrbhrlf.supabase.co/rest/v1/golf_courses?select=*&is_active=eq.true&order=name.asc (net::ERR_NAME_NOT_RESOLVED)"
+  ],
+  "inputs": [
+    {
+      "type": "text",
+      "placeholder": "골프장 검색 (이름, 지역)",
+      "selector": "[placeholder=\"골프장 검색 (이름, 지역)\"]"
+    }
+  ],
+  "ctas": [
+    {
+      "text": "⛳ GolfNow",
+      "selector": "text=⛳ GolfNow"
+    },
+    {
+      "text": "📍",
+      "selector": "text=📍"
+    },
+    {
+      "text": "로그인",
+      "selector": "text=로그인"
+    },
+    {
+      "text": "🔔 내일 남서울CC 비 예보가 있습니다. ✕",
+      "selector": "text=🔔 내일 남서울CC 비 예보가 있습니다. ✕"
+    },
+    {
+      "text": "✕",
+      "selector": "text=✕"
+    },
+    {
+      "text": "🛡️ 비 보험 가입하기 →",
+      "selector": "text=🛡️ 비 보험 가입하기 →"
+    },
+    {
+      "text": "?",
+      "selector": "text=?"
+    },
+    {
+      "text": "?",
+      "selector": "text=?"
+    },
+    {
+      "text": "코스 상태 BEST",
+      "selector": "text=코스 상태 BEST"
+    },
+    {
+      "text": "그린 상태 BEST",
+      "selector": "text=그린 상태 BEST"
+    },
+    {
+      "text": "지금 비오는 곳",
+      "selector": "text=지금 비오는 곳"
+    },
+    {
+      "text": "1 한양CC 서울 중랑구 100 점",
+      "selector": "text=1 한양CC 서울 중랑구 100 점"
+    },
+    {
+      "text": "2 양지파인CC 경기 용인 100 점",
+      "selector": "text=2 양지파인CC 경기 용인 100 점"
+    },
+    {
+      "text": "3 코리아퍼블릭CC 경기 용인 100 점",
+      "selector": "text=3 코리아퍼블릭CC 경기 용인 100 점"
+    },
+    {
+      "text": "홈",
+      "selector": "text=홈"
+    },
+    {
+      "text": "골프장",
+      "selector": "text=골프장"
+    },
+    {
+      "text": "리포트",
+      "selector": "text=리포트"
+    },
+    {
+      "text": "예약",
+      "selector": "text=예약"
+    },
+    {
+      "text": "MY",
+      "selector": "text=MY"
+    }
+  ],
+  "plan": [
+    {
+      "action": "type",
+      "label": "검색창에 '서울' 입력하기",
+      "selector": "[placeholder=\"골프장 검색 (이름, 지역)\"]",
+      "value": "서울",
+      "placeholder": "골프장 검색 (이름, 지역)"
+    },
+    {
+      "action": "observe",
+      "label": "검색 결과 화면 확인"
+    }
+  ],
+  "stepOutcomes": [
+    {
+      "label": "검색창에 '서울' 입력하기",
+      "ok": false,
+      "note": "검색 결과/내용이 확인되지 않음 (또는 데이터 요청 실패)"
+    },
+    {
+      "label": "검색 결과 화면 확인",
+      "ok": false,
+      "note": "데이터 요청 실패가 관찰됨"
+    }
+  ],
+  "decision": "Needs Fix"
+}

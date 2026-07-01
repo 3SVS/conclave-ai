@@ -1,0 +1,124 @@
+{
+  "urlLoaded": "http://localhost:3000/",
+  "loadStatus": 200,
+  "primaryActionFound": true,
+  "interacted": true,
+  "routeBeforeClick": "http://localhost:3000/",
+  "routeAfterClick": null,
+  "routeChanged": false,
+  "consoleErrors": [],
+  "networkFailures": [],
+  "inputs": [
+    {
+      "type": "text",
+      "placeholder": "골프장 검색 (이름, 지역)",
+      "selector": "[placeholder=\"골프장 검색 (이름, 지역)\"]"
+    }
+  ],
+  "ctas": [
+    {
+      "text": "⛳ GolfNow",
+      "selector": "text=⛳ GolfNow"
+    },
+    {
+      "text": "📍",
+      "selector": "text=📍"
+    },
+    {
+      "text": "로그인",
+      "selector": "text=로그인"
+    },
+    {
+      "text": "🔔 내일 남서울CC 비 예보가 있습니다. ✕",
+      "selector": "text=🔔 내일 남서울CC 비 예보가 있습니다. ✕"
+    },
+    {
+      "text": "✕",
+      "selector": "text=✕"
+    },
+    {
+      "text": "🛡️ 비 보험 가입하기 →",
+      "selector": "text=🛡️ 비 보험 가입하기 →"
+    },
+    {
+      "text": "?",
+      "selector": "text=?"
+    },
+    {
+      "text": "?",
+      "selector": "text=?"
+    },
+    {
+      "text": "코스 상태 BEST",
+      "selector": "text=코스 상태 BEST"
+    },
+    {
+      "text": "그린 상태 BEST",
+      "selector": "text=그린 상태 BEST"
+    },
+    {
+      "text": "지금 비오는 곳",
+      "selector": "text=지금 비오는 곳"
+    },
+    {
+      "text": "1 한양CC 서울 중랑구 100 점",
+      "selector": "text=1 한양CC 서울 중랑구 100 점"
+    },
+    {
+      "text": "2 양지파인CC 경기 용인 100 점",
+      "selector": "text=2 양지파인CC 경기 용인 100 점"
+    },
+    {
+      "text": "3 코리아퍼블릭CC 경기 용인 100 점",
+      "selector": "text=3 코리아퍼블릭CC 경기 용인 100 점"
+    },
+    {
+      "text": "⛳ 한양CC 서울 중랑구 · 18홀 — 🤍 데이터 수집 중 ⭐ 4.3 (20개 리뷰)",
+      "selector": "text=⛳ 한양CC 서울 중랑구 · 18홀 — 🤍 데이터 수집 중 ⭐ 4.3 (20개 리뷰)"
+    },
+    {
+      "text": "⛳ 한양CC 서울 중랑구 · 18홀 — 🤍 데이터 수집 중 ⭐ 4.3 (20개 리뷰)",
+      "selector": "text=⛳ 한양CC 서울 중랑구 · 18홀 — 🤍 데이터 수집 중 ⭐ 4.3 (20개 리뷰)"
+    },
+    {
+      "text": "🤍",
+      "selector": "text=🤍"
+    },
+    {
+      "text": "⛳ 태릉CC 서울 노원구 · 18홀 — 🤍 데이터 수집 중 ⭐ 4.3 (20개 리뷰)",
+      "selector": "text=⛳ 태릉CC 서울 노원구 · 18홀 — 🤍 데이터 수집 중 ⭐ 4.3 (20개 리뷰)"
+    },
+    {
+      "text": "⛳ 태릉CC 서울 노원구 · 18홀 — 🤍 데이터 수집 중 ⭐ 4.3 (20개 리뷰)",
+      "selector": "text=⛳ 태릉CC 서울 노원구 · 18홀 — 🤍 데이터 수집 중 ⭐ 4.3 (20개 리뷰)"
+    },
+    {
+      "text": "🤍",
+      "selector": "text=🤍"
+    }
+  ],
+  "plan": [
+    {
+      "action": "type",
+      "label": "검색창에 '서울' 입력하기",
+      "selector": "[placeholder=\"골프장 검색 (이름, 지역)\"]",
+      "value": "서울",
+      "placeholder": "골프장 검색 (이름, 지역)"
+    },
+    {
+      "action": "observe",
+      "label": "검색 결과 화면 확인"
+    }
+  ],
+  "stepOutcomes": [
+    {
+      "label": "검색창에 '서울' 입력하기",
+      "ok": true
+    },
+    {
+      "label": "검색 결과 화면 확인",
+      "ok": true
+    }
+  ],
+  "decision": "User Acceptance Required"
+}

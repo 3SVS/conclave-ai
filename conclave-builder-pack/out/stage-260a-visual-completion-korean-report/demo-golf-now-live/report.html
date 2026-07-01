@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Simsa 검수 리포트</title>
+<style>
+  body{font-family:system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;max-width:860px;margin:0 auto;padding:24px;color:#18181b;background:#fafafa;line-height:1.6}
+  h1{font-size:22px;margin:0 0 4px} .sub{color:#71717a;font-size:14px;margin:0 0 16px;word-break:break-all}
+  .verdict{font-size:18px;font-weight:600;margin:12px 0}
+  .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:14px;font-weight:600;margin-left:6px}
+  .badge.ok{background:#dcfce7;color:#166534}.badge.bad{background:#fee2e2;color:#991b1b}.badge.warn{background:#fef9c3;color:#854d0e}
+  .oneline{background:#fff;border:1px solid #e4e4e7;border-radius:10px;padding:14px 16px;margin:12px 0 20px}
+  h2{font-size:16px;margin:24px 0 8px;border-bottom:1px solid #e4e4e7;padding-bottom:6px}
+  .card{background:#fff;border:1px solid #e4e4e7;border-left-width:4px;border-radius:10px;padding:14px 16px;margin:10px 0}
+  .card.sev-high{border-left-color:#dc2626}.card.sev-medium{border-left-color:#d97706}.card.sev-low{border-left-color:#65a30d}.card.sev-info{border-left-color:#94a3b8}
+  .row{display:flex;gap:10px;margin:4px 0}.lbl{flex:0 0 130px;color:#71717a;font-size:13px}.val{flex:1}
+  details{margin-top:8px}summary{cursor:pointer;color:#71717a;font-size:13px}code{display:block;background:#f4f4f5;padding:8px;border-radius:6px;font-size:12px;white-space:pre-wrap;word-break:break-all;margin-top:6px}
+  figure{margin:12px 0}figcaption{font-size:13px;color:#52525b;margin-bottom:6px}img{width:100%;border:1px solid #e4e4e7;border-radius:8px}
+  video{width:100%;border-radius:8px;border:1px solid #e4e4e7}
+  ul{padding-left:20px}li{margin:4px 0}
+  .foot{color:#a1a1aa;font-size:12px;margin-top:28px}
+</style></head>
+<body>
+  <h1>Simsa 검수 리포트 <span class="badge bad">⛔ 작동 안 해요</span></h1>
+  <p class="sub">대상: https://golf-nngxsj9ap-seunghunbae-3svs-projects.vercel.app/</p>
+  <p class="sub">확인하려던 것: 골퍼가 앱을 열어 현재 골프장 컨디션 확인 도구임을 이해하고, 코스/라운드가 지금 플레이 가능한지 확인하는 핵심 플로우를 시작할 수 있어야 한다</p>
+  <div class="verdict">판정: 작동 안 해요 — 고쳐야 해요</div>
+  <div class="oneline">핵심 흐름이 지금은 작동하지 않아요. 앱이 데이터를 가져오는 서버 주소를 찾지 못했어요.</div>
+
+  <h2>무엇을 발견했나요</h2>
+  
+    <div class="card sev-high">
+      <div class="row"><span class="lbl">무엇이 문제인가요</span><span class="val">앱이 데이터를 가져오는 서버 주소를 찾지 못했어요.</span></div>
+      <div class="row"><span class="lbl">왜 그런가요</span><span class="val">앱이 연결하려는 백엔드(데이터베이스/API) 주소가 살아있지 않거나 잘못 적혀 있어요. 그래서 목록·검색 결과 같은 실제 내용이 안 떠요.</span></div>
+      <div class="row"><span class="lbl">어떻게 고치나요</span><span class="val">백엔드 주소(예: 데이터베이스 URL 환경변수)가 올바른지, 그 서비스가 켜져 있는지 확인하세요. 서비스가 꺼졌거나 삭제됐다면 다시 켜거나 새 주소로 바꿔야 해요.</span></div>
+      <details><summary>개발자용 기술 정보</summary><code>GET https://njcheczfpeszcqrbhrlf.supabase.co/rest/v1/golf_courses?select=*&amp;is_active=eq.true&amp;order=name.asc (net::ERR_NAME_NOT_RESOLVED)</code></details>
+    </div>
+
+    <div class="card sev-medium">
+      <div class="row"><span class="lbl">무엇이 문제인가요</span><span class="val">'검색창에 '서울' 입력하기' 단계가 끝까지 되지 않았어요.</span></div>
+      <div class="row"><span class="lbl">왜 그런가요</span><span class="val">이유: 검색 결과/내용이 확인되지 않음 (또는 데이터 요청 실패)</span></div>
+      <div class="row"><span class="lbl">어떻게 고치나요</span><span class="val">그 단계에서 무엇이 나와야 하는지 정하고, 눌렀을 때 그 결과가 실제로 뜨는지 확인하세요.</span></div>
+      <details><summary>개발자용 기술 정보</summary><code>검색 결과/내용이 확인되지 않음 (또는 데이터 요청 실패)</code></details>
+    </div>
+
+    <div class="card sev-medium">
+      <div class="row"><span class="lbl">무엇이 문제인가요</span><span class="val">'검색 결과 화면 확인' 단계가 끝까지 되지 않았어요.</span></div>
+      <div class="row"><span class="lbl">왜 그런가요</span><span class="val">이유: 데이터 요청 실패가 관찰됨</span></div>
+      <div class="row"><span class="lbl">어떻게 고치나요</span><span class="val">그 단계에서 무엇이 나와야 하는지 정하고, 눌렀을 때 그 결과가 실제로 뜨는지 확인하세요.</span></div>
+      <details><summary>개발자용 기술 정보</summary><code>데이터 요청 실패가 관찰됨</code></details>
+    </div>
+
+  <h2>화면으로 보기</h2><figure><figcaption>첫 화면 (앱을 열었을 때)</figcaption><img src="screenshots/step-00-initial.png" alt="첫 화면 (앱을 열었을 때)"/></figure>
+<figure><figcaption>검색창에 '서울' 입력하기 후 화면</figcaption><img src="screenshots/step-01.png" alt="검색창에 '서울' 입력하기 후 화면"/></figure>
+<figure><figcaption>검색 결과 화면 확인</figcaption><img src="screenshots/step-02.png" alt="검색 결과 화면 확인"/></figure>
+  <h2>진행 영상</h2><video controls src="video/flow.webm"></video>
+
+  <h2>다음에 해볼 것</h2>
+  <ul><li>가장 급한 것부터: 백엔드 주소(예: 데이터베이스 URL 환경변수)가 올바른지, 그 서비스가 켜져 있는지 확인하세요. 서비스가 꺼졌거나 삭제됐다면 다시 켜거나 새 주소로 바꿔야 해요.</li><li>고친 뒤 이 검수를 한 번 더 돌려서, 아래 스크린샷이 정상 화면으로 바뀌는지 눈으로 확인하세요.</li></ul>
+
+  <h2>안내</h2>
+  <ul><li>이 검수는 실제 브라우저로 앱을 열어 눈에 보이는 것을 확인한 결과예요. 모든 버그를 찾았다는 뜻은 아니에요.</li><li>'무엇이/왜/어떻게'는 사람이 읽기 쉬운 설명이고, 정확한 기술 원인은 각 항목의 '개발자용' 정보에 있어요.</li><li>화면 스크린샷을 함께 보면 어디서 막혔는지 눈으로 바로 알 수 있어요.</li></ul>
+
+  <p class="foot">Simsa 검수 · 실제 브라우저 관찰 기반 · 점수 없음 · 모든 버그를 찾았다는 뜻은 아닙니다.</p>
+</body></html>
