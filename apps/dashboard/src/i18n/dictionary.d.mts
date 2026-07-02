@@ -1476,6 +1476,36 @@ export type Dictionary = {
       latestOnly: string;
       noPairs: string;
     };
+    repair: {
+      title: string;
+      desc: string;
+      button: string;
+      submitting: string;
+      progressTitle: string;
+      progressBody: string;
+      statusQueued: string;
+      statusRunning: string;
+      doneTitle: string;
+      doneBody: string;
+      openPr: string;
+      branchLabel: string;
+      noPrNote: string;
+      envCauseWarning: string;
+      failedTitle: string;
+      failedBody: string;
+      detailsLabel: string;
+      goToRepo: string;
+      goToGithubSettings: string;
+      errors: {
+        notRepairable: string;
+        repoRequired: string;
+        tokenRequired: string;
+        alreadyActive: string;
+        notFound: string;
+        forbidden: string;
+        generic: string;
+      };
+    };
   };
   sources: {
     title: string;

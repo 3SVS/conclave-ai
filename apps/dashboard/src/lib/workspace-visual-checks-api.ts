@@ -5,6 +5,8 @@
  * The runs are uploaded by the Simsa inspection tooling (Stage 261); the
  * dashboard lists them and renders the Korean non-dev report. Stage 264 adds
  * the one-click run dispatch (POST …/visual-checks/run, Stage 263 backend).
+ * Stage 269 adds the repair loop client (POST/GET …/:runId/repair, Stage 268
+ * backend): "[고치기]" turns a failed check into a repair branch + draft PR.
  */
 
 export const CENTRAL_PLANE_URL =
@@ -94,6 +96,41 @@ export type VisualCheckRunResponse =
   | { ok: true; check: VisualCheckRunCheck; dispatched: boolean; note?: string }
   | { ok: false; error: string };
 
+// Stage 269 — repair jobs (mirrors central-plane workspace-repair-jobs.ts).
+
+export type RepairJobStatus = "queued" | "running" | "done" | "failed";
+
+export type RepairJob = {
+  id: string;
+  visualCheckId: string;
+  repoFullName: string;
+  /** queued → running → done|failed; kept open (string) for forward compat. */
+  status: string;
+  branchName: string | null;
+  prUrl: string | null;
+  prNumber: number | null;
+  /** D1 integer on the wire — may arrive as boolean or 0|1 (see isEnvCause). */
+  envCause: boolean | 0 | 1;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RepairRequestResponse =
+  | { ok: true; repair: RepairJob; dispatched: boolean; note?: string }
+  | {
+      ok: false;
+      error: string;
+      /** Korean user-facing message on 400 codes (run_not_repairable, …). */
+      message?: string;
+      /** Present on 409 repair_already_active. */
+      activeJobId?: string;
+    };
+
+export type RepairGetResponse =
+  | { ok: true; repair: RepairJob | null }
+  | { ok: false; error: string };
+
 // ─── Calls ────────────────────────────────────────────────────────────────────
 
 export async function listVisualChecks(
@@ -137,6 +174,58 @@ export async function runVisualCheck(
     const data = (await resp
       .json()
       .catch(() => ({ ok: false, error: `HTTP ${resp.status}` }))) as VisualCheckRunResponse;
+    return data;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+/**
+ * Queue (and, when the sandbox is available, dispatch) a repair job for a
+ * finished-but-not-working check. The backend creates a repair branch and a
+ * DRAFT PR carrying the fix brief — it does NOT auto-apply code changes.
+ * Known error codes: run_not_repairable, github_repo_required,
+ * github_token_required, repair_already_active (409, with activeJobId),
+ * run_not_found, project_not_found, forbidden.
+ */
+export async function requestRepair(
+  projectId: string,
+  runId: string,
+  userKey: string,
+): Promise<RepairRequestResponse> {
+  try {
+    const resp = await fetch(
+      `${CENTRAL_PLANE_URL}/workspace/projects/${encodeURIComponent(projectId)}/visual-checks/${encodeURIComponent(runId)}/repair`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userKey }),
+        signal: AbortSignal.timeout(30000),
+      },
+    );
+    const data = (await resp
+      .json()
+      .catch(() => ({ ok: false, error: `HTTP ${resp.status}` }))) as RepairRequestResponse;
+    return data;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+/** Latest repair job for the run (or null when none was ever started). */
+export async function getRepair(
+  projectId: string,
+  runId: string,
+  userKey: string,
+): Promise<RepairGetResponse> {
+  try {
+    const resp = await fetch(
+      `${CENTRAL_PLANE_URL}/workspace/projects/${encodeURIComponent(projectId)}/visual-checks/${encodeURIComponent(runId)}/repair?userKey=${encodeURIComponent(userKey)}`,
+      { signal: AbortSignal.timeout(15000) },
+    );
+    const data = (await resp
+      .json()
+      .catch(() => ({ ok: false, error: `HTTP ${resp.status}` }))) as RepairGetResponse;
     return data;
   } catch (err) {
     return { ok: false, error: String(err) };

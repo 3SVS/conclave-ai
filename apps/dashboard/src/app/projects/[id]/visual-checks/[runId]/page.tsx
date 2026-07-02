@@ -9,6 +9,10 @@
 // Stage 266 — when an older done run exists, renders the "이전 검수와 비교"
 // section: verdict transition, findings resolved/remaining/new, and
 // side-by-side screenshot pairs (previous vs latest).
+// Stage 269 — on a done-but-not-working run, renders the "[고치기]" repair
+// section: dispatches a Stage 268 repair job (draft PR carrying the fix
+// brief — code is NOT auto-applied), polls it every 5s, then links the
+// resulting GitHub PR ("수리 시작점 PR").
 
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
@@ -18,9 +22,12 @@ import { getLocalProject, getUserKey } from "@/lib/workflow-store";
 import {
   getVisualCheck,
   listVisualChecks,
+  requestRepair,
+  getRepair,
   CENTRAL_PLANE_URL,
   type VisualCheckDetail,
   type NonDevFinding,
+  type RepairJob,
 } from "@/lib/workspace-visual-checks-api";
 import {
   verdictLabel,
@@ -33,6 +40,14 @@ import type { VerdictTone, SeverityTone } from "@/lib/visual-check-view.mjs";
 import { compareVisualChecks, pickPreviousDoneCheck } from "@/lib/visual-check-compare.mjs";
 import type { VisualCheckComparison, ComparedFinding } from "@/lib/visual-check-compare.mjs";
 import { isActiveStatus, RUN_POLL_INTERVAL_MS } from "@/lib/visual-check-run-state.mjs";
+import {
+  canRepair,
+  isRepairActive,
+  isEnvCause,
+  repairErrorKey,
+  REPAIR_POLL_INTERVAL_MS,
+} from "@/lib/repair-state.mjs";
+import type { RepairErrorKey } from "@/lib/repair-state.mjs";
 import { SimsaStampThinking } from "@/components/SimsaStampThinking";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { Dictionary, Locale } from "@/i18n/dictionary.mjs";
@@ -254,6 +269,192 @@ function ComparisonSection({
             </div>
           )}
         </div>
+      )}
+    </section>
+  );
+}
+
+// Stage 269 — "[고치기]": dispatch a repair job for a done-but-not-working
+// run, poll it every 5s, and surface the resulting draft PR. Honest copy:
+// the PR carries the fix brief (SIMSA-FIX-BRIEF.md) — code changes are NOT
+// auto-applied yet; the PR is the handoff point for an agent/developer.
+function RepairSection({
+  projectId,
+  runId,
+  userKey,
+  t,
+}: {
+  projectId: string;
+  runId: string;
+  userKey: string;
+  t: Dictionary;
+}) {
+  const s = t.visualChecks.repair;
+  // null = no repair job yet (show the button); otherwise render the job state.
+  const [repair, setRepair] = useState<RepairJob | null>(null);
+  const [phase, setPhase] = useState<"loading" | "ready" | "submitting">("loading");
+  const [errorKey, setErrorKey] = useState<RepairErrorKey | null>(null);
+
+  // On mount, GET once — if a repair already exists, render its state
+  // instead of the bare button (and resume polling when it is still active).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const res = await getRepair(projectId, runId, userKey);
+      if (cancelled) return;
+      if (res.ok) setRepair(res.repair);
+      setPhase("ready");
+    })();
+    return () => { cancelled = true; };
+  }, [projectId, runId, userKey]);
+
+  // Poll the job every 5s while it is queued/running. The interval clears on
+  // unmount and once the job is terminal (done/failed/unknown).
+  const active = isRepairActive(repair);
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+    const timer = setInterval(async () => {
+      const res = await getRepair(projectId, runId, userKey);
+      if (cancelled || !res.ok) return;
+      setRepair(res.repair);
+    }, REPAIR_POLL_INTERVAL_MS);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [active, projectId, runId, userKey]);
+
+  async function handleRepair() {
+    if (phase !== "ready") return;
+    setPhase("submitting");
+    setErrorKey(null);
+    const res = await requestRepair(projectId, runId, userKey);
+    if (res.ok) {
+      // Undispatched jobs come back already failed (dispatched:false) with
+      // the reason in `note` — surface it through the failed card.
+      setRepair(res.dispatched ? res.repair : { ...res.repair, error: res.repair.error ?? res.note ?? null });
+    } else {
+      const key = repairErrorKey(res.error);
+      if (key === "alreadyActive") {
+        // 409 — another repair is already running: resume polling that job.
+        const g = await getRepair(projectId, runId, userKey);
+        if (g.ok && g.repair) {
+          setRepair(g.repair);
+          setPhase("ready");
+          return;
+        }
+      }
+      setErrorKey(key);
+    }
+    setPhase("ready");
+  }
+
+  const isDone = repair !== null && repair.status === "done";
+  const isFailed = repair !== null && repair.status === "failed";
+  // The button shows when no job exists yet, or again after a failed one.
+  const showButton = phase !== "loading" && !active && !isDone;
+
+  return (
+    <section className="card p-5">
+      <h3 className="section-title">{s.title}</h3>
+      <p className="section-desc leading-relaxed">{s.desc}</p>
+
+      {phase === "loading" && (
+        <div className="mt-3 flex items-center gap-2 text-sm text-gray-400">
+          <div className="h-4 w-4 flex-shrink-0 animate-spin rounded-full border-2 border-gray-200 border-t-gray-500" />
+          {t.common.loading}
+        </div>
+      )}
+
+      {/* Active job — queued/running, polled every 5s */}
+      {active && repair && (
+        <div className="mt-4 flex items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+          <div className="mt-0.5 h-4 w-4 flex-shrink-0 animate-spin rounded-full border-2 border-gray-200 border-t-gray-500" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-gray-800">
+              {s.progressTitle}
+              <span className="ml-2 inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                {repair.status === "queued" ? s.statusQueued : s.statusRunning}
+              </span>
+            </p>
+            <p className="mt-1 text-sm leading-relaxed text-gray-500">{s.progressBody}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Done — the repair starting-point PR is ready */}
+      {isDone && repair && (
+        <div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3">
+          <p className="text-sm font-medium text-green-800">{s.doneTitle}</p>
+          <p className="mt-1 text-sm leading-relaxed text-green-700">{s.doneBody}</p>
+          {isEnvCause(repair) && (
+            <div className="callout mt-3 border-amber-200 bg-amber-50 text-amber-700">
+              {s.envCauseWarning}
+            </div>
+          )}
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            {repair.prUrl ? (
+              <a href={repair.prUrl} target="_blank" rel="noreferrer" className="btn btn-primary btn-sm">
+                {s.openPr}
+              </a>
+            ) : (
+              <p className="text-xs text-green-700">{s.noPrNote}</p>
+            )}
+            {repair.branchName && (
+              <span className="inline-flex items-center gap-1.5 text-xs text-gray-500">
+                {s.branchLabel}
+                <code className="rounded border border-gray-200 bg-white px-1.5 py-0.5 font-mono text-[11px] text-gray-600">
+                  {repair.branchName}
+                </code>
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Failed — localized error card + collapsible developer details */}
+      {isFailed && repair && (
+        <div className="callout callout-error mt-4">
+          <p className="text-sm font-medium">{s.failedTitle}</p>
+          <p className="mt-1 text-sm leading-relaxed">{s.failedBody}</p>
+          {repair.error && (
+            <details className="mt-2 rounded-md border border-red-100 bg-white/60 px-3 py-2">
+              <summary className="cursor-pointer text-xs font-medium text-red-600">{s.detailsLabel}</summary>
+              <code className="mt-2 block break-all font-mono text-[11px] leading-relaxed text-red-700">
+                {repair.error}
+              </code>
+            </details>
+          )}
+        </div>
+      )}
+
+      {/* Request errors that never created a job */}
+      {errorKey === "repoRequired" && (
+        <div className="callout callout-info mt-4">
+          <p>{s.errors.repoRequired}</p>
+          <Link href={`/projects/${projectId}/github`} className="btn btn-secondary btn-sm mt-2">
+            {s.goToRepo}
+          </Link>
+        </div>
+      )}
+      {errorKey === "tokenRequired" && (
+        <div className="callout callout-info mt-4">
+          <p>{s.errors.tokenRequired}</p>
+          <Link href={`/projects/${projectId}/settings`} className="btn btn-secondary btn-sm mt-2">
+            {s.goToGithubSettings}
+          </Link>
+        </div>
+      )}
+      {errorKey !== null && errorKey !== "repoRequired" && errorKey !== "tokenRequired" && (
+        <div className="callout callout-error mt-4">{s.errors[errorKey]}</div>
+      )}
+
+      {showButton && (
+        <button
+          onClick={handleRepair}
+          disabled={phase === "submitting"}
+          className="btn btn-primary btn-sm mt-4"
+        >
+          {phase === "submitting" ? s.submitting : s.button}
+        </button>
       )}
     </section>
   );
@@ -496,6 +697,12 @@ export default function VisualCheckDetailPage() {
                 className="card w-full"
               />
             </section>
+          )}
+
+          {/* Stage 269 — "[고치기]": only a finished run that did NOT verify
+              as working can dispatch a repair (draft fix-brief PR). */}
+          {canRepair(check) && (
+            <RepairSection projectId={id} runId={runId} userKey={userKey} t={t} />
           )}
 
           {/* Copy-ready agent fix prompt */}
