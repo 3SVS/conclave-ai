@@ -28,6 +28,7 @@ import { encryptToken, decryptToken } from "../crypto.js";
 import {
   saveOAuthState, getOAuthState, markStateUsed,
   upsertGitHubConnection, getGitHubConnectionByUserKey,
+  deleteGitHubConnectionsByUserKey,
   upsertProjectRepo, getProjectRepo,
 } from "../workspace/github-db.js";
 import {
@@ -284,6 +285,31 @@ export function createWorkspaceGitHubRoutes(
       }, 200, origin);
     } catch (err) {
       console.error("[workspace/github/status] error:", err);
+      return json({ ok: false, error: "db_error" }, 500, origin);
+    }
+  });
+
+  // ── POST /workspace/github/disconnect ──────────────────────────────────────
+  // Stage 273: delete the user's GitHub connection row(s) — including the
+  // encrypted access token — so the user can switch GitHub accounts. GitHub
+  // OAuth has no account picker (an existing grant silently re-authorizes),
+  // so disconnect + logout-at-github.com is the only honest switch path.
+  app.post("/workspace/github/disconnect", async (c) => {
+    const origin = c.req.header("origin") ?? null;
+
+    let body: unknown;
+    try { body = await c.req.json(); } catch {
+      return json({ ok: false, error: "invalid_json" }, 400, origin);
+    }
+    const b = body as Record<string, unknown>;
+    const userKey = typeof b["userKey"] === "string" ? b["userKey"] : "";
+    if (!userKey) return json({ ok: false, error: "userKey_required" }, 400, origin);
+
+    try {
+      const disconnected = await deleteGitHubConnectionsByUserKey(c.env, userKey);
+      return json({ ok: true, disconnected }, 200, origin);
+    } catch (err) {
+      console.error("[workspace/github/disconnect] failed:", err);
       return json({ ok: false, error: "db_error" }, 500, origin);
     }
   });
