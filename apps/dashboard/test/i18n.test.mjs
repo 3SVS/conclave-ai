@@ -12,6 +12,7 @@ import {
   enumStatusLabel,
   enumActionLabel,
   enumLimitationLabel,
+  detectInitialLocale,
   readStoredLocale,
   writeStoredLocale,
   LOCALE_STORAGE_KEY,
@@ -130,6 +131,31 @@ describe("i18n dictionary", () => {
     assert.equal(readStoredLocale(storage), "ko");
     writeStoredLocale(storage, "bogus"); // normalized
     assert.equal(readStoredLocale(storage), "en");
+  });
+
+  it("detectInitialLocale: stored choice wins, else Korean browsers get ko", () => {
+    const store = new Map();
+    const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+    // No stored choice → browser language decides.
+    assert.equal(detectInitialLocale(storage, "ko-KR"), "ko");
+    assert.equal(detectInitialLocale(storage, "ko"), "ko");
+    assert.equal(detectInitialLocale(storage, "en-US"), "en");
+    assert.equal(detectInitialLocale(storage, "fr-FR"), "en");
+    assert.equal(detectInitialLocale(storage, null), "en");
+    // Explicit stored choice overrides the browser language.
+    store.set(LOCALE_STORAGE_KEY, "en");
+    assert.equal(detectInitialLocale(storage, "ko-KR"), "en");
+    store.set(LOCALE_STORAGE_KEY, "ko");
+    assert.equal(detectInitialLocale(storage, "en-US"), "ko");
+    // Garbage stored value falls back to browser detection.
+    store.set(LOCALE_STORAGE_KEY, "bogus");
+    assert.equal(detectInitialLocale(storage, "ko-KR"), "ko");
+  });
+
+  it("detectInitialLocale never throws on broken storage", () => {
+    const throwing = { getItem: () => { throw new Error("x"); }, setItem: () => {} };
+    assert.equal(detectInitialLocale(throwing, "ko-KR"), "ko");
+    assert.equal(detectInitialLocale(null, "en-US"), "en");
   });
 
   it("storage helpers never throw on null/throwing storage", () => {
