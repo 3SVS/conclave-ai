@@ -120,3 +120,55 @@ test("Dockerfile copies coerce-result.mjs alongside server.mjs", () => {
     "Dockerfile must COPY container/coerce-result.mjs",
   );
 });
+
+// ---- Stage 270: auto-repair lock-step invariants -------------------------
+
+test("Stage 270: Dockerfile compiles the CANONICAL repair-brief.ts the Worker builds (lock-step)", () => {
+  // The container must run the exact same brief-parsing logic as
+  // dist/workspace/repair-brief.js. The Dockerfile COPYs the canonical
+  // source and compiles it in-image (inspector-container Stage 263
+  // pattern) — never a hand-duplicated .mjs.
+  assert.match(
+    dockerfile,
+    /COPY\s+apps\/central-plane\/src\/workspace\/repair-brief\.ts/,
+    "Dockerfile must COPY src/workspace/repair-brief.ts (canonical source)",
+  );
+  assert.match(
+    dockerfile,
+    /tsc\s+container-src\/repair-brief\.ts/,
+    "Dockerfile must compile repair-brief.ts with tsc",
+  );
+  assert.match(
+    dockerfile,
+    /container-dist\/package\.json/,
+    "Dockerfile must write container-dist/package.json ({\"type\":\"module\"}) or the ESM output won't load",
+  );
+});
+
+test("Stage 270: server.mjs drives the worker seam against the compiled brief module", () => {
+  assert.match(
+    serverMjs,
+    /container-dist\/repair-brief\.js/,
+    "server.mjs must import the in-image compiled repair-brief module",
+  );
+  assert.match(
+    serverMjs,
+    /packages\/agent-worker\/dist\/index\.js/,
+    "server.mjs must lazy-import ClaudeWorker from the agent-worker dist",
+  );
+  assert.match(serverMjs, /x-anthropic-key/, "server.mjs must read the forwarded LLM key header for repair jobs");
+  assert.match(serverMjs, /brief_only/, "server.mjs must report the brief_only fallback mode");
+  assert.match(serverMjs, /auto_fix/, "server.mjs must report the auto_fix mode");
+});
+
+test("Stage 270: Dockerfile still builds @conclave-ai/cli (whose dep graph provides agent-worker dist)", () => {
+  // ClaudeWorker is imported from /app/packages/agent-worker/dist —
+  // produced transitively because turbo's build dependsOn ^build and cli
+  // depends on agent-worker. If the cli filter disappears, the repair
+  // job's worker import breaks at runtime.
+  assert.match(
+    dockerfile,
+    /--filter @conclave-ai\/cli/,
+    "Dockerfile must keep building @conclave-ai/cli",
+  );
+});

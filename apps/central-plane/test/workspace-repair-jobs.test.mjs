@@ -70,7 +70,8 @@ function makeDb({ projects = new Map(), checks = [], repos = [], connections = [
               return { meta: { changes: row ? 1 : 0 } };
             }
             if (sql.includes("workspace_repair_jobs") && sql.includes("SET status = 'done'")) {
-              const [pr_url, pr_number, branch_name, env_flag, updated_at, id] = args;
+              // Stage 270 — markRepairJobDone also binds mode + changed_files.
+              const [pr_url, pr_number, branch_name, env_flag, mode, changed_files, updated_at, id] = args;
               const row = jobs.find((r) => r.id === id);
               if (row) {
                 row.status = "done";
@@ -78,6 +79,8 @@ function makeDb({ projects = new Map(), checks = [], repos = [], connections = [
                 row.pr_number = pr_number ?? row.pr_number;
                 row.branch_name = branch_name ?? row.branch_name;
                 if (env_flag === 1) row.env_cause = 1;
+                row.mode = mode ?? row.mode ?? null;
+                row.changed_files = changed_files ?? row.changed_files ?? null;
                 row.updated_at = updated_at;
               }
               return { meta: { changes: row ? 1 : 0 } };
@@ -193,7 +196,7 @@ function makeSandbox(recorder, { status = 202 } = {}) {
     get() {
       return {
         async fetch(url, init) {
-          recorder.calls.push({ url, body: JSON.parse(init.body) });
+          recorder.calls.push({ url, body: JSON.parse(init.body), headers: init.headers ?? {} });
           return new Response(JSON.stringify({ status: "accepted" }), { status });
         },
       };
@@ -617,4 +620,93 @@ test("container helpers: buildRepairPrContent is honest (no auto-fix claim), car
   const plain = buildRepairPrContent({ intent: "x".repeat(100), agentPrompt: AGENT_PROMPT, envCause: false });
   assert.ok(!/완전히 해결되지 않을 수 있어요/.test(plain.body));
   assert.ok(plain.title.length < 80);
+});
+
+// ─── Stage 270: auto-repair execution (mode + changed_files + key forwarding) ─
+
+test("Stage 270 dispatch: ANTHROPIC_API_KEY forwarded via x-anthropic-key HEADER, never in the payload body", async () => {
+  const recorder = { names: [], calls: [] };
+  const env = makeEnv({ sandbox: makeSandbox(recorder) });
+  env.ANTHROPIC_API_KEY = "sk-ant-testkey-abcdefghijklmnop";
+  const r = await req(env, "POST", REPAIR_PATH, { userKey: USER });
+  assert.equal(r.status, 202);
+  assert.equal(r.json.dispatched, true);
+
+  const call = recorder.calls[0];
+  assert.equal(call.headers["x-anthropic-key"], env.ANTHROPIC_API_KEY);
+  assert.ok(
+    !JSON.stringify(call.body).includes(env.ANTHROPIC_API_KEY),
+    "LLM key must travel in the header, never in the job payload body",
+  );
+  assert.ok(!JSON.stringify(r.json).includes(env.ANTHROPIC_API_KEY), "key never echoes in the response");
+});
+
+test("Stage 270 dispatch: no ANTHROPIC_API_KEY → no x-anthropic-key header (container stays brief-only)", async () => {
+  const recorder = { names: [], calls: [] };
+  const env = makeEnv({ sandbox: makeSandbox(recorder) });
+  const r = await req(env, "POST", REPAIR_PATH, { userKey: USER });
+  assert.equal(r.status, 202);
+  assert.equal(recorder.calls[0].headers["x-anthropic-key"], undefined);
+});
+
+test("Stage 270 repair-done: mode auto_fix + changedFiles persisted; GET view exposes both", async () => {
+  const env = makeEnv({ sandbox: makeSandbox({ names: [], calls: [] }) });
+  const created = await req(env, "POST", REPAIR_PATH, { userKey: USER });
+  const jobId = created.json.repair.id;
+
+  const r = await req(
+    env, "POST", "/internal/repair-done",
+    {
+      jobId, ok: true, prUrl: "https://github.com/acme/golf-now/pull/39", prNumber: 39,
+      branch: `fix/simsa-${RUN}`, mode: "auto_fix", changedFiles: 2,
+    },
+    { authorization: `Bearer ${TOKEN}` },
+  );
+  assert.equal(r.status, 200);
+  assert.equal(r.json.status, "done");
+
+  const row = env.DB._jobs[0];
+  assert.equal(row.mode, "auto_fix");
+  assert.equal(row.changed_files, 2);
+
+  const got = await req(env, "GET", `${REPAIR_PATH}?userKey=${USER}`);
+  assert.equal(got.status, 200);
+  assert.equal(got.json.repair.mode, "auto_fix");
+  assert.equal(got.json.repair.changedFiles, 2);
+});
+
+test("Stage 270 repair-done: brief_only fallback persists mode with changedFiles 0", async () => {
+  const env = makeEnv({ sandbox: makeSandbox({ names: [], calls: [] }) });
+  const created = await req(env, "POST", REPAIR_PATH, { userKey: USER });
+  const jobId = created.json.repair.id;
+
+  const r = await req(
+    env, "POST", "/internal/repair-done",
+    { jobId, ok: true, prUrl: "https://github.com/acme/golf-now/pull/40", prNumber: 40, mode: "brief_only", changedFiles: 0 },
+    { authorization: `Bearer ${TOKEN}` },
+  );
+  assert.equal(r.status, 200);
+  assert.equal(env.DB._jobs[0].mode, "brief_only");
+  assert.equal(env.DB._jobs[0].changed_files, 0);
+});
+
+test("Stage 270 repair-done: invalid mode / negative or non-int changedFiles are dropped; legacy callback (no fields) stays null", async () => {
+  const env = makeEnv({ sandbox: makeSandbox({ names: [], calls: [] }) });
+  const created = await req(env, "POST", REPAIR_PATH, { userKey: USER });
+  const jobId = created.json.repair.id;
+
+  const r = await req(
+    env, "POST", "/internal/repair-done",
+    { jobId, ok: true, prUrl: "u", prNumber: 1, mode: "hax", changedFiles: -3 },
+    { authorization: `Bearer ${TOKEN}` },
+  );
+  assert.equal(r.status, 200);
+  assert.equal(env.DB._jobs[0].status, "done");
+  assert.equal(env.DB._jobs[0].mode, null, "unknown mode must not be stored");
+  assert.equal(env.DB._jobs[0].changed_files, null, "negative count must not be stored");
+
+  // legacy container (Stage 268) sends neither field → view shows nulls
+  const got = await req(env, "GET", `${REPAIR_PATH}?userKey=${USER}`);
+  assert.equal(got.json.repair.mode, null);
+  assert.equal(got.json.repair.changedFiles, null);
 });

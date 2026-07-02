@@ -12,6 +12,10 @@ import type { Env } from "../env.js";
 export const REPAIR_JOB_STATUSES = ["queued", "running", "done", "failed"] as const;
 export type RepairJobStatus = (typeof REPAIR_JOB_STATUSES)[number];
 
+/** Stage 270 — how the container concluded a done repair. */
+export const REPAIR_JOB_MODES = ["auto_fix", "brief_only"] as const;
+export type RepairJobMode = (typeof REPAIR_JOB_MODES)[number];
+
 export type DbRepairJob = {
   id: string;
   projectId: string;
@@ -23,6 +27,10 @@ export type DbRepairJob = {
   prUrl?: string;
   prNumber?: number;
   envCause: boolean;
+  /** Stage 270 — 'auto_fix' (worker applied code) | 'brief_only' (Stage 268 fallback). Unset on legacy/in-flight rows. */
+  mode?: RepairJobMode;
+  /** Stage 270 — number of code files the worker actually changed (auto_fix). */
+  changedFiles?: number;
   error?: string;
   createdAt: string;
   updatedAt: string;
@@ -39,6 +47,8 @@ type RawRow = {
   pr_url: string | null;
   pr_number: number | null;
   env_cause: number;
+  mode: string | null;
+  changed_files: number | null;
   error: string | null;
   created_at: string;
   updated_at: string;
@@ -46,7 +56,7 @@ type RawRow = {
 
 const SELECT_COLS =
   `id, project_id, user_key, visual_check_id, repo_full_name, status,
-   branch_name, pr_url, pr_number, env_cause, error, created_at, updated_at`;
+   branch_name, pr_url, pr_number, env_cause, mode, changed_files, error, created_at, updated_at`;
 
 function randId(): string {
   const ts = Date.now().toString(36).slice(-6);
@@ -66,6 +76,8 @@ function fromRow(row: RawRow): DbRepairJob {
     prUrl: row.pr_url ?? undefined,
     prNumber: row.pr_number ?? undefined,
     envCause: row.env_cause === 1,
+    mode: row.mode === "auto_fix" || row.mode === "brief_only" ? row.mode : undefined,
+    changedFiles: typeof row.changed_files === "number" ? row.changed_files : undefined,
     error: row.error ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -175,7 +187,14 @@ export async function markRepairJobRunning(env: Env, id: string): Promise<boolea
 export async function markRepairJobDone(
   env: Env,
   id: string,
-  input: { prUrl?: string; prNumber?: number; branchName?: string; envCause?: boolean },
+  input: {
+    prUrl?: string;
+    prNumber?: number;
+    branchName?: string;
+    envCause?: boolean;
+    mode?: RepairJobMode;
+    changedFiles?: number;
+  },
 ): Promise<void> {
   await env.DB.prepare(
     `UPDATE workspace_repair_jobs
@@ -184,6 +203,8 @@ export async function markRepairJobDone(
             pr_number = COALESCE(?, pr_number),
             branch_name = COALESCE(?, branch_name),
             env_cause = CASE WHEN ? = 1 THEN 1 ELSE env_cause END,
+            mode = COALESCE(?, mode),
+            changed_files = COALESCE(?, changed_files),
             updated_at = ?
       WHERE id = ?`,
   )
@@ -192,6 +213,10 @@ export async function markRepairJobDone(
       input.prNumber ?? null,
       input.branchName ?? null,
       input.envCause === true ? 1 : 0,
+      input.mode ?? null,
+      typeof input.changedFiles === "number" && Number.isInteger(input.changedFiles) && input.changedFiles >= 0
+        ? input.changedFiles
+        : null,
       new Date().toISOString(),
       id,
     )

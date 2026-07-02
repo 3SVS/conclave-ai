@@ -49,10 +49,24 @@ COPY packages packages
 # helpers). Both files must be in the same dir for the relative import.
 COPY apps/central-plane/container/server.mjs ./server.mjs
 COPY apps/central-plane/container/coerce-result.mjs ./coerce-result.mjs
+# Stage 270 — canonical repair-brief module (inspector-container pattern):
+# compile the SAME source the Worker builds so container logic stays
+# lock-step with dist/workspace/repair-brief.js. Compiled after pnpm
+# install (tsc comes from the workspace root devDependencies).
+COPY apps/central-plane/src/workspace/repair-brief.ts ./container-src/repair-brief.ts
 
 # Install deps + build the cli + its workspace dependencies. Using
 # --frozen-lockfile to catch lockfile drift early (would block deploy).
 RUN pnpm install --frozen-lockfile
+
+# Stage 270 — emit ESM into ./container-dist (its own {"type":"module"}
+# marker: the workspace root package.json has no type field, so without it
+# the .js output would be treated as CJS and the dynamic import in
+# server.mjs runRepairJob would fail).
+RUN npx tsc container-src/repair-brief.ts \
+    --outDir container-dist --module es2022 --moduleResolution bundler \
+    --target es2022 --strict --skipLibCheck \
+ && echo '{"type":"module"}' > container-dist/package.json
 
 # Build the packages the container actually invokes at runtime: cli +
 # all of its workspace dependencies. Skip apps/* and packages we don't
