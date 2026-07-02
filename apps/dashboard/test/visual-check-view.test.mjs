@@ -7,6 +7,8 @@ import {
   severityTone,
   splitEvidenceKeys,
   buildEvidenceUrl,
+  overviewNextAction,
+  relativeTimeLabel,
 } from "../src/lib/visual-check-view.mjs";
 import { getDictionary } from "../src/i18n/dictionary.mjs";
 
@@ -85,6 +87,90 @@ describe("visual-check-view: splitEvidenceKeys", () => {
     ]);
     assert.deepEqual(screenshots, ["screenshots/a.png"]);
     assert.equal(video, null);
+  });
+});
+
+// Stage 272 — project-overview next action.
+function check(id, { status = "done", works = null, createdAt = "2026-07-01T00:00:00Z" } = {}) {
+  return { id, targetUrl: "https://app.example.com", decision: "", works, status, executor: "container", evidenceCount: 0, createdAt };
+}
+
+describe("visual-check-view: overviewNextAction", () => {
+  it("empty or non-array input → runFirst", () => {
+    assert.deepEqual(overviewNextAction([]), { kind: "runFirst" });
+    assert.deepEqual(overviewNextAction(null), { kind: "runFirst" });
+    assert.deepEqual(overviewNextAction("nope"), { kind: "runFirst" });
+    // Rows without a string id are dropped defensively.
+    assert.deepEqual(overviewNextAction([{ status: "done" }]), { kind: "runFirst" });
+  });
+
+  it("an active (queued/running) run wins → inProgress with that run's id", () => {
+    const action = overviewNextAction([
+      check("done_new", { works: true, createdAt: "2026-07-02T10:00:00Z" }),
+      check("run_active", { status: "running", createdAt: "2026-07-02T09:00:00Z" }),
+    ]);
+    assert.deepEqual(action, { kind: "inProgress", runId: "run_active" });
+    const queued = overviewNextAction([check("q1", { status: "queued" })]);
+    assert.deepEqual(queued, { kind: "inProgress", runId: "q1" });
+  });
+
+  it("latest done run that works → viewLatest", () => {
+    const action = overviewNextAction([
+      check("older_broken", { works: false, createdAt: "2026-07-01T00:00:00Z" }),
+      check("latest_ok", { works: true, createdAt: "2026-07-02T00:00:00Z" }),
+    ]);
+    assert.deepEqual(action, { kind: "viewLatest", runId: "latest_ok" });
+  });
+
+  it("latest done run that does not work (works=false) → viewReport", () => {
+    const action = overviewNextAction([
+      check("older_ok", { works: true, createdAt: "2026-07-01T00:00:00Z" }),
+      check("latest_broken", { works: false, createdAt: "2026-07-02T00:00:00Z" }),
+    ]);
+    assert.deepEqual(action, { kind: "viewReport", runId: "latest_broken" });
+  });
+
+  it("latest done run that could not verify (works=null) → viewReport", () => {
+    const action = overviewNextAction([check("unclear", { works: null })]);
+    assert.deepEqual(action, { kind: "viewReport", runId: "unclear" });
+  });
+
+  it("latest failed run → viewReport, ordered by createdAt regardless of list order", () => {
+    // The failed run is newest but listed first/last in different orders —
+    // sorting by createdAt must pick it either way.
+    const rows = [
+      check("failed_new", { status: "failed", createdAt: "2026-07-03T00:00:00Z" }),
+      check("ok_old", { works: true, createdAt: "2026-07-01T00:00:00Z" }),
+    ];
+    assert.deepEqual(overviewNextAction(rows), { kind: "viewReport", runId: "failed_new" });
+    assert.deepEqual(overviewNextAction([...rows].reverse()), {
+      kind: "viewReport",
+      runId: "failed_new",
+    });
+  });
+
+  it("ordering by createdAt also drives the working case (unsorted input)", () => {
+    const action = overviewNextAction([
+      check("broken_old", { works: false, createdAt: "2026-06-30T00:00:00Z" }),
+      check("ok_new", { works: true, createdAt: "2026-07-02T00:00:00Z" }),
+      check("broken_older", { works: false, createdAt: "2026-06-29T00:00:00Z" }),
+    ]);
+    assert.deepEqual(action, { kind: "viewLatest", runId: "ok_new" });
+  });
+});
+
+describe("visual-check-view: relativeTimeLabel", () => {
+  const now = Date.parse("2026-07-02T12:00:00Z");
+
+  it("formats minutes/hours/days in the requested locale", () => {
+    assert.equal(relativeTimeLabel("2026-07-02T11:57:00Z", "en", now), "3 minutes ago");
+    assert.equal(relativeTimeLabel("2026-07-02T09:00:00Z", "ko", now), "3시간 전");
+    assert.equal(relativeTimeLabel("2026-06-30T12:00:00Z", "ko", now), "그저께");
+  });
+
+  it("returns an empty string for unparseable dates", () => {
+    assert.equal(relativeTimeLabel("not-a-date", "en", now), "");
+    assert.equal(relativeTimeLabel(null, "ko", now), "");
   });
 });
 

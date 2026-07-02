@@ -1590,6 +1590,10 @@ const EN = {
       envCauseWarning: "The evidence points at an environment or configuration cause, so a code change alone may not fully resolve this.",
       failedTitle: "The repair could not be completed",
       failedBody: "Something went wrong while creating the repair PR. You can try again.",
+      // Stage 272 — post-repair re-check: honest merge+deploy explainer + one click.
+      recheckExplainer:
+        "The fix currently lives only on the PR branch, so your live site has not changed yet. After you merge the repair PR and your platform finishes deploying, re-inspect and we will show the result compared with before.",
+      recheckButton: "Re-inspect to verify the fix",
       detailsLabel: "Details (for developers)",
       goToRepo: "Connect a repository",
       goToGithubSettings: "Connect GitHub",
@@ -1602,6 +1606,16 @@ const EN = {
         forbidden: "You do not have access to this project.",
         generic: "Could not start the repair. Please try again.",
       },
+    },
+    // Stage 272 — project-overview inspection card: latest verdict at a glance
+    // plus the single next action.
+    overview: {
+      emptyLead:
+        "No inspections have run yet. Simsa opens your live app in a real browser and reports what works in plain language.",
+      runFirst: "Run your first inspection",
+      inProgress: "View the inspection in progress",
+      viewReport: "View the report",
+      latestLabel: "Latest inspection",
     },
   },
   // Stage 262 — project sources (연결): website, GitHub repo, uploaded documents.
@@ -3244,6 +3258,10 @@ const KO = {
       envCauseWarning: "원인에 환경설정 문제가 포함돼 있어 코드 수정만으로 완전히 해결되지 않을 수 있어요",
       failedTitle: "고치기를 마치지 못했어요",
       failedBody: "수리 PR을 만드는 중에 문제가 생겼어요. 다시 시도할 수 있어요.",
+      // Stage 272 — 수리 후 재검수: 머지+배포 전에는 라이브가 안 바뀐다는 정직한 안내 + 원클릭.
+      recheckExplainer:
+        "수리 내용은 아직 PR 브랜치에만 있어서 실제 사이트는 그대로예요. 수리 PR을 머지하고 배포가 끝난 뒤 다시 검수하면, 이전과 비교한 결과를 보여드려요.",
+      recheckButton: "수리 확인 재검수",
       detailsLabel: "개발자용 상세 정보",
       goToRepo: "저장소 연결하러 가기",
       goToGithubSettings: "GitHub 연결하러 가기",
@@ -3256,6 +3274,15 @@ const KO = {
         forbidden: "이 프로젝트에 접근할 수 없어요.",
         generic: "고치기를 시작하지 못했어요. 다시 시도해주세요.",
       },
+    },
+    // Stage 272 — 프로젝트 개요 검수 카드: 최근 결과와 다음 할 일 하나.
+    overview: {
+      emptyLead:
+        "아직 실행된 검수가 없어요. Simsa가 라이브 앱을 실제 브라우저로 열어 무엇이 작동하는지 쉬운 말로 알려드려요.",
+      runFirst: "첫 검수 실행하기",
+      inProgress: "진행 중인 검수 보기",
+      viewReport: "리포트 보기",
+      latestLabel: "최근 검수",
     },
   },
   // Stage 262 — 연결(프로젝트 소스): 웹사이트 · GitHub 저장소 · 문서 업로드.

@@ -13,9 +13,12 @@
 // section: dispatches a Stage 268 repair job (draft PR carrying the fix
 // brief — code is NOT auto-applied), polls it every 5s, then links the
 // resulting GitHub PR ("수리 시작점 PR").
+// Stage 272 — the repair-done card explains that the live site only changes
+// after merge + deploy, and offers a one-click re-check (new Stage 264 run →
+// navigate to its detail, which auto-shows the Stage 266 comparison).
 
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { getProject } from "@/lib/mock-data";
 import { getLocalProject, getUserKey } from "@/lib/workflow-store";
@@ -24,6 +27,7 @@ import {
   listVisualChecks,
   requestRepair,
   getRepair,
+  runVisualCheck,
   CENTRAL_PLANE_URL,
   type VisualCheckDetail,
   type NonDevFinding,
@@ -39,7 +43,8 @@ import {
 import type { VerdictTone, SeverityTone } from "@/lib/visual-check-view.mjs";
 import { compareVisualChecks, pickPreviousDoneCheck } from "@/lib/visual-check-compare.mjs";
 import type { VisualCheckComparison, ComparedFinding } from "@/lib/visual-check-compare.mjs";
-import { isActiveStatus, RUN_POLL_INTERVAL_MS } from "@/lib/visual-check-run-state.mjs";
+import { isActiveStatus, mapRunError, RUN_POLL_INTERVAL_MS } from "@/lib/visual-check-run-state.mjs";
+import type { RunErrorKey } from "@/lib/visual-check-run-state.mjs";
 import {
   canRepair,
   isRepairActive,
@@ -274,6 +279,13 @@ function ComparisonSection({
   );
 }
 
+// Stage 272 — after the repair PR is ready, the done card carries an honest
+// explainer (the fix lives on a PR branch; the LIVE site only changes after
+// merge + deploy) and a one-click re-check that dispatches a new Stage 264
+// run and navigates to its detail page (which polls and auto-shows the
+// Stage 266 comparison once done).
+type RecheckNotice = { kind: "queuedOnly" } | { kind: "error"; errorKey: RunErrorKey };
+
 // Stage 269 — "[고치기]": dispatch a repair job for a done-but-not-working
 // run, poll it every 5s, and surface the resulting draft PR. Honest copy:
 // the PR carries the fix brief (SIMSA-FIX-BRIEF.md) — code changes are NOT
@@ -290,10 +302,14 @@ function RepairSection({
   t: Dictionary;
 }) {
   const s = t.visualChecks.repair;
+  const router = useRouter();
   // null = no repair job yet (show the button); otherwise render the job state.
   const [repair, setRepair] = useState<RepairJob | null>(null);
   const [phase, setPhase] = useState<"loading" | "ready" | "submitting">("loading");
   const [errorKey, setErrorKey] = useState<RepairErrorKey | null>(null);
+  // Stage 272 — post-repair re-check dispatch state.
+  const [recheckSubmitting, setRecheckSubmitting] = useState(false);
+  const [recheckNotice, setRecheckNotice] = useState<RecheckNotice | null>(null);
 
   // On mount, GET once — if a repair already exists, render its state
   // instead of the bare button (and resume polling when it is still active).
@@ -345,6 +361,27 @@ function RepairSection({
       setErrorKey(key);
     }
     setPhase("ready");
+  }
+
+  // Stage 272 — same POST run dispatch as the Stage 264 list page. On a
+  // dispatched run we navigate straight to its detail page; a queued-only
+  // (degraded runner) or error answer keeps the user here with a callout.
+  async function handleRecheck() {
+    if (recheckSubmitting) return;
+    setRecheckSubmitting(true);
+    setRecheckNotice(null);
+    const res = await runVisualCheck(projectId, { userKey });
+    if (res.ok && res.dispatched) {
+      // Keep the button disabled while the navigation happens.
+      router.push(`/projects/${projectId}/visual-checks/${res.check.id}`);
+      return;
+    }
+    if (res.ok) {
+      setRecheckNotice({ kind: "queuedOnly" });
+    } else {
+      setRecheckNotice({ kind: "error", errorKey: mapRunError(res.error) });
+    }
+    setRecheckSubmitting(false);
   }
 
   const isDone = repair !== null && repair.status === "done";
@@ -405,6 +442,33 @@ function RepairSection({
                   {repair.branchName}
                 </code>
               </span>
+            )}
+          </div>
+
+          {/* Stage 272 — honest merge+deploy explainer + one-click re-check */}
+          <div className="mt-3 border-t border-green-200 pt-3">
+            <p className="text-sm leading-relaxed text-green-700">{s.recheckExplainer}</p>
+            <button
+              onClick={handleRecheck}
+              disabled={recheckSubmitting}
+              className="btn btn-secondary btn-sm mt-2 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {recheckSubmitting ? t.visualChecks.runSubmitting : s.recheckButton}
+            </button>
+            {recheckNotice?.kind === "queuedOnly" && (
+              <div className="callout callout-info mt-2">{t.visualChecks.runQueuedOnly}</div>
+            )}
+            {recheckNotice?.kind === "error" && (
+              <div
+                className={`callout mt-2 ${
+                  recheckNotice.errorKey === "runAlreadyActive" ||
+                  recheckNotice.errorKey === "websiteSourceRequired"
+                    ? "callout-info"
+                    : "callout-error"
+                }`}
+              >
+                {t.visualChecks.runErrors[recheckNotice.errorKey]}
+              </div>
             )}
           </div>
         </div>

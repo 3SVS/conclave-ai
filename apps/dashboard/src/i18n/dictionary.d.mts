@@ -1493,6 +1493,8 @@ export type Dictionary = {
       envCauseWarning: string;
       failedTitle: string;
       failedBody: string;
+      recheckExplainer: string;
+      recheckButton: string;
       detailsLabel: string;
       goToRepo: string;
       goToGithubSettings: string;
@@ -1505,6 +1507,13 @@ export type Dictionary = {
         forbidden: string;
         generic: string;
       };
+    };
+    overview: {
+      emptyLead: string;
+      runFirst: string;
+      inProgress: string;
+      viewReport: string;
+      latestLabel: string;
     };
   };
   sources: {
