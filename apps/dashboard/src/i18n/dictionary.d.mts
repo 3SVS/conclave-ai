@@ -1455,6 +1455,27 @@ export type Dictionary = {
       invalidIntent: string;
       generic: string;
     };
+    compare: {
+      title: string;
+      desc: string;
+      improved: string;
+      regressed: string;
+      unchanged: string;
+      resolvedTitle: string;
+      remainingTitle: string;
+      introducedTitle: string;
+      noneResolved: string;
+      noneRemaining: string;
+      noneIntroduced: string;
+      screenshotsTitle: string;
+      showScreenshots: string;
+      hideScreenshots: string;
+      prevLabel: string;
+      latestLabel: string;
+      prevOnly: string;
+      latestOnly: string;
+      noPairs: string;
+    };
   };
   sources: {
     title: string;
