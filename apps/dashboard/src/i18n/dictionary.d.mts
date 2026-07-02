@@ -1515,6 +1515,42 @@ export type Dictionary = {
       generic: string;
       loadFailed: string;
     };
+    draft: {
+      cta: string;
+      title: string;
+      subtitle: string;
+      generating: string;
+      sourceLabel: string;
+      mockFallbackNotice: string;
+      warningsTitle: string;
+      understoodTitle: string;
+      targetUsersTitle: string;
+      mainFlowTitle: string;
+      questionsTitle: string;
+      questionsNote: string;
+      recommendedLabel: string;
+      confirm: string;
+      confirming: string;
+      confirmHint: string;
+      overwriteWarning: string;
+      overwriteConfirmLabel: string;
+      retry: string;
+      backToSources: string;
+      errors: {
+        source_not_document: string;
+        pdf_text_extraction_unsupported: string;
+        document_too_short: string;
+        document_too_long: string;
+        unsupported_content_type: string;
+        forbidden: string;
+        project_not_found: string;
+        source_not_found: string;
+        document_not_found: string;
+        rate_limited: string;
+        evidence_storage_unconfigured: string;
+        generic: string;
+      };
+    };
   };
 };
 

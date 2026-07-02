@@ -5,6 +5,7 @@
 // Client component (localStorage userKey); ownership enforced server-side.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { getProject } from "@/lib/mock-data";
 import { getLocalProject, getUserKey } from "@/lib/workflow-store";
@@ -263,6 +264,15 @@ export default function SourcesPage() {
                   </div>
                 </div>
                 <div className="flex flex-shrink-0 items-center gap-1.5">
+                  {/* Stage 267 — document → spec draft entry point */}
+                  {source.type === "document" && (
+                    <Link
+                      href={`/projects/${id}/sources/${source.id}/draft`}
+                      className="btn btn-primary btn-sm"
+                    >
+                      {t.sources.draft.cta}
+                    </Link>
+                  )}
                   {source.type === "document" && (
                     <a
                       href={buildSourceFileUrl(id, source.id, userKey)}
