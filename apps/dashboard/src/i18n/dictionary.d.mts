@@ -1429,6 +1429,32 @@ export type Dictionary = {
     noPrompt: string;
     nextStepsTitle: string;
     notesTitle: string;
+    runTitle: string;
+    runHint: string;
+    intentLabel: string;
+    intentPlaceholder: string;
+    runButton: string;
+    runSubmitting: string;
+    runQueuedOnly: string;
+    runActiveNotice: string;
+    runNeedWebsite: string;
+    goToSources: string;
+    statusQueued: string;
+    statusRunning: string;
+    statusDone: string;
+    statusFailed: string;
+    progressTitle: string;
+    progressBody: string;
+    failedTitle: string;
+    failedBody: string;
+    runErrors: {
+      websiteSourceRequired: string;
+      runAlreadyActive: string;
+      projectNotFound: string;
+      forbidden: string;
+      invalidIntent: string;
+      generic: string;
+    };
   };
   sources: {
     title: string;
