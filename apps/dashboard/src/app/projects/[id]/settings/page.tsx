@@ -12,6 +12,7 @@ import {
   linkProjectRepo,
   fetchProjectRepo,
   startGitHubOAuth,
+  disconnectGitHub,
   type GitHubUser,
   type GitHubRepo,
   type LinkedRepo,
@@ -43,6 +44,9 @@ export default function SettingsPage() {
   const [directInput, setDirectInput] = useState("");
   const [lookupPhase, setLookupPhase] = useState<"idle" | "loading" | "error">("idle");
   const [lookupError, setLookupError] = useState("");
+  // Stage 273: disconnect flow (GitHub OAuth has no account picker — disconnect
+  // + logout at github.com is the only way to switch accounts).
+  const [disconnectPhase, setDisconnectPhase] = useState<"idle" | "working" | "done" | "error">("idle");
 
   // Telegram notification state
   const [tgSettings, setTgSettings] = useState<NotificationSettings | null>(null);
@@ -197,6 +201,24 @@ export default function SettingsPage() {
     startGitHubOAuth(userKey, returnTo);
   }
 
+  // Stage 273: disconnect the GitHub account (deletes the server-side connection
+  // including the encrypted token). Confirm first — repo/PR features stop working
+  // until the user reconnects.
+  async function handleDisconnectGitHub() {
+    if (typeof window !== "undefined" && !window.confirm(t.github.disconnectConfirm)) return;
+    setDisconnectPhase("working");
+    const res = await disconnectGitHub(userKey);
+    if (res.ok) {
+      setDisconnectPhase("done");
+      setGhUser(null);
+      setRepos([]);
+      setReposPhase("idle");
+      await loadStatus();
+    } else {
+      setDisconnectPhase("error");
+    }
+  }
+
   const filteredRepos = repoSearch.trim()
     ? repos.filter((r) => r.fullName.toLowerCase().includes(repoSearch.toLowerCase()))
     : repos;
@@ -226,11 +248,26 @@ export default function SettingsPage() {
       {/* Not connected */}
       {phase === "disconnected" && (
         <div className="card p-8 text-center">
+          {disconnectPhase === "done" && (
+            <p className="mx-auto mb-3 max-w-sm text-xs text-green-600">{t.github.disconnectDone}</p>
+          )}
           <p className="mb-1 text-sm font-medium text-gray-800">{t.github.connectGithub}</p>
           <p className="mx-auto mb-5 max-w-sm text-xs text-gray-500">{t.github.connectHint}</p>
           <button onClick={handleConnectGitHub} className="btn btn-md btn-primary">
             {t.github.connectGithub}
           </button>
+          {/* Stage 273: GitHub binds the browser's current session instantly — say so upfront. */}
+          <p className="mx-auto mt-3 max-w-sm text-xs text-gray-400">
+            {t.github.instantBindCaption}{" "}
+            <a
+              href="https://github.com/logout"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-gray-600"
+            >
+              {t.github.switchAccountLogout}
+            </a>
+          </p>
         </div>
       )}
 
@@ -246,12 +283,34 @@ export default function SettingsPage() {
               <p className="text-sm font-medium text-gray-800">{ghUser.name ?? ghUser.login}</p>
               <p className="text-xs text-gray-400">@{ghUser.login} · {t.github.connectedAs}</p>
             </div>
+            {/* Stage 273: disconnect (with confirm) replaces the old re-connect shortcut —
+                re-running OAuth silently re-binds the same account anyway. */}
             <button
-              onClick={handleConnectGitHub}
-              className="ml-auto text-xs text-gray-400 underline hover:text-gray-600"
+              onClick={() => void handleDisconnectGitHub()}
+              disabled={disconnectPhase === "working"}
+              className="btn btn-sm btn-secondary ml-auto flex-shrink-0"
             >
-              {t.github.connectGithub}
+              {disconnectPhase === "working" ? t.github.disconnecting : t.github.disconnect}
             </button>
+          </div>
+          {disconnectPhase === "error" && (
+            <p className="mb-3 text-xs text-red-500">{t.github.disconnectFailed}</p>
+          )}
+
+          {/* Stage 273: honest account-switch guidance — GitHub OAuth has no account picker. */}
+          <div className="mb-4 rounded-md border border-gray-100 bg-gray-50/60 px-4 py-3">
+            <p className="mb-1 text-xs font-semibold text-gray-500">{t.github.switchAccountTitle}</p>
+            <p className="text-xs text-gray-500">
+              {t.github.switchAccountSteps}{" "}
+              <a
+                href="https://github.com/logout"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-gray-700"
+              >
+                {t.github.switchAccountLogout}
+              </a>
+            </p>
           </div>
 
           {/* Currently linked repo */}

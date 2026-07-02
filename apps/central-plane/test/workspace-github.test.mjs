@@ -9,8 +9,10 @@ const { generateState, buildAuthUrl, isAllowedReturnTo, appendGitHubConnected } 
   await import("../dist/workspace/github-oauth.js");
 const { saveOAuthState, getOAuthState, markStateUsed,
         upsertGitHubConnection, getGitHubConnectionByUserKey,
+        deleteGitHubConnectionsByUserKey,
         upsertProjectRepo, getProjectRepo } =
   await import("../dist/workspace/github-db.js");
+const { createApp } = await import("../dist/router.js");
 
 // ─── Minimal D1 mock ─────────────────────────────────────────────────────────
 
@@ -58,6 +60,11 @@ function makeMockDb() {
           if (/INSERT INTO workspace_github_connections/.test(sql)) {
             const [id, user_key, github_user_id, github_login, github_name, avatar_url, access_token_enc, scopes, created_at, updated_at] = bound;
             state.github_connections.set(id, { id, user_key, github_user_id, github_login, github_name, avatar_url, access_token_enc, scopes, created_at, updated_at });
+          }
+          if (/DELETE FROM workspace_github_connections WHERE user_key/.test(sql)) {
+            for (const [id, row] of [...state.github_connections.entries()]) {
+              if (row.user_key === bound[0]) state.github_connections.delete(id);
+            }
           }
           if (/INSERT INTO workspace_project_repos/.test(sql)) {
             const [id, project_id, user_key, github_connection_id, repo_id, repo_full_name, repo_owner, repo_name, default_branch, priv, html_url, created_at, updated_at] = bound;
@@ -209,5 +216,120 @@ describe("github-db: project repos", () => {
     const ids = ["req_001", "req_002", "req_003"];
     const json = JSON.stringify(ids);
     assert.deepEqual(JSON.parse(json), ids);
+  });
+});
+
+// ─── Stage 273: GitHub disconnect ─────────────────────────────────────────────
+
+async function seedConnection(env, userKey = "uk_disc") {
+  await upsertGitHubConnection(env, {
+    userKey, githubUserId: "9001", githubLogin: "founder",
+    githubName: "Founder", avatarUrl: "https://github.com/a.png",
+    accessTokenEnc: "enc_secret_token", scopes: "read:user public_repo",
+  });
+}
+
+describe("POST /workspace/github/disconnect", () => {
+  it("deletes the connection row including the encrypted token", async () => {
+    const env = makeEnv();
+    await seedConnection(env, "uk_disc");
+    // Row (and encrypted token) exists before
+    const before = [...env.DB.state.github_connections.values()];
+    assert.equal(before.length, 1);
+    assert.equal(before[0].access_token_enc, "enc_secret_token");
+
+    const app = createApp();
+    const resp = await app.fetch(new Request("http://localhost/workspace/github/disconnect", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userKey: "uk_disc" }),
+    }), env);
+    assert.equal(resp.status, 200);
+    const body = await resp.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.disconnected, true);
+
+    // Row is gone — no encrypted token left behind
+    assert.equal(env.DB.state.github_connections.size, 0);
+    assert.equal(await getGitHubConnectionByUserKey(env, "uk_disc"), null);
+  });
+
+  it("is idempotent — second call returns disconnected:false", async () => {
+    const env = makeEnv();
+    await seedConnection(env, "uk_disc");
+    const app = createApp();
+    const mkReq = () => new Request("http://localhost/workspace/github/disconnect", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userKey: "uk_disc" }),
+    });
+
+    const first = await (await app.fetch(mkReq(), env)).json();
+    assert.equal(first.disconnected, true);
+
+    const resp2 = await app.fetch(mkReq(), env);
+    assert.equal(resp2.status, 200);
+    const second = await resp2.json();
+    assert.equal(second.ok, true);
+    assert.equal(second.disconnected, false);
+  });
+
+  it("returns 400 userKey_required when userKey is missing", async () => {
+    const env = makeEnv();
+    const app = createApp();
+    const resp = await app.fetch(new Request("http://localhost/workspace/github/disconnect", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    }), env);
+    assert.equal(resp.status, 400);
+    const body = await resp.json();
+    assert.equal(body.ok, false);
+    assert.equal(body.error, "userKey_required");
+  });
+
+  it("status returns connected:false after disconnect", async () => {
+    const env = makeEnv();
+    await seedConnection(env, "uk_disc");
+    const app = createApp();
+
+    // Connected before
+    const beforeResp = await app.fetch(new Request("http://localhost/workspace/github/status?userKey=uk_disc"), env);
+    const before = await beforeResp.json();
+    assert.equal(before.connected, true);
+    assert.equal(before.user.login, "founder");
+
+    await app.fetch(new Request("http://localhost/workspace/github/disconnect", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userKey: "uk_disc" }),
+    }), env);
+
+    const afterResp = await app.fetch(new Request("http://localhost/workspace/github/status?userKey=uk_disc"), env);
+    assert.equal(afterResp.status, 200);
+    const after = await afterResp.json();
+    assert.equal(after.ok, true);
+    assert.equal(after.connected, false);
+  });
+
+  it("deleteGitHubConnectionsByUserKey removes every row for the userKey", async () => {
+    const env = makeEnv();
+    // Two different GitHub accounts bound to the same userKey over time
+    await upsertGitHubConnection(env, {
+      userKey: "uk_multi", githubUserId: "1", githubLogin: "acct-one",
+      accessTokenEnc: "enc_one",
+    });
+    await upsertGitHubConnection(env, {
+      userKey: "uk_multi", githubUserId: "2", githubLogin: "acct-two",
+      accessTokenEnc: "enc_two",
+    });
+    assert.equal(env.DB.state.github_connections.size, 2);
+
+    const deleted = await deleteGitHubConnectionsByUserKey(env, "uk_multi");
+    assert.equal(deleted, true);
+    assert.equal(env.DB.state.github_connections.size, 0);
+
+    // No row → false
+    assert.equal(await deleteGitHubConnectionsByUserKey(env, "uk_multi"), false);
   });
 });

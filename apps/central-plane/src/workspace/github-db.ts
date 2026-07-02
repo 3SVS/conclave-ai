@@ -164,6 +164,31 @@ export async function getGitHubConnectionByUserKey(
   };
 }
 
+/**
+ * Stage 273: delete every GitHub connection row for a userKey — including the
+ * encrypted access token. Returns true when at least one row existed.
+ *
+ * Deletes ALL rows (not LIMIT 1) because the upsert conflicts on github_user_id,
+ * so a userKey that connected two different GitHub accounts over time can own
+ * multiple rows; a disconnect must clear them all.
+ */
+export async function deleteGitHubConnectionsByUserKey(
+  env: Env,
+  userKey: string,
+): Promise<boolean> {
+  const existing = await env.DB.prepare(
+    `SELECT id FROM workspace_github_connections WHERE user_key = ? LIMIT 1`,
+  ).bind(userKey).first<{ id: string }>();
+
+  if (!existing) return false;
+
+  await env.DB.prepare(
+    `DELETE FROM workspace_github_connections WHERE user_key = ?`,
+  ).bind(userKey).run();
+
+  return true;
+}
+
 // ─── Project ↔ Repo links ─────────────────────────────────────────────────────
 
 export type DbProjectRepo = {

@@ -89,6 +89,33 @@ export async function fetchGitHubStatus(userKey: string): Promise<GitHubStatusRe
   }
 }
 
+// ─── Disconnect (Stage 273) ───────────────────────────────────────────────────
+
+export type DisconnectGitHubResponse =
+  | { ok: true; disconnected: boolean }
+  | { ok: false; error: string };
+
+/**
+ * Delete the user's GitHub connection (including the server-side encrypted
+ * token). Needed to switch accounts: GitHub OAuth silently re-authorizes an
+ * existing grant, so the user must disconnect here, then log out or switch
+ * accounts at github.com, then connect again.
+ */
+export async function disconnectGitHub(userKey: string): Promise<DisconnectGitHubResponse> {
+  try {
+    const resp = await fetch(`${CENTRAL_PLANE_URL}/workspace/github/disconnect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userKey }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await resp.json().catch(() => ({ ok: false, error: `HTTP ${resp.status}` })) as DisconnectGitHubResponse;
+    return data;
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
 // ─── Repo list ────────────────────────────────────────────────────────────────
 
 /**

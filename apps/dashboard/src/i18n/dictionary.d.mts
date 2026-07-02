@@ -601,6 +601,15 @@ export type Dictionary = {
     connectGithub: string;
     connectHint: string;
     connectedAs: string;
+    instantBindCaption: string;
+    disconnect: string;
+    disconnecting: string;
+    disconnectConfirm: string;
+    disconnectDone: string;
+    disconnectFailed: string;
+    switchAccountTitle: string;
+    switchAccountSteps: string;
+    switchAccountLogout: string;
     connected: string;
     selectRepo: string;
     changeRepo: string;
