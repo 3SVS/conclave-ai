@@ -29,11 +29,26 @@ import {
   timelineLimitationLabelKey,
   timelineHasNoEvents,
 } from "@/lib/project-evolution-timeline.mjs";
-import type { Dictionary } from "@/i18n/dictionary.mjs";
+import {
+  listVisualChecks,
+  type VisualCheckListItem,
+} from "@/lib/workspace-visual-checks-api";
+import { overviewNextAction, relativeTimeLabel, verdictLabel } from "@/lib/visual-check-view.mjs";
+import type { VerdictTone } from "@/lib/visual-check-view.mjs";
+import type { Dictionary, Locale } from "@/i18n/dictionary.mjs";
+
+// Stage 272 — verdict/status chip tones on the overview inspection card
+// (same brand tokens as the visual-checks pages; colors carry meaning only).
+const VC_TONE_CLASS: Record<VerdictTone, string> = {
+  passed: "bg-green-50 text-green-700 border-green-200",
+  failed: "bg-red-50 text-red-700 border-red-200",
+  inconclusive: "bg-amber-50 text-amber-700 border-amber-200",
+};
+const VC_STATUS_SLATE_CLASS = "bg-slate-50 text-slate-600 border-slate-200";
 
 export default function ProjectOverviewPage() {
   const { id } = useParams<{ id: string }>();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   // Locally-created projects live in localStorage (client-only); mock demos are
   // bundled. Read on the client so real projects resolve.
   const project = getLocalProject(id) ?? getProject(id);
@@ -56,6 +71,9 @@ export default function ProjectOverviewPage() {
         </div>
         <span className="flex-shrink-0 text-xs text-brand-700">{t.planMap.youAreHere} →</span>
       </Link>
+
+      {/* Stage 272 — inspection status at a glance + the single next action */}
+      <VisualChecksOverviewCard projectId={id} t={t} locale={locale} />
 
       <section className="mb-8">
         <div className="mb-2 flex items-center justify-between">
@@ -132,6 +150,129 @@ export default function ProjectOverviewPage() {
         <EvolutionTimelineCard projectId={id} t={t} />
       </section>
     </div>
+  );
+}
+
+// Stage 272 — the "시각 검수" overview card: latest run's verdict chip +
+// relative date + the single next action (run first / view progress / open
+// the report). Best-effort: the card stays hidden while loading, without a
+// userKey, or when the run list cannot be fetched.
+function VisualChecksOverviewCard({
+  projectId,
+  t,
+  locale,
+}: {
+  projectId: string;
+  t: Dictionary;
+  locale: Locale;
+}) {
+  const [checks, setChecks] = useState<VisualCheckListItem[] | null>(null);
+  const [userKey, setUserKey] = useState<string>("");
+
+  useEffect(() => {
+    setUserKey(getUserKey());
+  }, []);
+
+  useEffect(() => {
+    if (!userKey) return;
+    let cancelled = false;
+    listVisualChecks(projectId, userKey).then((res) => {
+      if (cancelled) return;
+      if (res.ok) {
+        setChecks(res.checks);
+      } else if (res.error === "project_not_found") {
+        // A project that only exists in this browser has no server-side runs
+        // yet — show the "run your first inspection" state.
+        setChecks([]);
+      }
+      // Any other failure keeps the card hidden (best-effort, never blocks).
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, userKey]);
+
+  if (checks === null) return null;
+
+  const action = overviewNextAction(checks);
+  const run =
+    action.kind === "runFirst" ? null : (checks.find((c) => c.id === action.runId) ?? null);
+
+  return (
+    <section className="mb-8">
+      <div className="mb-2 flex items-center justify-between">
+        <h2 className="section-title">{t.visualChecks.title}</h2>
+        <Link
+          href={`/projects/${projectId}/visual-checks`}
+          className="text-xs text-brand-700 hover:underline"
+        >
+          {t.common.viewAll} →
+        </Link>
+      </div>
+      <div className="card p-5">
+        {run === null ? (
+          <>
+            <p className="text-sm leading-relaxed text-gray-600">
+              {t.visualChecks.overview.emptyLead}
+            </p>
+            <Link
+              href={`/projects/${projectId}/visual-checks`}
+              className="btn btn-primary btn-sm mt-3"
+            >
+              {t.visualChecks.overview.runFirst}
+            </Link>
+          </>
+        ) : (
+          <>
+            <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">
+              {t.visualChecks.overview.latestLabel}
+            </p>
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+                <OverviewRunChip run={run} t={t} />
+                <span className="truncate text-sm text-gray-700">{run.targetUrl}</span>
+                <span className="flex-shrink-0 text-xs text-gray-400">
+                  {relativeTimeLabel(run.createdAt, locale)}
+                </span>
+              </div>
+              <Link
+                href={`/projects/${projectId}/visual-checks/${run.id}`}
+                className={`flex-shrink-0 ${
+                  action.kind === "viewReport" ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm"
+                }`}
+              >
+                {action.kind === "inProgress"
+                  ? t.visualChecks.overview.inProgress
+                  : t.visualChecks.overview.viewReport}
+              </Link>
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// Stage 272 — chip for the latest run: queued/running/failed statuses take
+// priority; a done (or legacy) run shows its verdict chip.
+function OverviewRunChip({ run, t }: { run: VisualCheckListItem; t: Dictionary }) {
+  let chip: { label: string; cls: string };
+  if (run.status === "queued") {
+    chip = { label: t.visualChecks.statusQueued, cls: VC_STATUS_SLATE_CLASS };
+  } else if (run.status === "running") {
+    chip = { label: t.visualChecks.statusRunning, cls: VC_STATUS_SLATE_CLASS };
+  } else if (run.status === "failed") {
+    chip = { label: t.visualChecks.statusFailed, cls: VC_TONE_CLASS.failed };
+  } else {
+    const verdict = verdictLabel(run.works, run.decision, t);
+    chip = { label: verdict.label, cls: VC_TONE_CLASS[verdict.tone] };
+  }
+  return (
+    <span
+      className={`inline-flex flex-shrink-0 items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${chip.cls}`}
+    >
+      {chip.label}
+    </span>
   );
 }
 

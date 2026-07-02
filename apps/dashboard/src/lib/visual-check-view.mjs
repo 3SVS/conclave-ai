@@ -1,8 +1,12 @@
 // Stage 262: pure view helpers for the Simsa visual-check (시각 검수) pages.
+// Stage 272 adds the project-overview helpers: overviewNextAction (the single
+// next action a non-developer should take) and relativeTimeLabel.
 //
 // PURE — no LLM, no network, no randomness, no token/userKey storage. All
 // user-facing labels come from the injected dictionary (t), so the output
 // follows the UI language. NO numeric scores anywhere (Simsa policy).
+
+import { isActiveStatus } from "./visual-check-run-state.mjs";
 
 /**
  * Map a run's works flag (true / false / null) to the localized verdict label
@@ -53,6 +57,59 @@ export function splitEvidenceKeys(keys) {
  * keeps its `/` path separator (the backend route is a wildcard) but each
  * segment — and every id + the userKey — is URI-encoded.
  */
+/**
+ * Stage 272 — the single next action the project-overview inspection card
+ * should offer, derived from the run list (any order; sorted here by
+ * createdAt, newest first). Returns exactly one of:
+ *
+ *   { kind: "runFirst" }                 — no runs yet → "첫 검수 실행하기"
+ *   { kind: "inProgress", runId }        — a queued/running run exists (the
+ *                                          most recent one wins) → "진행 중"
+ *   { kind: "viewReport", runId }        — the latest run needs attention:
+ *                                          status failed, works=false, or a
+ *                                          done run that could not verify
+ *                                          (works=null) → "리포트 보기"
+ *   { kind: "viewLatest", runId }        — the latest run verified working
+ *
+ * Defensive: non-array input and rows without a string id are dropped, so a
+ * partial/legacy list can never crash the overview card.
+ */
+export function overviewNextAction(checks) {
+  const list = Array.isArray(checks)
+    ? checks.filter((c) => c && typeof c === "object" && typeof c.id === "string")
+    : [];
+  if (list.length === 0) return { kind: "runFirst" };
+  const sorted = [...list].sort((a, b) =>
+    String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? "")),
+  );
+  const active = sorted.find((c) => isActiveStatus(c.status));
+  if (active) return { kind: "inProgress", runId: active.id };
+  const latest = sorted[0];
+  if (latest.status === "failed" || latest.works !== true) {
+    return { kind: "viewReport", runId: latest.id };
+  }
+  return { kind: "viewLatest", runId: latest.id };
+}
+
+/**
+ * Stage 272 — localized "3 minutes ago"-style label for the overview card.
+ * `now` is injectable for deterministic tests. Unparseable dates return ""
+ * (the card simply omits the timestamp).
+ */
+export function relativeTimeLabel(iso, locale, now = Date.now()) {
+  const ts = Date.parse(String(iso ?? ""));
+  if (Number.isNaN(ts)) return "";
+  const rtf = new Intl.RelativeTimeFormat(locale === "ko" ? "ko" : "en", { numeric: "auto" });
+  const diffSec = Math.round((ts - now) / 1000);
+  const abs = Math.abs(diffSec);
+  if (abs < 60) return rtf.format(diffSec, "second");
+  if (abs < 3600) return rtf.format(Math.trunc(diffSec / 60), "minute");
+  if (abs < 86400) return rtf.format(Math.trunc(diffSec / 3600), "hour");
+  if (abs < 86400 * 30) return rtf.format(Math.trunc(diffSec / 86400), "day");
+  if (abs < 86400 * 365) return rtf.format(Math.trunc(diffSec / (86400 * 30)), "month");
+  return rtf.format(Math.trunc(diffSec / (86400 * 365)), "year");
+}
+
 export function buildEvidenceUrl(base, projectId, runId, name, userKey) {
   const trimmedBase = String(base ?? "").replace(/\/+$/, "");
   const encodedName = String(name ?? "")

@@ -1,9 +1,18 @@
-// Type declarations for visual-check-view.mjs (Stage 262).
+// Type declarations for visual-check-view.mjs (Stage 262; Stage 272 adds the
+// project-overview next-action + relative-time helpers).
 import type { Dictionary } from "../i18n/dictionary.mjs";
 
 export type VerdictTone = "passed" | "failed" | "inconclusive";
 export type SeverityTone = "failed" | "inconclusive" | "decision";
 export type FindingSeverity = "high" | "medium" | "low" | "info";
+
+export type OverviewNextAction =
+  | { kind: "runFirst" }
+  | { kind: "inProgress" | "viewReport" | "viewLatest"; runId: string };
+
+export function overviewNextAction(checks: unknown): OverviewNextAction;
+
+export function relativeTimeLabel(iso: string, locale: string, now?: number): string;
 
 export function verdictLabel(
   works: boolean | null | undefined,
