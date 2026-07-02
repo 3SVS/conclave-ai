@@ -73,21 +73,8 @@ import type {
 } from "@/lib/workspace-agent-workflow-api";
 import { getUserKey } from "@/lib/workflow-store";
 import { buildBetaFeedbackMailto } from "@/lib/beta-feedback.mjs";
-import {
-  ONBOARDING_HEADING,
-  ONBOARDING_INTRO,
-  ONBOARDING_STEPS,
-  ONBOARDING_SAFETY_LINE,
-  PREVIEW_LANGUAGE_ITEMS,
-  BETA_SAFETY_NOTES,
-  EMPTY_STATES,
-} from "@/lib/beta-onboarding.mjs";
-import {
-  BETA_USAGE_BOUNDARY_HEADING,
-  BETA_USAGE_BOUNDARY_ITEMS,
-  BETA_USAGE_NOT_ACTIVE_COPY,
-  SAVED_WORKFLOW_USAGE_NOTE,
-} from "@/lib/beta-usage-boundary.mjs";
+import { getBetaOnboardingCopy } from "@/lib/beta-onboarding.mjs";
+import { getBetaUsageBoundaryCopy } from "@/lib/beta-usage-boundary.mjs";
 import { buildBenchmarkHandoffPreview } from "@/lib/intake-benchmark-handoff.mjs";
 import { buildDecisionOutcomeLinkPreview } from "@/lib/intake-decision-outcome-link.mjs";
 import { buildEvolutionActionPackPreview } from "@/lib/intake-evolution-action-preview.mjs";
@@ -98,7 +85,10 @@ import { buildTemplateEffectivenessSignalsView } from "@/lib/template-effectiven
 
 export default function IntakePage() {
   // Stage 159 — dictionary-first i18n for the MCP handoff/intake destination.
-  const { t: tr } = useI18n();
+  const { t: tr, locale } = useI18n();
+  // Non-developer copy pass — locale-aware onboarding/usage-boundary copy.
+  const ob = getBetaOnboardingCopy(locale);
+  const ub = getBetaUsageBoundaryCopy(locale);
   // Stage 163 — localized thinking-step labels for genuinely-async waits.
   const loadingSteps = getDefaultStampThinkingSteps(tr.loading);
   const [type, setType] = useState<WorkspaceIntakeType | null>(null);
@@ -402,15 +392,15 @@ export default function IntakePage() {
         {/* Stage 119 — page-level beta feedback CTA */}
         <p className="mt-2 text-xs text-gray-400">
           <FeedbackLink label={tr.intake.handoff.feedbackLabel} context={{ section: "Intake workflow" }} />{" "}
-          — {BETA_SAFETY_NOTES.feedback}
+          — {ob.safetyNotes.feedback}
         </p>
 
         {/* Stage 120 — preview-only onboarding panel */}
         <div className="card mt-6 p-5">
-          <p className="text-sm font-semibold text-gray-900">{ONBOARDING_HEADING}</p>
-          <p className="mt-1 text-sm text-gray-500">{ONBOARDING_INTRO}</p>
+          <p className="text-sm font-semibold text-gray-900">{ob.heading}</p>
+          <p className="mt-1 text-sm text-gray-500">{ob.intro}</p>
           <ol className="mt-3 space-y-1">
-            {ONBOARDING_STEPS.map((step, i) => (
+            {ob.steps.map((step, i) => (
               <li key={step} className="flex gap-2 text-sm text-gray-700">
                 <span className="text-gray-400">{i + 1}.</span>
                 <span>{step}</span>
@@ -418,13 +408,13 @@ export default function IntakePage() {
             ))}
           </ol>
           <p className="mt-3 rounded-md border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-500">
-            {ONBOARDING_SAFETY_LINE}
+            {ob.safetyLine}
           </p>
 
           {/* Stage 120 — preview language legend */}
           <p className="mt-4 text-xs font-medium text-gray-500">{tr.intake.handoff.previewLanguageLabel}</p>
           <dl className="mt-1 space-y-1">
-            {PREVIEW_LANGUAGE_ITEMS.map((item) => (
+            {ob.previewLanguageItems.map((item) => (
               <div key={item.term} className="text-xs text-gray-600">
                 <dt className="inline font-medium text-gray-700">{item.term}</dt>
                 <dd className="inline"> — {item.meaning}</dd>
@@ -436,15 +426,15 @@ export default function IntakePage() {
         {/* Stage 122 — beta usage / cost boundary panel */}
         <div className="card mt-6 p-5">
           <p className="text-sm font-semibold text-gray-900">
-            {BETA_USAGE_BOUNDARY_HEADING}
+            {ub.heading}
           </p>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-600">
-            {BETA_USAGE_BOUNDARY_ITEMS.map((item) => (
+            {ub.items.map((item) => (
               <li key={item}>{item}</li>
             ))}
           </ul>
           <p className="mt-3 rounded-md border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-500">
-            {BETA_USAGE_NOT_ACTIVE_COPY}
+            {ub.notActive}
           </p>
         </div>
 
@@ -477,7 +467,7 @@ export default function IntakePage() {
 
         {/* Stage 120 — empty state before a starting point is picked */}
         {!meta && (
-          <p className="mt-4 text-sm text-gray-500">{EMPTY_STATES.beforeInput}</p>
+          <p className="mt-4 text-sm text-gray-500">{ob.emptyStates.beforeInput}</p>
         )}
 
         {/* Step 2 — paste what you have */}
@@ -489,7 +479,7 @@ export default function IntakePage() {
             <p className="text-xs text-gray-400">{meta.inputHint}</p>
             {/* Stage 120 — before-input beta safety note */}
             <p className="mb-2 mt-1 text-xs text-amber-600">
-              {BETA_SAFETY_NOTES.beforeInput}
+              {ob.safetyNotes.beforeInput}
             </p>
             <textarea
               value={rawInput}
@@ -1106,9 +1096,9 @@ export default function IntakePage() {
           </div>
 
           {/* Stage 120/122 — beta tenant-scope + retention + usage-boundary notes */}
-          <p className="mt-2 text-xs text-gray-400">{SAVED_WORKFLOW_USAGE_NOTE}</p>
-          <p className="mt-1 text-xs text-gray-400">{BETA_SAFETY_NOTES.savedScope}</p>
-          <p className="mt-1 text-xs text-gray-400">{BETA_SAFETY_NOTES.savedRetention}</p>
+          <p className="mt-2 text-xs text-gray-400">{ub.savedWorkflowNote}</p>
+          <p className="mt-1 text-xs text-gray-400">{ob.safetyNotes.savedScope}</p>
+          <p className="mt-1 text-xs text-gray-400">{ob.safetyNotes.savedRetention}</p>
 
           {manageMsg && (
             <p className="mt-2 text-xs text-gray-500">{manageMsg}</p>
@@ -1120,10 +1110,10 @@ export default function IntakePage() {
             </p>
           )}
           {savedList !== null && savedList.length === 0 && (
-            <p className="mt-3 text-sm text-gray-500">{EMPTY_STATES.noSavedRecords}</p>
+            <p className="mt-3 text-sm text-gray-500">{ob.emptyStates.noSavedRecords}</p>
           )}
           {savedList !== null && savedList.length > 0 && !openRecord && !detailLoading && (
-            <p className="mt-3 text-xs text-gray-400">{EMPTY_STATES.noOpenedRecord}</p>
+            <p className="mt-3 text-xs text-gray-400">{ob.emptyStates.noOpenedRecord}</p>
           )}
           {savedList !== null && savedList.length > 0 && (
             <ul className="mt-3 space-y-2">

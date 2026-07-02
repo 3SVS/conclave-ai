@@ -99,6 +99,11 @@ export type Dictionary = {
     badges: { local: string; planned: string; requiresSignIn: string; readOnly: string };
   };
   status: Record<StatusKey, StatusEntry>;
+  enumLabels: {
+    action: Record<string, string>;
+    status: Record<string, string>;
+    limitation: Record<string, string>;
+  };
   comparison: {
     improved: string;
     stillOpen: string;
@@ -1611,5 +1616,8 @@ export function normalizeLocale(raw: unknown): Locale;
 export function getDictionary(locale: unknown): Dictionary;
 export function statusLabel(dict: Dictionary, status: string): string;
 export function statusDescription(dict: Dictionary, status: string): string;
+export function enumStatusLabel(dict: Dictionary, value: string): string;
+export function enumActionLabel(dict: Dictionary, value: string): string;
+export function enumLimitationLabel(dict: Dictionary, value: string): string;
 export function readStoredLocale(storage: StorageLike | null | undefined): Locale;
 export function writeStoredLocale(storage: StorageLike | null | undefined, locale: Locale): void;

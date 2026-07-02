@@ -9,6 +9,9 @@ import {
   getDictionary,
   statusLabel,
   statusDescription,
+  enumStatusLabel,
+  enumActionLabel,
+  enumLimitationLabel,
   readStoredLocale,
   writeStoredLocale,
   LOCALE_STORAGE_KEY,
@@ -90,6 +93,32 @@ describe("i18n dictionary", () => {
 
   it("statusLabel returns the raw status when unknown (never crashes)", () => {
     assert.equal(statusLabel(getDictionary("en"), "weird_status"), "weird_status");
+  });
+
+  it("enum label helpers localize known server tokens in both locales", () => {
+    const en = getDictionary("en");
+    const ko = getDictionary("ko");
+    assert.equal(enumActionLabel(en, "fix_selected"), "Fix selected items");
+    assert.equal(enumActionLabel(ko, "fix_selected"), "선택 항목 수정");
+    assert.equal(enumStatusLabel(en, "pr_linked"), "Code linked");
+    assert.equal(enumStatusLabel(ko, "pr_linked"), "코드 연결됨");
+    assert.equal(enumLimitationLabel(en, "timeline_truncated"), "Showing recent events only");
+    assert.equal(enumLimitationLabel(ko, "timeline_truncated"), "최근 이벤트만 표시");
+  });
+
+  it("enum label helpers fall back to the raw token for unknown values", () => {
+    const en = getDictionary("en");
+    assert.equal(enumActionLabel(en, "brand_new_action"), "brand_new_action");
+    assert.equal(enumStatusLabel(en, "brand_new_status"), "brand_new_status");
+    assert.equal(enumLimitationLabel(en, "brand_new_limitation"), "brand_new_limitation");
+  });
+
+  it("enumLabels action/status/limitation key sets match between locales", () => {
+    const en = getDictionary("en").enumLabels;
+    const ko = getDictionary("ko").enumLabels;
+    for (const group of ["action", "status", "limitation"]) {
+      assert.deepEqual(Object.keys(ko[group]).sort(), Object.keys(en[group]).sort(), `enumLabels.${group} keys differ`);
+    }
   });
 
   it("readStoredLocale / writeStoredLocale round-trip via a StorageLike", () => {

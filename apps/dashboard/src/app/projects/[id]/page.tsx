@@ -8,7 +8,7 @@ import { getLocalProject, getUserKey } from "@/lib/workflow-store";
 import { StatCard } from "@/components/StatCard";
 import { SpecCompleteness } from "@/components/SpecCompleteness";
 import { useI18n } from "@/i18n/I18nProvider";
-import { statusLabel } from "@/i18n/dictionary.mjs";
+import { statusLabel, enumStatusLabel, enumActionLabel, enumLimitationLabel } from "@/i18n/dictionary.mjs";
 import {
   getProjectEvolutionLearning,
   getProjectEvolutionTimeline,
@@ -382,7 +382,7 @@ function EvolutionLearningCard({ projectId, t }: { projectId: string; t: Diction
                     key={r.recommendedAction}
                     className="grid grid-cols-3 items-center gap-2 rounded-md border border-gray-100 bg-white px-2 py-1"
                   >
-                    <span className="font-mono text-[11px] text-gray-600">{r.recommendedAction}</span>
+                    <span className="text-[11px] text-gray-600">{enumActionLabel(t, r.recommendedAction)}</span>
                     <span className="text-[11px] text-gray-500">
                       {r.comparable}/{r.total} · <span className="text-emerald-700">↑{r.improved}</span> · <span className="text-red-700">↓{r.regressed}</span> · <span className="text-amber-700">?{r.inconclusive}</span>
                     </span>
@@ -418,9 +418,9 @@ function EvolutionLearningCard({ projectId, t }: { projectId: string; t: Diction
             {learning.limitations.map((l) => (
               <li
                 key={l}
-                className="rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-mono text-gray-500"
+                className="rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-500"
               >
-                {l}
+                {enumLimitationLabel(t, l)}
               </li>
             ))}
           </ul>
@@ -442,7 +442,7 @@ function TopSignalText({ signal, t }: { signal: ProjectLearningSignal; t: Dictio
     return (
       <>
         <span className="font-semibold text-gray-700">{t.evolution.learningEarlySignal}</span>
-        <span className="font-mono text-[11px] text-gray-700">{signal.recommendedAction}</span>
+        <span className="text-[11px] font-medium text-gray-700">{enumActionLabel(t, signal.recommendedAction)}</span>
         <span className="text-emerald-700">{label}</span>
         <span className="text-gray-400">
           ({signal.improved}/{signal.totalComparable})
@@ -551,10 +551,10 @@ function TimelineEventRow({
             {label}
           </span>
           {event.status && (
-            <span className="text-[10px] font-mono text-gray-500">{event.status}</span>
+            <span className="text-[10px] text-gray-500">{enumStatusLabel(t, event.status)}</span>
           )}
           {event.recommendedAction && (
-            <span className="text-[10px] font-mono text-gray-500">{event.recommendedAction}</span>
+            <span className="text-[10px] text-gray-500">{enumActionLabel(t, event.recommendedAction)}</span>
           )}
         </div>
         {event.summary && (

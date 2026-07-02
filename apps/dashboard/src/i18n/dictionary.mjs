@@ -114,6 +114,43 @@ const EN = {
     not_started: { label: "Not started", desc: "" },
     building: { label: "Building", desc: "" },
   },
+  // Best-effort labels for raw server enum tokens (evolution timeline / learning
+  // signals on the overview page). Unknown values fall back to the raw token.
+  enumLabels: {
+    action: {
+      accept: "Accept",
+      fix_selected: "Fix selected items",
+      rerun: "Run again",
+      clarify: "Clarify items",
+      create_benchmark: "Create a comparison",
+    },
+    status: {
+      draft: "Draft",
+      planned: "Planned",
+      pr_linked: "Code linked",
+      reviewed: "Reviewed",
+      benchmarked: "Compared",
+      decision_made: "Decision made",
+      completed: "Completed",
+      selected: "Selected",
+      rejected: "Rejected",
+      needs_fix: "Needs fixes",
+      no_clear_winner: "No clear winner",
+      undecided: "Undecided",
+      not_started: "Not started",
+      copied: "Copied",
+      in_progress: "In progress",
+      abandoned: "Stopped",
+    },
+    limitation: {
+      timeline_truncated: "Showing recent events only",
+      missing_followup: "No follow-up recorded",
+      missing_before: "No earlier result to compare",
+      missing_after: "No later result to compare",
+      different_acceptance_set: "Compared against different item sets",
+      mixed_signals: "Mixed signals",
+    },
+  },
   comparison: {
     improved: "Improved",
     stillOpen: "Still open",
@@ -867,7 +904,7 @@ const EN = {
   benchmark: {
     navLabel: "Benchmark",
     title: "Compare build candidates",
-    subtitle: "Use acceptance results to compare different agent implementations.",
+    subtitle: "Use your review results to compare different build attempts of the same product.",
     intro: "Simsa does not guess which agent is smarter. It compares what each implementation actually satisfies.",
     loading: "Loading review runs…",
     loadError: "Could not load review runs.",
@@ -1803,6 +1840,43 @@ const KO = {
     not_started: { label: "시작 전", desc: "" },
     building: { label: "만드는 중", desc: "" },
   },
+  // 서버 enum 원문 토큰(개요 페이지의 진화 타임라인/학습 신호)에 대한 best-effort 라벨.
+  // 모르는 값은 원문 그대로 표시됩니다.
+  enumLabels: {
+    action: {
+      accept: "채택",
+      fix_selected: "선택 항목 수정",
+      rerun: "다시 실행",
+      clarify: "항목 명확화",
+      create_benchmark: "비교 먼저 만들기",
+    },
+    status: {
+      draft: "초안",
+      planned: "예정",
+      pr_linked: "코드 연결됨",
+      reviewed: "확인 완료",
+      benchmarked: "비교 완료",
+      decision_made: "결정 완료",
+      completed: "완료",
+      selected: "채택됨",
+      rejected: "거절됨",
+      needs_fix: "수정 필요",
+      no_clear_winner: "우열 없음",
+      undecided: "미결정",
+      not_started: "시작 전",
+      copied: "복사됨",
+      in_progress: "진행 중",
+      abandoned: "중단됨",
+    },
+    limitation: {
+      timeline_truncated: "최근 이벤트만 표시",
+      missing_followup: "후속 기록 없음",
+      missing_before: "비교할 이전 결과 없음",
+      missing_after: "비교할 이후 결과 없음",
+      different_acceptance_set: "서로 다른 항목 기준으로 비교됨",
+      mixed_signals: "신호가 엇갈림",
+    },
+  },
   comparison: {
     improved: "좋아진 항목",
     stillOpen: "아직 남은 항목",
@@ -2527,8 +2601,8 @@ const KO = {
     acDescUnchanged: "상태가 그대로인 항목입니다.",
     acCurrentEvidence: "현재 근거",
     acNextAction: "다음 조치",
-    acSendToComment: "이 비교 결과를 PR comment로 남기기",
-    acNeedLineage: "PR comment에 포함하려면 다시 확인으로 생성된 기록이 필요해요.",
+    acSendToComment: "이 비교 결과를 PR 코멘트로 남기기",
+    acNeedLineage: "PR 코멘트에 포함하려면 다시 확인으로 생성된 기록이 필요해요.",
     rerunDoneCount: "선택한 {n}개 항목을 다시 확인했습니다.",
   },
   history: {
@@ -2556,7 +2630,7 @@ const KO = {
   benchmark: {
     navLabel: "벤치마크",
     title: "개발 후보 비교",
-    subtitle: "검수 결과를 기준으로 서로 다른 에이전트 구현을 비교합니다.",
+    subtitle: "확인 결과를 기준으로 같은 제품을 만든 여러 제작 시도를 비교합니다.",
     intro: "Simsa는 어떤 에이전트가 더 똑똑한지 추측하지 않습니다. 각 구현이 실제로 무엇을 충족했는지 비교합니다.",
     loading: "확인 기록을 불러오는 중…",
     loadError: "확인 기록을 불러오지 못했어요.",
@@ -2655,13 +2729,13 @@ const KO = {
     shareTitle: "공유",
     prIntro: "Simsa가 검수 확인 결과를 기준으로 여러 빌드 후보를 비교했습니다.",
     prNoteHeading: "참고",
-    previewPrComment: "PR comment 미리보기",
-    commentPreviewTitle: "Comment 미리보기",
-    postToPr: "PR에 comment 게시",
-    postWarning: "선택한 GitHub PR에 comment가 게시됩니다.",
+    previewPrComment: "PR 코멘트 미리보기",
+    commentPreviewTitle: "코멘트 미리보기",
+    postToPr: "PR에 코멘트 게시",
+    postWarning: "선택한 GitHub PR에 코멘트가 게시됩니다.",
     prPosting: "게시 중…",
     postedToGithub: "GitHub에 게시됨",
-    postCommentError: "Comment를 게시하지 못했습니다.",
+    postCommentError: "코멘트를 게시하지 못했습니다.",
     prViewComment: "GitHub에서 보기 →",
     mixedPrNote: "이 벤치마크는 서로 다른 PR의 후보를 비교합니다. 하나의 PR에 게시하기보다 요약을 복사해 공유하세요.",
     blockerItemsTitle: "남은 차단 항목",
@@ -3397,6 +3471,21 @@ export function statusLabel(dict, status) {
 /** Optional one-line explanation for a status (empty string when none). */
 export function statusDescription(dict, status) {
   return dict.status[status]?.desc ?? "";
+}
+
+/** Best-effort label for a raw workflow-status token (falls back to the raw token). */
+export function enumStatusLabel(dict, value) {
+  return dict.enumLabels.status[value] ?? value;
+}
+
+/** Best-effort label for a raw recommended-action token (falls back to the raw token). */
+export function enumActionLabel(dict, value) {
+  return dict.enumLabels.action[value] ?? value;
+}
+
+/** Best-effort label for a raw limitation token (falls back to the raw token). */
+export function enumLimitationLabel(dict, value) {
+  return dict.enumLabels.limitation[value] ?? value;
 }
 
 /** Read the persisted locale from a StorageLike (default en). Never throws. */
