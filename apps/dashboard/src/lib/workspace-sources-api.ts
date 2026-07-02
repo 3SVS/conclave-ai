@@ -124,3 +124,54 @@ export async function deleteProjectSource(
 export function buildSourceFileUrl(projectId: string, sourceId: string, userKey: string): string {
   return `${CENTRAL_PLANE_URL}/workspace/projects/${encodeURIComponent(projectId)}/sources/${encodeURIComponent(sourceId)}/file?userKey=${encodeURIComponent(userKey)}`;
 }
+
+// ─── Document → spec draft (Stage 267, backend Stage 265) ────────────────────
+
+import type { IdeaToSpecDraftResponse } from "./workspace-types";
+
+/** Exactly the idea-to-spec-draft payload, minus the `ok` discriminant. */
+export type DocumentSpecDraft = Omit<IdeaToSpecDraftResponse, "ok">;
+
+export type DocumentSpecDraftResponse =
+  | { ok: true; draft: DocumentSpecDraft; source: { id: string; label?: string } }
+  | { ok: false; error: string; status?: number; retryAfterSeconds?: number };
+
+/**
+ * Generate a spec draft from an uploaded document source. Errors surface the
+ * server's error code plus HTTP status (so the caller can map either); no
+ * mock fallback here — the SERVER already degrades to a mock-fallback draft,
+ * flagged via draft.source === "mock-fallback".
+ */
+export async function generateDocumentSpecDraft(
+  projectId: string,
+  sourceId: string,
+  userKey: string,
+  locale: "ko" | "en",
+): Promise<DocumentSpecDraftResponse> {
+  try {
+    const resp = await fetch(
+      `${CENTRAL_PLANE_URL}/workspace/projects/${encodeURIComponent(projectId)}/sources/${encodeURIComponent(sourceId)}/spec-draft`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userKey, locale }),
+        signal: AbortSignal.timeout(60000),
+      },
+    );
+    const data = (await resp.json().catch(() => null)) as
+      | ({ ok: true; draft: DocumentSpecDraft; source: { id: string; label?: string } })
+      | ({ ok: false; error?: string; retryAfterSeconds?: number })
+      | null;
+    if (data?.ok) return data;
+    return {
+      ok: false,
+      error: data && !data.ok && typeof data.error === "string" ? data.error : `HTTP ${resp.status}`,
+      status: resp.status,
+      ...(data && !data.ok && typeof data.retryAfterSeconds === "number"
+        ? { retryAfterSeconds: data.retryAfterSeconds }
+        : {}),
+    };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
