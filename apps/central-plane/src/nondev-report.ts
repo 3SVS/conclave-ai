@@ -212,6 +212,85 @@ export function buildNonDevReport(input: VisualCheckInput): NonDevReport {
   };
 }
 
+/** severity → 비개발자용 한국어 라벨. */
+const SEVERITY_KO: Record<NonDevFinding["severity"], string> = {
+  high: "높음",
+  medium: "중간",
+  low: "낮음",
+  info: "참고",
+};
+
+/**
+ * 검수 증거를 개발 에이전트(Claude Code, Cursor 등)에 그대로 붙여넣을 수 있는 수정 지시문으로 조립.
+ * 결정론적: 같은 입력 → 같은 지시문, LLM 호출 없음. 비개발자용 본문과 달리 원본 기술 문자열
+ * (네트워크/콘솔 원문)이 그대로 들어간다 — 받는 쪽이 에이전트이므로. 관찰된 사실만 담고,
+ * 증거 밖 추측을 금지하는 작업 규칙을 함께 명시한다.
+ */
+export function buildAgentFixPrompt(input: VisualCheckInput): string {
+  const findings = classifyFindings(input);
+  const yn = (b: boolean) => (b ? "예" : "아니오");
+  const lines: string[] = [
+    "당신은 이 프로젝트의 코드를 수정하는 개발 에이전트입니다.",
+    "아래는 Simsa가 실제 브라우저로 이 앱을 열어 관찰한 사실입니다. 여기 적힌 증거만 근거로 진단하고 수정하세요.",
+    "증거에 없는 문제를 추측으로 만들어내지 마세요.",
+    "",
+    "[대상]",
+    `- URL: ${input.targetUrl}`,
+    `- 검수한 사용자 플로우: ${input.intentAnchor}`,
+    `- 판정: ${input.decision} (${decisionToKorean(input.decision)})`,
+    "",
+    "[브라우저 관찰 사실]",
+    `- 첫 화면 HTTP 상태: ${input.loadStatus ?? "관찰 안 됨"}`,
+    `- 핵심 동작 요소(버튼/입력) 발견: ${yn(input.primaryActionFound)}`,
+    `- 실제 상호작용(클릭/입력) 수행: ${yn(input.interacted)}`,
+    `- 상호작용 후 주소: ${input.routeAfterClick ?? "없음"} (주소 변경: ${yn(input.routeChanged)})`,
+  ];
+
+  if (input.networkFailures.length) {
+    lines.push(`- 네트워크 실패 ${input.networkFailures.length}건:`);
+    input.networkFailures.forEach((s, i) => lines.push(`  ${i + 1}. ${s}`));
+  } else {
+    lines.push("- 네트워크 실패: 없음");
+  }
+  if (input.consoleErrors.length) {
+    lines.push(`- 콘솔 오류 ${input.consoleErrors.length}건:`);
+    input.consoleErrors.forEach((s, i) => lines.push(`  ${i + 1}. ${s}`));
+  } else {
+    lines.push("- 콘솔 오류: 없음");
+  }
+  const steps = input.steps ?? [];
+  if (steps.length) {
+    lines.push("- 플로우 단계 결과:");
+    for (const s of steps) lines.push(`  - ${s.label}: ${s.ok ? "성공" : "실패"}${s.note ? ` — ${s.note}` : ""}`);
+  }
+
+  lines.push("", "[고칠 문제 — 우선순위순]");
+  if (findings.length) {
+    findings.forEach((f, i) => {
+      lines.push(
+        `${i + 1}. [${SEVERITY_KO[f.severity]}] ${f.what}`,
+        `   - 원인 설명: ${f.why}`,
+        `   - 수정 방향: ${f.how}`,
+        `   - 증거: ${f.evidence ?? "없음"}`,
+      );
+    });
+  } else {
+    lines.push("- 고칠 문제가 관찰되지 않았습니다. 아래 규칙의 검증 절차만 수행해 결과를 보고하세요.");
+  }
+
+  lines.push(
+    "",
+    "[작업 규칙]",
+    "- 재현 먼저: 앱을 로컬에서 실행해 위 플로우를 그대로 밟아 같은 실패를 확인한 뒤 수정하세요.",
+    "- 최소 수정: 증거가 가리키는 원인만 고치고, 무관한 리팩터링은 하지 마세요.",
+    "- 비밀값 금지: API 키·백엔드 주소 같은 환경값을 코드에 하드코딩하지 마세요.",
+    "- 검증: 수정 후 같은 플로우에서 네트워크 실패 0건, 콘솔 오류 0건인지 확인하세요.",
+    "- 보고: 무엇을/왜/어떻게 바꿨는지와 검증 결과를 5줄 이내로 보고하세요.",
+  );
+
+  return lines.join("\n");
+}
+
 function esc(s: unknown): string {
   const map: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
   return String(s ?? "").replace(/[&<>"]/g, (c) => map[c] ?? c);
@@ -226,71 +305,149 @@ export interface ReportShot {
 /**
  * Render a SELF-CONTAINED Korean HTML report a non-developer can double-click and read: verdict at
  * the top, each finding as 무엇/왜/어떻게 cards (with a collapsible 개발자용 detail), the screenshots
- * inline so they can SEE where it broke, and an optional flow video. No numeric score.
+ * inline so they can SEE where it broke, an optional flow video, and (when provided) a copy-ready
+ * agent fix prompt so the reader can hand the repair to Claude Code/Cursor in one paste.
+ *
+ * Visual language mirrors the dashboard brand system (parchment surface, stone neutrals, deep
+ * oxblood accent, antique gold, hairline borders, no emoji). No numeric score.
  */
 export function renderNonDevReportHtml(
   report: NonDevReport,
   shots: ReportShot[] = [],
   videoSrc?: string | null,
+  agentPrompt?: string | null,
 ): string {
-  const worksBadge =
+  const chip =
     report.works === true
-      ? '<span class="badge ok">✅ 작동해요</span>'
+      ? '<span class="chip chip-ok">작동해요</span>'
       : report.works === false
-        ? '<span class="badge bad">⛔ 작동 안 해요</span>'
-        : '<span class="badge warn">⚠️ 확인 필요</span>';
+        ? '<span class="chip chip-bad">작동 안 해요</span>'
+        : '<span class="chip chip-warn">확인 필요</span>';
 
   const findingCards = report.findings
     .map(
       (f) => `
-    <div class="card sev-${esc(f.severity)}">
-      <div class="row"><span class="lbl">무엇이 문제인가요</span><span class="val">${esc(f.what)}</span></div>
+    <article class="card finding">
+      <header class="finding-head">
+        <span class="chip chip-sev-${esc(f.severity)}">${esc(SEVERITY_KO[f.severity])}</span>
+      </header>
+      <div class="row"><span class="lbl">무엇이 문제인가요</span><span class="val what">${esc(f.what)}</span></div>
       <div class="row"><span class="lbl">왜 그런가요</span><span class="val">${esc(f.why)}</span></div>
       <div class="row"><span class="lbl">어떻게 고치나요</span><span class="val">${esc(f.how)}</span></div>
       ${f.evidence ? `<details><summary>개발자용 기술 정보</summary><code>${esc(f.evidence)}</code></details>` : ""}
-    </div>`,
+    </article>`,
     )
     .join("\n");
 
   const shotEls = shots
-    .map((s) => `<figure><figcaption>${esc(s.label)}</figcaption><img src="${esc(s.src)}" alt="${esc(s.label)}"/></figure>`)
+    .map((s) => `<figure><figcaption>${esc(s.label)}</figcaption><img src="${esc(s.src)}" alt="${esc(s.label)}" loading="lazy"/></figure>`)
     .join("\n");
 
   const nextEls = report.nextSteps.map((n) => `<li>${esc(n)}</li>`).join("");
   const noteEls = report.notes.map((n) => `<li>${esc(n)}</li>`).join("");
 
+  const promptSection = agentPrompt
+    ? `
+  <h2>바로 고치게 하기</h2>
+  <section class="card prompt-card">
+    <p class="prompt-desc">개발자가 없어도 됩니다. 아래 지시문을 복사해 AI 개발 도구(Claude Code, Cursor 등)에 붙여넣으면, 이 리포트의 증거를 근거로 수정 작업을 바로 시작합니다.</p>
+    <div class="prompt-actions"><button type="button" class="btn-copy" onclick="simsaCopyPrompt(this)">지시문 복사</button></div>
+    <pre id="agent-prompt">${esc(agentPrompt)}</pre>
+  </section>
+  <script>
+  function simsaCopyPrompt(btn){
+    var pre=document.getElementById("agent-prompt");var txt=pre.textContent;
+    function done(){btn.textContent="복사됨";btn.classList.add("copied");setTimeout(function(){btn.textContent="지시문 복사";btn.classList.remove("copied");},2000);}
+    function fallback(){var r=document.createRange();r.selectNodeContents(pre);var s=window.getSelection();s.removeAllRanges();s.addRange(r);try{document.execCommand("copy");done();}catch(e){}s.removeAllRanges();}
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(done,fallback);}else{fallback();}
+  }
+  </script>`
+    : "";
+
   return `<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>${esc(report.title)}</title>
 <style>
-  body{font-family:system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;max-width:860px;margin:0 auto;padding:24px;color:#18181b;background:#fafafa;line-height:1.6}
-  h1{font-size:22px;margin:0 0 4px} .sub{color:#71717a;font-size:14px;margin:0 0 16px;word-break:break-all}
-  .verdict{font-size:18px;font-weight:600;margin:12px 0}
-  .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:14px;font-weight:600;margin-left:6px}
-  .badge.ok{background:#dcfce7;color:#166534}.badge.bad{background:#fee2e2;color:#991b1b}.badge.warn{background:#fef9c3;color:#854d0e}
-  .oneline{background:#fff;border:1px solid #e4e4e7;border-radius:10px;padding:14px 16px;margin:12px 0 20px}
-  h2{font-size:16px;margin:24px 0 8px;border-bottom:1px solid #e4e4e7;padding-bottom:6px}
-  .card{background:#fff;border:1px solid #e4e4e7;border-left-width:4px;border-radius:10px;padding:14px 16px;margin:10px 0}
-  .card.sev-high{border-left-color:#dc2626}.card.sev-medium{border-left-color:#d97706}.card.sev-low{border-left-color:#65a30d}.card.sev-info{border-left-color:#94a3b8}
-  .row{display:flex;gap:10px;margin:4px 0}.lbl{flex:0 0 130px;color:#71717a;font-size:13px}.val{flex:1}
-  details{margin-top:8px}summary{cursor:pointer;color:#71717a;font-size:13px}code{display:block;background:#f4f4f5;padding:8px;border-radius:6px;font-size:12px;white-space:pre-wrap;word-break:break-all;margin-top:6px}
-  figure{margin:12px 0}figcaption{font-size:13px;color:#52525b;margin-bottom:6px}img{width:100%;border:1px solid #e4e4e7;border-radius:8px}
-  video{width:100%;border-radius:8px;border:1px solid #e4e4e7}
-  ul{padding-left:20px}li{margin:4px 0}
-  .foot{color:#a1a1aa;font-size:12px;margin-top:28px}
+  :root{
+    --bg:#faf8f3; --surface:#ffffff;
+    --ink:#1c1917; --ink-2:#57534e; --ink-3:#78716c; --ink-4:#a8a29e;
+    --line:#e7e5e4; --line-soft:#f5f5f4;
+    --brand:#5c111c; --brand-hover:#4b0e17; --brand-soft:#faf2f2; --gold:#a9883b;
+    --ok-bg:#f0fdf4; --ok-tx:#15803d; --ok-bd:#bbf7d0;
+    --bad-bg:#fef2f2; --bad-tx:#b91c1c; --bad-bd:#fecaca;
+    --warn-bg:#fffbeb; --warn-tx:#b45309; --warn-bd:#fde68a;
+    --info-bg:#f8fafc; --info-tx:#475569; --info-bd:#e2e8f0;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Pretendard","Apple SD Gothic Neo",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+    font-size:15px;line-height:1.65;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  .wrap{max-width:820px;margin:0 auto;padding:48px 24px 72px}
+  .eyebrow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+  .wordmark{font-size:12px;font-weight:700;letter-spacing:.16em;color:var(--brand)}
+  .wordmark span{color:var(--ink-3);font-weight:500;letter-spacing:.02em;margin-left:8px}
+  h1{font-size:24px;font-weight:650;letter-spacing:-.011em;line-height:1.35;margin:22px 0 8px}
+  .lead{font-size:15px;color:var(--ink-2);margin:0 0 26px;max-width:62ch}
+  .meta{display:grid;grid-template-columns:118px 1fr;row-gap:8px;column-gap:16px;
+    background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px 16px;font-size:13.5px}
+  .meta dt{color:var(--ink-3);margin:0}
+  .meta dd{margin:0;word-break:break-all;color:var(--ink)}
+  h2{display:flex;align-items:center;gap:10px;font-size:13px;font-weight:600;letter-spacing:-.011em;color:var(--ink);margin:40px 0 12px}
+  h2::after{content:"";flex:1;height:1px;background:var(--line)}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px 18px;margin:10px 0}
+  .finding-head{display:flex;justify-content:flex-end;margin:-2px 0 6px}
+  .chip{display:inline-flex;align-items:center;padding:1px 8px;border-radius:6px;border:1px solid;font-size:12px;font-weight:600;line-height:1.6;white-space:nowrap}
+  .chip-ok{background:var(--ok-bg);color:var(--ok-tx);border-color:var(--ok-bd)}
+  .chip-bad{background:var(--bad-bg);color:var(--bad-tx);border-color:var(--bad-bd)}
+  .chip-warn{background:var(--warn-bg);color:var(--warn-tx);border-color:var(--warn-bd)}
+  .chip-sev-high{background:var(--bad-bg);color:var(--bad-tx);border-color:var(--bad-bd)}
+  .chip-sev-medium{background:var(--warn-bg);color:var(--warn-tx);border-color:var(--warn-bd)}
+  .chip-sev-low,.chip-sev-info{background:var(--info-bg);color:var(--info-tx);border-color:var(--info-bd)}
+  .row{display:flex;gap:14px;padding:5px 0}
+  .row+.row{border-top:1px solid var(--line-soft)}
+  .lbl{flex:0 0 112px;color:var(--ink-3);font-size:12.5px;padding-top:2px}
+  .val{flex:1;font-size:14px}
+  .val.what{font-weight:600;font-size:14.5px}
+  details{margin-top:10px}
+  summary{cursor:pointer;color:var(--ink-3);font-size:12.5px}
+  summary:hover{color:var(--ink-2)}
+  code{display:block;background:#fafaf9;border:1px solid var(--line);padding:9px 11px;border-radius:6px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;margin-top:7px;color:var(--ink-2)}
+  figure{margin:14px 0}
+  figcaption{font-size:12.5px;color:var(--ink-3);margin-bottom:6px}
+  img{width:100%;border:1px solid var(--line);border-radius:8px;display:block}
+  video{width:100%;border-radius:8px;border:1px solid var(--line);display:block}
+  ul{padding-left:18px;margin:8px 0}
+  li{margin:5px 0;color:var(--ink-2);font-size:14px}
+  li::marker{color:var(--gold)}
+  .prompt-card{padding:16px 18px 14px}
+  .prompt-desc{margin:0 0 12px;font-size:13.5px;color:var(--ink-2)}
+  .prompt-actions{margin-bottom:10px}
+  .btn-copy{appearance:none;border:0;cursor:pointer;background:var(--brand);color:#fff;
+    font:inherit;font-size:13px;font-weight:500;padding:7px 14px;border-radius:6px;transition:background-color .15s}
+  .btn-copy:hover{background:var(--brand-hover)}
+  .btn-copy.copied{background:var(--ok-tx)}
+  pre{margin:0;background:#fafaf9;border:1px solid var(--line);border-radius:6px;padding:12px 14px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.6;color:var(--ink-2);
+    white-space:pre-wrap;word-break:break-word;max-height:420px;overflow:auto}
+  .empty{color:var(--ink-3);font-size:14px;background:var(--surface);border:1px dashed var(--line);border-radius:8px;padding:18px;text-align:center}
+  .foot{color:var(--ink-4);font-size:12px;margin-top:44px;padding-top:14px;border-top:1px solid var(--line)}
 </style></head>
-<body>
-  <h1>${esc(report.title)} ${worksBadge}</h1>
-  <p class="sub">대상: ${esc(report.target)}</p>
-  <p class="sub">확인하려던 것: ${esc(report.intent)}</p>
-  <div class="verdict">판정: ${esc(report.verdict)}</div>
-  <div class="oneline">${esc(report.oneLine)}</div>
+<body><div class="wrap">
+  <div class="eyebrow"><div class="wordmark">SIMSA<span>검수 리포트</span></div>${chip}</div>
+  <h1>${esc(report.verdict)}</h1>
+  <p class="lead">${esc(report.oneLine)}</p>
+  <dl class="meta">
+    <dt>대상</dt><dd>${esc(report.target)}</dd>
+    <dt>확인하려던 것</dt><dd>${esc(report.intent)}</dd>
+  </dl>
 
   <h2>무엇을 발견했나요</h2>
-  ${report.findings.length ? findingCards : "<p>특별히 막히는 지점을 찾지 못했어요.</p>"}
+  ${report.findings.length ? findingCards : '<p class="empty">특별히 막히는 지점을 찾지 못했어요.</p>'}
 
   ${shots.length ? `<h2>화면으로 보기</h2>${shotEls}` : ""}
   ${videoSrc ? `<h2>진행 영상</h2><video controls src="${esc(videoSrc)}"></video>` : ""}
+  ${promptSection}
 
   <h2>다음에 해볼 것</h2>
   <ul>${nextEls}</ul>
@@ -299,5 +456,5 @@ export function renderNonDevReportHtml(
   <ul>${noteEls}</ul>
 
   <p class="foot">Simsa 검수 · 실제 브라우저 관찰 기반 · 점수 없음 · 모든 버그를 찾았다는 뜻은 아닙니다.</p>
-</body></html>`;
+</div></body></html>`;
 }

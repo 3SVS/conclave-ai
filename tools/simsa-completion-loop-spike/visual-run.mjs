@@ -16,7 +16,7 @@ import { mkdirSync, writeFileSync, copyFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { planVisualFlow } from "../../apps/central-plane/dist/visual-flow-plan.js";
-import { buildNonDevReport, renderNonDevReportHtml } from "../../apps/central-plane/dist/nondev-report.js";
+import { buildNonDevReport, buildAgentFixPrompt, renderNonDevReportHtml } from "../../apps/central-plane/dist/nondev-report.js";
 import { classifyActionSafety } from "./lib/safety.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -190,12 +190,14 @@ export async function visualRun(config, outDir) {
     steps: stepOutcomes,
   };
   const report = buildNonDevReport(reportInput);
-  const html = renderNonDevReportHtml(report, shots, videoRel);
+  const agentPrompt = buildAgentFixPrompt(reportInput);
+  const html = renderNonDevReportHtml(report, shots, videoRel, agentPrompt);
 
   writeFileSync(join(outDir, "browser-evidence.json"), JSON.stringify({ ...evidence, stepOutcomes, decision }, null, 2));
   writeFileSync(join(outDir, "report.json"), JSON.stringify(report, null, 2));
   writeFileSync(join(outDir, "report.html"), html);
   writeFileSync(join(outDir, "report.md"), toMarkdown(report));
+  writeFileSync(join(outDir, "agent-prompt.md"), agentPrompt);
   return { report, decision, shots, videoRel };
 }
 

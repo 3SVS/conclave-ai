@@ -8,6 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildAgentFixPrompt,
   buildNonDevReport,
   classifyFindings,
   decisionToKorean,
@@ -115,10 +116,63 @@ test("renderNonDevReportHtml: self-contained Korean HTML with screenshots, no nu
   assert.ok(html.includes("어떻게 고치나요"));
   assert.ok(html.includes("screenshots/step-00.png"));
   assert.ok(html.includes("<video"));
-  assert.ok(html.includes("⛔ 작동 안 해요"));
+  assert.ok(html.includes(">작동 안 해요</span>"));
   assert.ok(!/\b\d{1,3}\s*\/\s*100\b/.test(html)); // no numeric score
   // developer error code appears only inside the collapsible details/code, not the headline
   assert.ok(html.includes("개발자용 기술 정보"));
+  // brand rule: no emoji anywhere in the report surface
+  assert.ok(!/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}⭕⛔]/u.test(html));
+});
+
+test("buildAgentFixPrompt: evidence verbatim, findings prioritized, guardrail rules, deterministic", () => {
+  const input = {
+    ...base,
+    decision: "Needs Fix",
+    interacted: true,
+    networkFailures: ["GET https://dead.supabase.co/rest/v1/golf_courses (net::ERR_NAME_NOT_RESOLVED)"],
+    consoleErrors: ["Failed to load resource: net::ERR_NAME_NOT_RESOLVED"],
+    steps: [{ label: "검색창에 '서울' 입력하기", ok: false, note: "결과가 안 나옴" }],
+  };
+  const prompt = buildAgentFixPrompt(input);
+  // raw technical strings ARE included (the receiver is an agent, not a non-dev)
+  assert.ok(prompt.includes("GET https://dead.supabase.co/rest/v1/golf_courses (net::ERR_NAME_NOT_RESOLVED)"));
+  assert.ok(prompt.includes(base.targetUrl));
+  assert.ok(prompt.includes(base.intentAnchor));
+  // findings carried over with priority numbering and severity in Korean
+  assert.ok(/1\. \[높음\]/.test(prompt));
+  // guardrails: no invention, minimal fix, no hardcoded secrets, verify, report
+  assert.ok(prompt.includes("추측으로 만들어내지 마세요"));
+  assert.ok(prompt.includes("하드코딩하지 마세요"));
+  assert.ok(prompt.includes("네트워크 실패 0건"));
+  // failed step appears
+  assert.ok(prompt.includes("검색창에 '서울' 입력하기: 실패"));
+  // deterministic
+  assert.equal(prompt, buildAgentFixPrompt(input));
+});
+
+test("buildAgentFixPrompt: clean run → no invented problems, verification-only instruction", () => {
+  const prompt = buildAgentFixPrompt({ ...base, decision: "Ready", primaryActionFound: true, interacted: true });
+  assert.ok(prompt.includes("고칠 문제가 관찰되지 않았습니다"));
+  assert.ok(prompt.includes("네트워크 실패: 없음"));
+});
+
+test("renderNonDevReportHtml: agent prompt section renders with copy button, escaped; hidden when absent", () => {
+  const input = {
+    ...base,
+    decision: "Needs Fix",
+    networkFailures: ['GET https://x/y?<b>&"z" (net::ERR_NAME_NOT_RESOLVED)'],
+  };
+  const report = buildNonDevReport(input);
+  const prompt = buildAgentFixPrompt(input);
+  const withPrompt = renderNonDevReportHtml(report, [], null, prompt);
+  assert.ok(withPrompt.includes("바로 고치게 하기"));
+  assert.ok(withPrompt.includes('id="agent-prompt"'));
+  assert.ok(withPrompt.includes("지시문 복사"));
+  // evidence inside the prompt block is HTML-escaped
+  assert.ok(!withPrompt.includes('<b>&"z"'));
+  const withoutPrompt = renderNonDevReportHtml(report);
+  assert.ok(!withoutPrompt.includes("바로 고치게 하기"));
+  assert.ok(!withoutPrompt.includes('id="agent-prompt"'));
 });
 
 test("renderNonDevReportHtml escapes HTML-special characters in evidence", () => {
