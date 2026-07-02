@@ -44,6 +44,13 @@ ENABLE_CREDIT_BLOCKING = "false"
 # "*" wildcard is NOT supported.
 ACTUAL_DEBIT_ALLOWED_USER_KEYS = ""
 
+# Stage 261 — R2 evidence + document storage (Simsa visual checks, PRD uploads).
+# Bucket must exist before deploy; deploy-central-plane.yml has an idempotent
+# "Ensure R2 bucket" step (`wrangler r2 bucket create simsa-evidence`).
+[[r2_buckets]]
+binding = "EVIDENCE"
+bucket_name = "simsa-evidence"
+
 # Observability. Logs retained 3 days on free tier, sufficient for v0.4-alpha.
 [observability]
 enabled = true

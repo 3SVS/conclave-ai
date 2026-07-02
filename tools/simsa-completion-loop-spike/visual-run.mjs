@@ -12,7 +12,7 @@
  * Usage: node visual-run.mjs <targetUrl> <outDir> [sampleQuery]
  */
 import { chromium } from "playwright";
-import { mkdirSync, writeFileSync, copyFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, copyFileSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { planVisualFlow } from "../../apps/central-plane/dist/visual-flow-plan.js";
@@ -198,7 +198,7 @@ export async function visualRun(config, outDir) {
   writeFileSync(join(outDir, "report.html"), html);
   writeFileSync(join(outDir, "report.md"), toMarkdown(report));
   writeFileSync(join(outDir, "agent-prompt.md"), agentPrompt);
-  return { report, decision, shots, videoRel };
+  return { report, reportInput, agentPrompt, decision, shots, videoRel };
 }
 
 /** Deterministic decision from the deep-flow evidence (mirrors the spike's ladder, journey-aware). */
@@ -224,11 +224,51 @@ function toMarkdown(r) {
   return lines.join("\n");
 }
 
+/**
+ * Stage 261 — upload a finished run to the central plane so it shows on the
+ * dashboard (app.trysimsa.com). Uploads run metadata + report + agent prompt,
+ * then each screenshot and the flow video as evidence files. The userKey
+ * travels only in the request body/query (never logged).
+ */
+export async function uploadRun({ apiBase, userKey, projectId, reportInput, report, agentPrompt, shots, videoRel, outDir }) {
+  const base = apiBase.replace(/\/$/, "");
+  const createRes = await fetch(`${base}/workspace/projects/${projectId}/visual-checks`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      userKey,
+      targetUrl: reportInput.targetUrl,
+      intent: reportInput.intentAnchor,
+      decision: reportInput.decision,
+      works: report.works,
+      executor: "local",
+      report,
+      agentPrompt,
+    }),
+  });
+  const created = await createRes.json();
+  if (!createRes.ok || !created.ok) throw new Error(`create failed: ${createRes.status} ${created?.error ?? ""}`);
+  const runId = created.check.id;
+
+  const files = [...shots.map((s) => s.src), ...(videoRel ? [videoRel] : [])];
+  let uploaded = 0;
+  for (const rel of files) {
+    const body = readFileSync(join(outDir, rel));
+    const url = `${base}/workspace/projects/${projectId}/visual-checks/${runId}/evidence?userKey=${encodeURIComponent(userKey)}&name=${encodeURIComponent(rel)}`;
+    const res = await fetch(url, { method: "POST", body });
+    if (res.ok) uploaded += 1;
+    else console.error(`[upload] evidence failed (${res.status}): ${rel}`);
+  }
+  return { runId, uploaded, total: files.length };
+}
+
 // CLI
 if (process.argv[1] && process.argv[1].endsWith("visual-run.mjs")) {
-  const targetUrl = process.argv[2] || "http://localhost:3000/";
-  const outDir = process.argv[3] || join(here, "out", "visual");
-  const sampleQuery = process.argv[4] || "서울";
+  const wantUpload = process.argv.includes("--upload");
+  const args = process.argv.slice(2).filter((a) => a !== "--upload");
+  const targetUrl = args[0] || "http://localhost:3000/";
+  const outDir = args[1] || join(here, "out", "visual");
+  const sampleQuery = args[2] || "서울";
   const config = {
     targetUrl,
     intentAnchor: INTENT_DEFAULT,
@@ -236,7 +276,19 @@ if (process.argv[1] && process.argv[1].endsWith("visual-run.mjs")) {
     forbidden: ["payment", "delete", "send", "invite", "publish", "deploy", "결제", "삭제", "발행", "배포", "로그아웃"],
   };
   visualRun(config, outDir)
-    .then((r) => console.log(`[visual] decision: ${r.decision} | works: ${r.report.works} | shots: ${r.shots.length} | video: ${r.videoRel ?? "none"}`))
+    .then(async (r) => {
+      console.log(`[visual] decision: ${r.decision} | works: ${r.report.works} | shots: ${r.shots.length} | video: ${r.videoRel ?? "none"}`);
+      if (wantUpload) {
+        const apiBase = process.env.SIMSA_API_BASE;
+        const userKey = process.env.SIMSA_USER_KEY;
+        const projectId = process.env.SIMSA_PROJECT_ID;
+        if (!apiBase || !userKey || !projectId) {
+          throw new Error("--upload requires SIMSA_API_BASE, SIMSA_USER_KEY, SIMSA_PROJECT_ID env vars");
+        }
+        const up = await uploadRun({ ...r, apiBase, userKey, projectId, outDir });
+        console.log(`[upload] run ${up.runId}: ${up.uploaded}/${up.total} evidence files uploaded`);
+      }
+    })
     .catch((e) => {
       console.error("[visual] error:", e);
       process.exit(1);
