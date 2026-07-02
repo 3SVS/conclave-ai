@@ -76,6 +76,14 @@ export interface Env {
    */
   SANDBOX?: DurableObjectNamespace;
   /**
+   * Stage 261 — R2 bucket `simsa-evidence`: visual-check evidence
+   * (screenshots/video under checks/{userKey}/{projectId}/{runId}/) and
+   * uploaded project documents (PRD/md under docs/{userKey}/{projectId}/).
+   * Optional: without the binding, document upload and evidence routes
+   * return 503 (evidence_storage_unconfigured); everything else works.
+   */
+  EVIDENCE?: R2Bucket;
+  /**
    * v0.16.2 — bearer token the container uses when calling back to
    * /internal/job-done. Random per deploy. Set via `wrangler secret put
    * INTERNAL_CALLBACK_TOKEN`. Without it /internal/job-done refuses calls.
