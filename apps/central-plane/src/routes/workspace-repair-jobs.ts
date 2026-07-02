@@ -108,6 +108,11 @@ function repairJobView(job: DbRepairJob) {
     prUrl: job.prUrl ?? null,
     prNumber: job.prNumber ?? null,
     envCause: job.envCause,
+    // Stage 270 — how the repair concluded: 'auto_fix' (worker agent applied
+    // real code changes, non-draft PR) vs 'brief_only' (Stage 268 draft-PR
+    // fallback). Null on legacy rows and while in flight.
+    mode: job.mode ?? null,
+    changedFiles: job.changedFiles ?? null,
     error: job.error ?? null,
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
@@ -163,12 +168,18 @@ export async function dispatchRepairJob(
     runningUrl: `${base}/internal/repair-running`,
     callbackToken: env.INTERNAL_CALLBACK_TOKEN,
   };
+  // Stage 270 — forward the worker-agent LLM key the same way the autofix
+  // spawn does (routes/saas.ts): via header, not body, so the key never
+  // shows up in anything that logs request bodies. Absent key → the
+  // container keeps the Stage 268 brief-only behavior (mode 'brief_only').
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (env.ANTHROPIC_API_KEY) headers["x-anthropic-key"] = env.ANTHROPIC_API_KEY;
   try {
     const id = env.SANDBOX.idFromName(`repair-${args.jobId}`);
     const stub = env.SANDBOX.get(id);
     const r = await stub.fetch("http://sandbox/run", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify(payload),
     });
     if (!r.ok) {
@@ -386,6 +397,8 @@ export function createWorkspaceRepairJobRoutes(): Hono<{ Bindings: Env }> {
           prNumber?: number;
           branch?: string;
           envCause?: boolean;
+          mode?: string;
+          changedFiles?: number;
           error?: string;
         }
       | null;
@@ -409,6 +422,13 @@ export function createWorkspaceRepairJobRoutes(): Hono<{ Bindings: Env }> {
         : undefined,
       branchName: typeof body.branch === "string" && body.branch ? body.branch : undefined,
       envCause: body.envCause === true,
+      // Stage 270 — additive: how the container concluded. Anything outside
+      // the enum is dropped (old containers send neither field).
+      mode: body.mode === "auto_fix" || body.mode === "brief_only" ? body.mode : undefined,
+      changedFiles:
+        typeof body.changedFiles === "number" && Number.isInteger(body.changedFiles) && body.changedFiles >= 0
+          ? body.changedFiles
+          : undefined,
     });
     return c.json({ ok: true, status: "done" });
   });

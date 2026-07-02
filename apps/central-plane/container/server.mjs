@@ -82,11 +82,19 @@ const server = createServer(async (req, res) => {
       res.end(JSON.stringify({ error: `missing fields: ${repairValidation.missing.join(", ")}` }));
       return;
     }
+    // Stage 270 — the Worker forwards ANTHROPIC_API_KEY via the same
+    // x-anthropic-key header the autofix spawn uses. Scoped to this job
+    // (passed explicitly to the worker agent), NOT written to process.env.
+    // Absent key → Stage 268 brief-only behavior.
+    const anthropicApiKey =
+      typeof req.headers["x-anthropic-key"] === "string" && req.headers["x-anthropic-key"].length > 0
+        ? req.headers["x-anthropic-key"]
+        : undefined;
     res.writeHead(202, { "content-type": "application/json" });
     res.end(JSON.stringify({ jobId: payload.jobId, status: "accepted" }));
 
     inFlightJobs.set(payload.jobId, payload);
-    runRepairJob(payload)
+    runRepairJob(payload, anthropicApiKey)
       .catch(async (err) => {
         console.error(`[repair ${payload.jobId}] crashed:`, redactSecret(err?.message ?? String(err), payload.githubToken));
         await postCallback(payload.callbackUrl, payload.callbackToken, {
@@ -395,25 +403,34 @@ async function runJob(payload) {
 /**
  * Run a single visual-check repair job.
  *
- * v1 behavior (HONEST FALLBACK, chosen deliberately): runAutofix's input
- * contract is PR-shaped (it reviews an EXISTING PR via `conclave review --pr N`
- * and applies council-blocker patches) — it cannot cleanly consume a
- * free-form agent fix prompt with no PR. Instead of pretending, the repair
- * job:
+ * Stage 270 behavior (true auto-repair): when the Worker forwards an
+ * ANTHROPIC_API_KEY, the container drives the REAL worker agent
+ * (@conclave-ai/agent-worker ClaudeWorker.work) with the Simsa fix brief as
+ * the blocker input so actual code changes land on the repair branch:
  *
  *   1. Shallow-clones the repo with the user's OAuth token (public_repo)
  *   2. Creates the repair branch (fix/simsa-{runId})
- *   3. Commits SIMSA-FIX-BRIEF.md containing the deterministic agent fix
- *      prompt (Stage 260B output)
- *   4. Opens a DRAFT PR titled "Simsa 수리 시작점: ..." whose body carries the
- *      prompt AND states explicitly that code changes were not auto-applied
- *   5. Reports {jobId, ok, prUrl, prNumber, branch, envCause} to
- *      /internal/repair-done
+ *   3. Parses the fix brief (canonical src/workspace/repair-brief.ts,
+ *      compiled in-image) into WorkerContext reviews/blockers, feeds ranked
+ *      file-snapshot batches to ClaudeWorker — bounded at 3 iterations /
+ *      5 min wall clock — and applies sanitized full-file rewrites
+ *   4. Commits code changes + SIMSA-FIX-BRIEF.md, pushes, opens a NON-draft
+ *      PR "Simsa 자동 수리: ..." listing what changed per finding
+ *   5. Reports {jobId, ok, prUrl, prNumber, branch, envCause, mode,
+ *      changedFiles} to /internal/repair-done
  *
- * The token lives only in memory (clone URL + API Authorization header) and
- * is redacted from every error message before it leaves this process.
+ * HONEST FALLBACK (Stage 268 semantics preserved): no key, zero parsed
+ * findings, worker declines/errors, rewrites all rejected by the sanitizer,
+ * or the quick syntax check fails → the working tree is reset to a clean
+ * state and the job degrades to the brief-only DRAFT PR ("Simsa 수리
+ * 시작점: ...", mode "brief_only") — never a broken half-state.
+ *
+ * The tokens live only in memory (clone URL + API Authorization header +
+ * worker client); the GitHub token is redacted from every error message
+ * before it leaves this process, and the Anthropic key never reaches the
+ * repo, the PR, or the callback.
  */
-async function runRepairJob(payload) {
+async function runRepairJob(payload, anthropicApiKey) {
   const {
     jobId,
     repo, // "owner/name"
@@ -426,7 +443,7 @@ async function runRepairJob(payload) {
   } = payload;
 
   const start = Date.now();
-  console.log(`[repair ${jobId}] start: ${repo} branch=${branch} envCause=${envCause}`);
+  console.log(`[repair ${jobId}] start: ${repo} branch=${branch} envCause=${envCause} keyPresent=${Boolean(anthropicApiKey)}`);
 
   // Ack running (best effort — the Worker treats queued/running the same for
   // the 409 guard; a lost ack only affects dashboard status granularity).
@@ -451,29 +468,64 @@ async function runRepairJob(payload) {
     //    earlier attempt force-pushes the same branch instead of erroring.
     await execFileP("git", ["-C", workDir, "checkout", "-b", branch], { timeout: 10_000 });
 
-    // 3. Commit the fix brief.
-    const content = buildRepairPrContent(payload);
-    await fs.writeFile(path.join(workDir, content.briefFileName), content.briefContent, "utf8");
+    // 3. Stage 270 — attempt the real fix. Any failure inside resets the
+    //    tree and returns null → brief-only fallback below.
+    let autoFix = null;
+    if (anthropicApiKey) {
+      try {
+        autoFix = await attemptAutoFix({ workDir, payload, anthropicApiKey });
+      } catch (err) {
+        console.error(
+          `[repair ${jobId}] auto-fix crashed (falling back to brief-only):`,
+          redactSecret(err?.message ?? String(err), githubToken),
+        );
+        autoFix = null;
+      }
+      if (!autoFix) await resetWorkTree(workDir);
+    }
+    const mode = autoFix ? "auto_fix" : "brief_only";
+    const changedFiles = autoFix ? autoFix.changedFiles : [];
+    console.log(`[repair ${jobId}] mode=${mode} changedFiles=${changedFiles.length}`);
+
+    // 4. Commit. Both modes carry SIMSA-FIX-BRIEF.md (the repair's evidence
+    //    + instructions); auto_fix additionally commits the worker's changes.
+    const briefContent = buildRepairPrContent(payload);
+    let title = briefContent.title;
+    let body = briefContent.body;
+    let commitArgs = ["-m", briefContent.title];
+    if (autoFix) {
+      const prContent = autoFix.prContent;
+      title = prContent.title;
+      body = prContent.body;
+      commitArgs = ["-m", prContent.commitMessage, "-m", prContent.commitBody];
+    }
+    await fs.writeFile(path.join(workDir, briefContent.briefFileName), briefContent.briefContent, "utf8");
     await execFileP("git", ["-C", workDir, "config", "user.name", "simsa-repair[bot]"]);
     await execFileP("git", ["-C", workDir, "config", "user.email", "simsa-repair@trysimsa.com"]);
-    await execFileP("git", ["-C", workDir, "add", content.briefFileName], { timeout: 10_000 });
-    await execFileP("git", ["-C", workDir, "commit", "-m", content.title], { timeout: 10_000 });
+    await execFileP(
+      "git",
+      ["-C", workDir, "add", briefContent.briefFileName, ...changedFiles],
+      { timeout: 10_000 },
+    );
+    await execFileP("git", ["-C", workDir, "commit", ...commitArgs], { timeout: 10_000 });
     await execFileP("git", ["-C", workDir, "push", "--force", "origin", `HEAD:${branch}`], { timeout: 60_000 });
     console.log(`[repair ${jobId}] pushed ${branch} (base ${baseBranch})`);
 
-    // 4. Draft PR via the REST API. If a PR for this head already exists
-    //    (retry path), reuse it instead of failing on the 422.
+    // 5. PR via the REST API. auto_fix → NON-draft (real code changed);
+    //    brief_only → draft (Stage 268 semantics). If a PR for this head
+    //    already exists (retry path), reuse it + refresh title/body.
     const pr = await createOrReuseRepairPr({
       repo,
       token: githubToken,
       head: branch,
       base: baseBranch,
-      title: content.title,
-      body: content.body,
+      title,
+      body,
+      draft: mode !== "auto_fix",
     });
     console.log(`[repair ${jobId}] PR ready: #${pr.number} ${pr.html_url}`);
 
-    // 5. Report done.
+    // 6. Report done.
     await postCallback(callbackUrl, callbackToken, {
       jobId,
       ok: true,
@@ -481,6 +533,8 @@ async function runRepairJob(payload) {
       prNumber: pr.number,
       branch,
       envCause: envCause === true,
+      mode,
+      changedFiles: changedFiles.length,
       durationMs: Date.now() - start,
     });
   } catch (err) {
@@ -501,12 +555,194 @@ async function runRepairJob(payload) {
   }
 }
 
+// --- Stage 270: auto-fix executor -------------------------------------------
+
+/** Bounds for the worker-agent loop (Stage 270 spec). */
+const AUTO_FIX_MAX_ITERATIONS = 3;
+const AUTO_FIX_DEADLINE_MS = 5 * 60 * 1000;
+/** Per-snapshot read cap — anything bigger blows the worker prompt budget. */
+const AUTO_FIX_MAX_SNAPSHOT_BYTES = 200 * 1024;
+
+/** `git reset --hard && git clean -fd` — restore a pristine tree after any failed attempt. */
+async function resetWorkTree(workDir) {
+  await execFileP("git", ["-C", workDir, "reset", "--hard", "HEAD"], { timeout: 30_000 });
+  await execFileP("git", ["-C", workDir, "clean", "-fd"], { timeout: 30_000 });
+}
+
 /**
- * Create the draft repair PR, falling back gracefully:
- *   - 422 "already exists" → look up + return the existing open PR for the head
+ * Cheap post-apply sanity check: `node --check` on every changed plain-JS
+ * file. Deliberately NOT a universal CI — a fresh clone has no node_modules,
+ * so builds/tests can't run; a syntax-valid rewrite is the honest bar here.
+ * Non-JS files (ts/tsx/css/html/...) are skipped.
+ */
+async function quickSyntaxCheck(workDir, changedFiles) {
+  for (const rel of changedFiles) {
+    if (!/\.(js|mjs|cjs)$/i.test(rel)) continue;
+    try {
+      await execFileP(process.execPath, ["--check", path.join(workDir, rel)], { timeout: 15_000 });
+    } catch (err) {
+      return { ok: false, file: rel, detail: String(err?.stderr ?? err?.message ?? err).slice(0, 300) };
+    }
+  }
+  return { ok: true };
+}
+
+/**
+ * Drive the REAL worker agent (ClaudeWorker.work) with the parsed Simsa fix
+ * brief. Contract (packages/agent-worker):
+ *
+ *   worker.work({ repo, pullNumber, newSha, reviews, fileSnapshots, ... })
+ *     → { rewrites: [{path, content}], message, appliedFiles, ... }
+ *
+ * The worker emits FULL-FILE rewrites (v0.14+ — no unified diffs), so
+ * "applying" is a sanitized overwrite; the legacy git-apply/GNU-patch fuzz
+ * path is not involved. Bounded: AUTO_FIX_MAX_ITERATIONS worker calls inside
+ * AUTO_FIX_DEADLINE_MS, each with the next ranked snapshot batch (the
+ * outcome does not surface the model's free-text file requests, so retries
+ * rotate the snapshot window instead).
+ *
+ * Returns { changedFiles, prContent } on success, or null when the brief /
+ * worker produced nothing applicable — callers reset the tree + fall back
+ * to brief-only. Never leaves a dirty tree on the null path.
+ */
+async function attemptAutoFix({ workDir, payload, anthropicApiKey }) {
+  const jobId = payload.jobId;
+  const deadline = Date.now() + AUTO_FIX_DEADLINE_MS;
+
+  // Canonical brief helpers — compiled in-image from
+  // apps/central-plane/src/workspace/repair-brief.ts (see Dockerfile).
+  const brief = await import(new URL("./container-dist/repair-brief.js", import.meta.url).href);
+  const parsed = brief.parseRepairBrief(payload.agentPrompt);
+  const decision = brief.decideRepairMode({
+    hasAnthropicKey: true,
+    findingsCount: parsed.findings.length,
+  });
+  if (decision.mode !== "auto_fix") {
+    console.log(`[repair ${jobId}] auto-fix skipped: ${decision.reason}`);
+    return null;
+  }
+
+  // Repo inventory + ranked snapshot candidates.
+  const lsFiles = await execFileP("git", ["-C", workDir, "ls-files"], {
+    timeout: 30_000,
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  const repoFiles = lsFiles.stdout.split("\n").map((s) => s.trim()).filter(Boolean);
+  const ranked = brief.rankSnapshotCandidates(parsed, repoFiles);
+  if (ranked.length === 0) {
+    console.log(`[repair ${jobId}] auto-fix skipped: no snapshot candidates in repo`);
+    return null;
+  }
+
+  const headSha = (
+    await execFileP("git", ["-C", workDir, "rev-parse", "HEAD"], { timeout: 10_000 })
+  ).stdout.trim();
+  const review = brief.buildRepairReview(parsed, { repoFiles });
+
+  // The worker agent — same dist layout the autofix path uses for cli.
+  const { ClaudeWorker } = await import("file:///app/packages/agent-worker/dist/index.js");
+  const worker = new ClaudeWorker({ apiKey: anthropicApiKey });
+
+  for (let iteration = 0; iteration < AUTO_FIX_MAX_ITERATIONS; iteration++) {
+    if (Date.now() >= deadline) {
+      console.log(`[repair ${jobId}] auto-fix deadline reached at iteration ${iteration}`);
+      break;
+    }
+    const batch = brief.pickSnapshotBatch(ranked, iteration);
+    if (batch.length === 0) break;
+
+    const fileSnapshots = [];
+    const originals = {};
+    for (const rel of batch) {
+      try {
+        const stat = await fs.stat(path.join(workDir, rel));
+        if (stat.size > AUTO_FIX_MAX_SNAPSHOT_BYTES) continue;
+        const contents = await fs.readFile(path.join(workDir, rel), "utf8");
+        fileSnapshots.push({ path: rel, contents });
+        originals[rel] = contents;
+      } catch {
+        // unreadable file — skip it, the batch still proceeds
+      }
+    }
+    if (fileSnapshots.length === 0) continue;
+
+    let outcome;
+    try {
+      outcome = await worker.work({
+        repo: payload.repo,
+        pullNumber: 0, // repair runs pre-PR; prompt context only
+        newSha: headSha,
+        reviews: [review],
+        fileSnapshots,
+      });
+    } catch (err) {
+      console.error(`[repair ${jobId}] worker call failed (iter ${iteration}):`, err?.message ?? err);
+      continue;
+    }
+    if (!Array.isArray(outcome.rewrites) || outcome.rewrites.length === 0) {
+      console.log(`[repair ${jobId}] worker returned no rewrites (iter ${iteration})`);
+      continue;
+    }
+
+    const { accepted, rejected } = brief.sanitizeRewrites(outcome.rewrites, repoFiles, originals);
+    if (rejected.length > 0) {
+      console.log(
+        `[repair ${jobId}] sanitizer rejected ${rejected.length} rewrite(s): ` +
+          rejected.map((r) => `${r.path}:${r.reason}`).join(", "),
+      );
+    }
+    if (accepted.length === 0) continue;
+
+    for (const rw of accepted) {
+      await fs.writeFile(path.join(workDir, rw.path), rw.content, "utf8");
+    }
+
+    // Real-change gate: the worker may return byte-identical content.
+    const diff = await execFileP("git", ["-C", workDir, "diff", "--name-only"], {
+      timeout: 30_000,
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    const changedFiles = diff.stdout.split("\n").map((s) => s.trim()).filter(Boolean);
+    if (changedFiles.length === 0) {
+      console.log(`[repair ${jobId}] rewrites were no-ops (iter ${iteration})`);
+      continue;
+    }
+
+    const verify = await quickSyntaxCheck(workDir, changedFiles);
+    if (!verify.ok) {
+      console.error(`[repair ${jobId}] syntax check failed on ${verify.file}: ${verify.detail}`);
+      await resetWorkTree(workDir);
+      continue;
+    }
+
+    const prContent = brief.buildAutoFixPrContent({
+      runId: payload.visualCheckId ?? jobId,
+      intent: payload.intent,
+      decision: payload.decision,
+      targetUrl: payload.targetUrl,
+      visualCheckId: payload.visualCheckId,
+      envCause: payload.envCause === true,
+      findings: parsed.findings,
+      changedFiles,
+      workerCommitMessage: outcome.message,
+    });
+    console.log(
+      `[repair ${jobId}] auto-fix applied: ${changedFiles.length} file(s) after ${iteration + 1} iteration(s)`,
+    );
+    return { changedFiles, prContent };
+  }
+  return null;
+}
+
+/**
+ * Create the repair PR (draft for brief-only, non-draft for auto-fix),
+ * falling back gracefully:
+ *   - 422 "already exists" → reuse the existing open PR for the head and
+ *     refresh its title/body (retry-safe on the same branch; a draft PR
+ *     stays draft — REST cannot un-draft)
  *   - 422 mentioning draft (plan doesn't support draft PRs) → retry non-draft
  */
-async function createOrReuseRepairPr({ repo, token, head, base, title, body }) {
+async function createOrReuseRepairPr({ repo, token, head, base, title, body, draft = true }) {
   const apiHeaders = {
     authorization: `Bearer ${token}`,
     accept: "application/vnd.github+json",
@@ -516,16 +752,16 @@ async function createOrReuseRepairPr({ repo, token, head, base, title, body }) {
   };
   const owner = repo.split("/")[0];
 
-  const create = async (draft) => {
+  const create = async (asDraft) => {
     const r = await fetch(`https://api.github.com/repos/${repo}/pulls`, {
       method: "POST",
       headers: apiHeaders,
-      body: JSON.stringify({ title, head, base, body, draft }),
+      body: JSON.stringify({ title, head, base, body, draft: asDraft }),
     });
     return { status: r.status, json: await r.json().catch(() => ({})) };
   };
 
-  let res = await create(true);
+  let res = await create(draft);
   if (res.status === 422) {
     const detail = JSON.stringify(res.json.errors ?? res.json.message ?? "");
     if (/already exists/i.test(detail)) {
@@ -534,7 +770,18 @@ async function createOrReuseRepairPr({ repo, token, head, base, title, body }) {
         { headers: apiHeaders },
       );
       const pulls = list.ok ? await list.json().catch(() => []) : [];
-      if (Array.isArray(pulls) && pulls[0]?.html_url) return pulls[0];
+      if (Array.isArray(pulls) && pulls[0]?.html_url) {
+        const existing = pulls[0];
+        // Refresh title/body so a retry (or brief-only → auto-fix upgrade)
+        // is reflected on the reused PR. Best effort — the PR itself is fine
+        // even if the PATCH fails.
+        await fetch(`https://api.github.com/repos/${repo}/pulls/${existing.number}`, {
+          method: "PATCH",
+          headers: apiHeaders,
+          body: JSON.stringify({ title, body }),
+        }).catch(() => {});
+        return existing;
+      }
     }
     if (/draft/i.test(detail)) {
       res = await create(false);
