@@ -4,6 +4,8 @@
 // non-dev report (Stage 260B layout): verdict heading + works chip, one-line
 // lead, meta, findings cards, screenshots, flow video, copy-ready agent fix
 // prompt, next steps and notes. Client component (localStorage userKey).
+// Stage 264 — while the run is queued/running, shows a progress state and
+// polls the detail every 5s until it lands on done|failed.
 
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
@@ -24,6 +26,8 @@ import {
   buildEvidenceUrl,
 } from "@/lib/visual-check-view.mjs";
 import type { VerdictTone, SeverityTone } from "@/lib/visual-check-view.mjs";
+import { isActiveStatus, RUN_POLL_INTERVAL_MS } from "@/lib/visual-check-run-state.mjs";
+import { SimsaStampThinking } from "@/components/SimsaStampThinking";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { Dictionary, Locale } from "@/i18n/dictionary.mjs";
 
@@ -109,6 +113,21 @@ export default function VisualCheckDetailPage() {
 
   useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current); }, []);
 
+  // Stage 264 — while the run is queued/running, silently re-fetch the detail
+  // every 5s. The interval clears on unmount and once the run is terminal
+  // (done/failed/unknown), so it never polls forever.
+  const isRunActive = phase === "done" && check !== null && isActiveStatus(check.status);
+  useEffect(() => {
+    if (!isRunActive) return;
+    let cancelled = false;
+    const timer = setInterval(async () => {
+      const res = await getVisualCheck(id, runId, userKey);
+      if (cancelled || !res.ok) return;
+      setCheck(res.check);
+    }, RUN_POLL_INTERVAL_MS);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [isRunActive, id, runId, userKey]);
+
   if (!project) return <p className="text-sm text-gray-400">{t.common.notFound}</p>;
 
   async function handleCopyPrompt() {
@@ -151,7 +170,32 @@ export default function VisualCheckDetailPage() {
         <div className="callout callout-error">{t.visualChecks.loadError}</div>
       )}
 
-      {phase === "done" && check && verdict && (
+      {/* Stage 264 — progress state while the run is queued/running */}
+      {isRunActive && check && (
+        <section className="card flex flex-col items-center gap-3 px-6 py-10 text-center">
+          <SimsaStampThinking
+            variant="panel"
+            label={check.status === "queued" ? t.visualChecks.statusQueued : t.visualChecks.statusRunning}
+          />
+          <div>
+            <h2 className="text-base font-semibold text-gray-800">{t.visualChecks.progressTitle}</h2>
+            <p className="mx-auto mt-1.5 max-w-md text-sm leading-relaxed text-gray-500">
+              {t.visualChecks.progressBody}
+            </p>
+          </div>
+          <p className="break-all font-mono text-[11px] text-gray-400">{check.targetUrl}</p>
+        </section>
+      )}
+
+      {/* Stage 264 — terminal failure */}
+      {phase === "done" && check && check.status === "failed" && (
+        <div className="callout callout-error">
+          <p className="text-sm font-medium">{t.visualChecks.failedTitle}</p>
+          <p className="mt-1 text-sm leading-relaxed">{t.visualChecks.failedBody}</p>
+        </div>
+      )}
+
+      {phase === "done" && check && verdict && !isActiveStatus(check.status) && check.status !== "failed" && (
         <>
           {/* Verdict heading + works chip */}
           <div>
