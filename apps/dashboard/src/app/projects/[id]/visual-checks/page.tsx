@@ -5,6 +5,8 @@
 // and the runs from the central plane with the browser-persisted userKey.
 // Stage 264 — one-click inspection run (POST …/visual-checks/run), status
 // badges for queued/running/failed rows, and 5s polling while a run is active.
+// Stage 266 — verdict-transition chip on the latest done row when its verdict
+// differs from the previous done run (e.g. "확인 필요 → 작동해요").
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
@@ -19,6 +21,7 @@ import {
 import { listProjectSources } from "@/lib/workspace-sources-api";
 import { verdictLabel } from "@/lib/visual-check-view.mjs";
 import type { VerdictTone } from "@/lib/visual-check-view.mjs";
+import { latestDoneTransition } from "@/lib/visual-check-compare.mjs";
 import {
   isActiveStatus,
   mapRunError,
@@ -134,6 +137,9 @@ export default function VisualChecksPage() {
   if (!project) return <p className="text-sm text-gray-400">{t.common.notFound}</p>;
 
   const buttonState = runButtonState({ hasWebsiteSource, hasActiveRun });
+  // Stage 266 — verdict transition between the two most recent done runs
+  // (null when there are fewer than two done runs or the verdict is unchanged).
+  const transition = latestDoneTransition(checks);
   const showSourcesLink =
     !hasWebsiteSource || (notice?.kind === "error" && notice.errorKey === "websiteSourceRequired");
 
@@ -246,6 +252,15 @@ export default function VisualChecksPage() {
             const statusChip = statusChipFor(t, check.status);
             const verdict = verdictLabel(check.works, check.decision, t);
             const chip = statusChip ?? { label: verdict.label, cls: TONE_CLASS[verdict.tone] };
+            // Stage 266 — transition chip only on the latest done row, and only
+            // when its verdict differs from the previous done run.
+            const transitionChip =
+              transition && transition.runId === check.id
+                ? {
+                    label: `${verdictLabel(transition.fromWorks, "", t).label} → ${verdictLabel(transition.toWorks, "", t).label}`,
+                    cls: transition.direction === "improved" ? TONE_CLASS.passed : TONE_CLASS.failed,
+                  }
+                : null;
             return (
               <li key={check.id}>
                 <Link
@@ -261,11 +276,16 @@ export default function VisualChecksPage() {
                     </div>
                     <span className="flex-shrink-0 text-xs text-gray-400">{formatDateTime(check.createdAt, locale)}</span>
                   </div>
-                  <div className="mt-1.5 flex items-center gap-2 text-[11px] text-gray-400">
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
                     <span className="inline-flex items-center rounded-full border border-gray-200 px-2 py-0.5">
                       {executorLabel(t, check.executor)}
                     </span>
                     <span>{t.visualChecks.evidenceCount.replace("{count}", String(check.evidenceCount))}</span>
+                    {transitionChip && (
+                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 font-medium ${transitionChip.cls}`}>
+                        {transitionChip.label}
+                      </span>
+                    )}
                   </div>
                 </Link>
               </li>

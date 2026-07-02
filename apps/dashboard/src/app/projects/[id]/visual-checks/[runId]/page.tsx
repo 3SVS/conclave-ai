@@ -6,6 +6,9 @@
 // prompt, next steps and notes. Client component (localStorage userKey).
 // Stage 264 — while the run is queued/running, shows a progress state and
 // polls the detail every 5s until it lands on done|failed.
+// Stage 266 — when an older done run exists, renders the "이전 검수와 비교"
+// section: verdict transition, findings resolved/remaining/new, and
+// side-by-side screenshot pairs (previous vs latest).
 
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
@@ -14,6 +17,7 @@ import { getProject } from "@/lib/mock-data";
 import { getLocalProject, getUserKey } from "@/lib/workflow-store";
 import {
   getVisualCheck,
+  listVisualChecks,
   CENTRAL_PLANE_URL,
   type VisualCheckDetail,
   type NonDevFinding,
@@ -26,6 +30,8 @@ import {
   buildEvidenceUrl,
 } from "@/lib/visual-check-view.mjs";
 import type { VerdictTone, SeverityTone } from "@/lib/visual-check-view.mjs";
+import { compareVisualChecks, pickPreviousDoneCheck } from "@/lib/visual-check-compare.mjs";
+import type { VisualCheckComparison, ComparedFinding } from "@/lib/visual-check-compare.mjs";
 import { isActiveStatus, RUN_POLL_INTERVAL_MS } from "@/lib/visual-check-run-state.mjs";
 import { SimsaStampThinking } from "@/components/SimsaStampThinking";
 import { useI18n } from "@/i18n/I18nProvider";
@@ -41,6 +47,15 @@ const SEVERITY_CLASS: Record<SeverityTone, string> = {
   failed: "bg-red-50 text-red-700 border-red-200",
   inconclusive: "bg-amber-50 text-amber-700 border-amber-200",
   decision: "bg-slate-50 text-slate-600 border-slate-200",
+};
+
+// Stage 266 — chip tones for the verdict transition direction. Colors carry
+// meaning only: improved reuses the passed token, regressed the failed token,
+// unchanged stays neutral slate.
+const DIRECTION_CLASS: Record<"improved" | "regressed" | "unchanged", string> = {
+  improved: "bg-green-50 text-green-700 border-green-200",
+  regressed: "bg-red-50 text-red-700 border-red-200",
+  unchanged: "bg-slate-50 text-slate-600 border-slate-200",
 };
 
 function formatDateTime(iso: string, locale: Locale): string {
@@ -81,6 +96,169 @@ function FindingCard({ finding, t }: { finding: NonDevFinding; t: Dictionary }) 
   );
 }
 
+// Stage 266 — one of the three finding lists (resolved / remaining / new).
+function ComparedFindingList({
+  title,
+  emptyText,
+  items,
+  t,
+}: {
+  title: string;
+  emptyText: string;
+  items: ComparedFinding[];
+  t: Dictionary;
+}) {
+  return (
+    <div>
+      <h4 className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{title}</h4>
+      {items.length === 0 ? (
+        <p className="mt-1.5 text-xs text-gray-400">{emptyText}</p>
+      ) : (
+        <ul className="mt-1.5 space-y-1.5">
+          {items.map((f, i) => (
+            <li key={i} className="flex items-start gap-2">
+              <span className={`inline-flex flex-shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${SEVERITY_CLASS[severityTone(f.severity)]}`}>
+                {severityLabel(f.severity, t)}
+              </span>
+              <span className="min-w-0 text-sm leading-snug text-gray-700">{f.what}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+type ComparableResult = Extract<VisualCheckComparison, { comparable: true }>;
+
+// Stage 266 — "이전 검수와 비교": verdict transition + resolved/remaining/new
+// findings + side-by-side screenshot pairs (previous vs latest run evidence).
+function ComparisonSection({
+  result,
+  projectId,
+  prevRunId,
+  latestRunId,
+  userKey,
+  t,
+}: {
+  result: ComparableResult;
+  projectId: string;
+  prevRunId: string;
+  latestRunId: string;
+  userKey: string;
+  t: Dictionary;
+}) {
+  // Screenshot pairs can be heavy — collapsed by default behind a toggle.
+  const [showShots, setShowShots] = useState(false);
+  const { verdictTransition, findings, evidencePairs } = result;
+  const fromVerdict = verdictLabel(verdictTransition.from.works, verdictTransition.from.decision, t);
+  const toVerdict = verdictLabel(verdictTransition.to.works, verdictTransition.to.decision, t);
+  const hasScreenshotBlock =
+    evidencePairs.pairs.length > 0 || evidencePairs.prevOnly.length > 0 || evidencePairs.latestOnly.length > 0;
+
+  return (
+    <section className="card p-5">
+      <h3 className="section-title">{t.visualChecks.compare.title}</h3>
+      <p className="section-desc leading-relaxed">{t.visualChecks.compare.desc}</p>
+
+      {/* Verdict transition line */}
+      <div className="mt-3 flex flex-wrap items-center gap-2.5">
+        <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${DIRECTION_CLASS[verdictTransition.direction]}`}>
+          {t.visualChecks.compare[verdictTransition.direction]}
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${TONE_CLASS[fromVerdict.tone]}`}>
+            {fromVerdict.label}
+          </span>
+          <span aria-hidden className="text-xs text-gray-400">→</span>
+          <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${TONE_CLASS[toVerdict.tone]}`}>
+            {toVerdict.label}
+          </span>
+        </span>
+      </div>
+
+      {/* Findings: resolved / still present / new */}
+      <div className="mt-4 grid gap-4 sm:grid-cols-3">
+        <ComparedFindingList
+          title={t.visualChecks.compare.resolvedTitle}
+          emptyText={t.visualChecks.compare.noneResolved}
+          items={findings.resolved}
+          t={t}
+        />
+        <ComparedFindingList
+          title={t.visualChecks.compare.remainingTitle}
+          emptyText={t.visualChecks.compare.noneRemaining}
+          items={findings.remaining}
+          t={t}
+        />
+        <ComparedFindingList
+          title={t.visualChecks.compare.introducedTitle}
+          emptyText={t.visualChecks.compare.noneIntroduced}
+          items={findings.introduced}
+          t={t}
+        />
+      </div>
+
+      {/* Side-by-side screenshot pairs (previous vs latest) */}
+      {hasScreenshotBlock && (
+        <div className="mt-4">
+          <button onClick={() => setShowShots((v) => !v)} className="btn btn-secondary btn-sm">
+            {showShots ? t.visualChecks.compare.hideScreenshots : t.visualChecks.compare.showScreenshots}
+          </button>
+          {showShots && (
+            <div className="mt-3 space-y-4">
+              <h4 className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                {t.visualChecks.compare.screenshotsTitle}
+              </h4>
+              {evidencePairs.pairs.length === 0 && (
+                <p className="text-xs text-gray-400">{t.visualChecks.compare.noPairs}</p>
+              )}
+              {evidencePairs.pairs.map((pair) => (
+                <div key={pair.name}>
+                  <p className="font-mono text-[10px] text-gray-400">{pair.name.replace(/^screenshots\//, "")}</p>
+                  <div className="mt-1.5 grid gap-3 sm:grid-cols-2">
+                    {([
+                      { label: t.visualChecks.compare.prevLabel, rid: prevRunId },
+                      { label: t.visualChecks.compare.latestLabel, rid: latestRunId },
+                    ] as const).map(({ label, rid }) => (
+                      <figure key={rid} className="card overflow-hidden">
+                        <figcaption className="border-b border-gray-100 px-3 py-1.5 text-[11px] font-medium text-gray-500">
+                          {label}
+                        </figcaption>
+                        {/* Evidence sits behind the userKey — plain <img> keeps the
+                            private query URL out of Next's optimizer (Stage 262). */}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={buildEvidenceUrl(CENTRAL_PLANE_URL, projectId, rid, pair.name, userKey)}
+                          alt={`${label} — ${pair.name}`}
+                          loading="lazy"
+                          className="w-full bg-gray-50"
+                        />
+                      </figure>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {evidencePairs.prevOnly.length > 0 && (
+                <p className="text-[11px] leading-relaxed text-gray-400">
+                  {t.visualChecks.compare.prevOnly}:{" "}
+                  <span className="font-mono">{evidencePairs.prevOnly.map((n) => n.replace(/^screenshots\//, "")).join(", ")}</span>
+                </p>
+              )}
+              {evidencePairs.latestOnly.length > 0 && (
+                <p className="text-[11px] leading-relaxed text-gray-400">
+                  {t.visualChecks.compare.latestOnly}:{" "}
+                  <span className="font-mono">{evidencePairs.latestOnly.map((n) => n.replace(/^screenshots\//, "")).join(", ")}</span>
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function VisualCheckDetailPage() {
   const { id, runId } = useParams<{ id: string; runId: string }>();
   const { t, locale } = useI18n();
@@ -91,6 +269,8 @@ export default function VisualCheckDetailPage() {
   const [check, setCheck] = useState<VisualCheckDetail | null>(null);
   const [copied, setCopied] = useState(false);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Stage 266 — the most recent done run older than this one, for comparison.
+  const [prevCheck, setPrevCheck] = useState<VisualCheckDetail | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,6 +292,26 @@ export default function VisualCheckDetailPage() {
   }, [id, runId, userKey]);
 
   useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current); }, []);
+
+  // Stage 266 — once this run's report is done, look for the most recent
+  // OLDER done run of the same project and load its detail for comparison.
+  // Best-effort: any list/detail failure just leaves the section hidden.
+  const doneCreatedAt = phase === "done" && check?.status === "done" ? check.createdAt : null;
+  useEffect(() => { setPrevCheck(null); }, [runId]);
+  useEffect(() => {
+    if (!doneCreatedAt) return;
+    let cancelled = false;
+    (async () => {
+      const listRes = await listVisualChecks(id, userKey);
+      if (cancelled || !listRes.ok) return;
+      const prev = pickPreviousDoneCheck(listRes.checks, runId, doneCreatedAt);
+      if (!prev) return;
+      const prevRes = await getVisualCheck(id, prev.id, userKey);
+      if (cancelled || !prevRes.ok) return;
+      setPrevCheck(prevRes.check);
+    })();
+    return () => { cancelled = true; };
+  }, [doneCreatedAt, id, runId, userKey]);
 
   // Stage 264 — while the run is queued/running, silently re-fetch the detail
   // every 5s. The interval clears on unmount and once the run is terminal
@@ -148,6 +348,12 @@ export default function VisualCheckDetailPage() {
   const findings = report?.findings ?? [];
   const nextSteps = report?.nextSteps ?? [];
   const notes = report?.notes ?? [];
+
+  // Stage 266 — pure comparison, recomputed from state (never fetched twice).
+  // Non-comparable results (e.g. the older run has no report) hide the section.
+  const comparisonRaw =
+    prevCheck && check && check.status === "done" ? compareVisualChecks(prevCheck, check) : null;
+  const comparison = comparisonRaw?.comparable ? comparisonRaw : null;
 
   return (
     <div className="space-y-6">
@@ -231,6 +437,18 @@ export default function VisualCheckDetailPage() {
               </div>
             </dl>
           </section>
+
+          {/* Stage 266 — compared with the previous inspection */}
+          {comparison && prevCheck && (
+            <ComparisonSection
+              result={comparison}
+              projectId={id}
+              prevRunId={prevCheck.id}
+              latestRunId={runId}
+              userKey={userKey}
+              t={t}
+            />
+          )}
 
           {/* Findings */}
           <section className="space-y-3">
